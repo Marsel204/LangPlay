@@ -1,14 +1,14 @@
 @echo off
-title LinguaPlay Hybrid Server
+title LinguaPlay Immersion Player
 echo ==============================================
-echo 🚀 Starting LinguaPlay Local Server and App...
+echo 🚀 Starting LinguaPlay Multithreaded Server...
 echo ==============================================
 echo.
 
-:: This launches your browser automatically after a 1-second delay
-start /b cmd /c "timeout /t 1 >nul & start http://127.0.0.1:8000/App.html"
+:: Navigate to script directory
+cd /d "%~dp0"
 
-:: This starts your Python server and keeps the window open
-python server.py
+:: Launch server with automatic browser opening
+python Server.py --open
 
 pause
