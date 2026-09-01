@@ -149,7 +149,6 @@ def run_antigravity_analysis(word, sentence, romaji=""):
     try:
         return json.loads(clean_json)
     except Exception:
-        # Regex recovery attempt
         match = re.search(r"\{[\s\S]*\}", clean_json)
         if match:
             return json.loads(match.group(0))
@@ -291,14 +290,23 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "X-Requested-With, Content-Type, Accept, Authorization")
 
+    def send_raw_response(self, code, content_type, data_bytes):
+        try:
+            self.send_response(code)
+            self.send_cors_headers()
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data_bytes)))
+            self.end_headers()
+            self.wfile.write(data_bytes)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def send_json_response(self, code, payload):
-        body = json.dumps(payload).encode("utf-8")
-        self.send_response(code)
-        self.send_cors_headers()
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            body = json.dumps(payload).encode("utf-8")
+            self.send_raw_response(code, "application/json; charset=utf-8", body)
+        except Exception:
+            pass
 
     def do_OPTIONS(self):
         self.send_response(200, "OK")
@@ -325,7 +333,6 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json_response(400, {"status": "error", "message": "Missing 'word' parameter"})
                     return
 
-                # Check cache
                 cache_key = f"{provider}:{word}:{sentence}"
                 cached = get_from_cache(ai_analysis_cache, cache_key)
                 if cached:
@@ -446,13 +453,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             cached_vtt = get_from_cache(caption_cache, video_id)
             if cached_vtt:
                 print(f"  ⚡ Serving cached subtitles for {video_id}")
-                vtt_bytes = cached_vtt.encode("utf-8")
-                self.send_response(200)
-                self.send_cors_headers()
-                self.send_header("Content-Type", "text/vtt; charset=utf-8")
-                self.send_header("Content-Length", str(len(vtt_bytes)))
-                self.end_headers()
-                self.wfile.write(vtt_bytes)
+                self.send_raw_response(200, "text/vtt; charset=utf-8", cached_vtt.encode("utf-8"))
                 return
 
             print(f"  🚀 Extracting subtitles for {video_id} (TVHTML5/InnerTube)...")
@@ -469,14 +470,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                     if vtt_data and vtt_data.strip():
                         final_vtt = vtt_data if vtt_data.lstrip().startswith("WEBVTT") else "WEBVTT\n\n" + vtt_data
                         set_in_cache(caption_cache, video_id, final_vtt)
-
-                        vtt_bytes = final_vtt.encode("utf-8")
-                        self.send_response(200)
-                        self.send_cors_headers()
-                        self.send_header("Content-Type", "text/vtt; charset=utf-8")
-                        self.send_header("Content-Length", str(len(vtt_bytes)))
-                        self.end_headers()
-                        self.wfile.write(vtt_bytes)
+                        self.send_raw_response(200, "text/vtt; charset=utf-8", final_vtt.encode("utf-8"))
                         print(f"  ✅ Fast subtitle extract succeeded for {video_id}")
                         return
             except Exception as e:
@@ -508,13 +502,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                         vtt_data = f.read()
 
                     set_in_cache(caption_cache, video_id, vtt_data)
-                    vtt_bytes = vtt_data.encode("utf-8")
-                    self.send_response(200)
-                    self.send_cors_headers()
-                    self.send_header("Content-Type", "text/vtt; charset=utf-8")
-                    self.send_header("Content-Length", str(len(vtt_bytes)))
-                    self.end_headers()
-                    self.wfile.write(vtt_bytes)
+                    self.send_raw_response(200, "text/vtt; charset=utf-8", vtt_data.encode("utf-8"))
                     return
             except subprocess.TimeoutExpired:
                 print(f"  ⚠️ yt-dlp timed out for {video_id}")
