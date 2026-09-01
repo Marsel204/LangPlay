@@ -77,47 +77,52 @@ def find_agy_binary():
 
 
 def build_ai_prompt(word, sentence, romaji=""):
-    return f"""You are an expert Japanese linguist and immersion tutor.
-Analyze the target word/token in the given context sentence for a language learner.
+    return f"""You are an expert Japanese immersion tutor.
+Focus strictly on HOW THE TARGET WORD FITS INTO THIS SPECIFIC CONTEXT SENTENCE.
+Do NOT provide random/unrelated example sentences or generic dictionary essays.
+Instead, provide the translation of THIS context sentence and a complete word-by-word breakdown of THIS context sentence.
+
 Context Sentence: "{sentence or word}"
 Target Word: "{word}" (Reading: {romaji or ''})
 
-IMPORTANT REQUIREMENT: You MUST provide accurate Romaji transcriptions for the target word, base forms, every single sentence segment, and any Japanese words referenced in grammar explanations.
+Requirements:
+1. Provide accurate Romaji for all Japanese words and readings.
+2. Provide a complete word-by-word breakdown list of every token in this context sentence ("{sentence or word}").
+3. Flag the target word with "is_target": true in the breakdown.
+4. Translate the entire context sentence into natural English.
 
-Respond with ONLY a valid, raw JSON object (strictly no markdown fences, no backticks, no markdown code blocks).
-
-Required JSON structure:
+Respond with ONLY a valid, raw JSON object (strictly no markdown fences, no backticks):
 {{
-  "meaning": "Clear, concise definition of the word as used in this specific context",
-  "reading": "Hiragana reading of the word (e.g. かなしま)",
-  "romaji": "Accurate Romaji transcription of the word (e.g. kanashima)",
-  "jlpt_level": "N5 | N4 | N3 | N2 | N1 | unknown",
-  "formality": "casual | polite | formal | slang | neutral",
-  "grammar_role": "Explain how this word functions grammatically in this sentence (always include romaji in parentheses for any Japanese words, e.g. 悲しむ (kanashimu))",
-  "conjugation": {{
-    "form": "e.g. Negative Stem (未然形, Mizenkei) (or null if not applicable)",
-    "from_base": "Base dictionary form of the verb/adjective (e.g. 悲しむ)",
-    "from_base_reading": "Hiragana of base form (e.g. かなしむ)",
-    "from_base_romaji": "Romaji of base form (e.g. kanashimu)",
-    "explanation": "Brief explanation of how the base morphed into this form (include romaji for any changes, e.g. 'shifts -mu to -ma')"
+  "contextual_meaning": "Precise meaning of '{word}' specifically in this sentence",
+  "reading": "Hiragana reading of '{word}'",
+  "romaji": "Romaji transcription of '{word}'",
+  "jlpt_level": "N5|N4|N3|N2|N1|Vocab",
+  "pos": "Part of speech in this sentence",
+  "sentence_fit": {{
+    "phrase_connection": "How '{word}' connects to surrounding words in this line (e.g. 書架の → 隙間に → 住まう)",
+    "role_in_sentence": "Direct syntactic function in this sentence (e.g. Locative noun marked by に (ni), specifying where the subject dwells)",
+    "context_nuance": "Specific contextual nuance of '{word}' in this line (1 concise sentence)"
   }},
-  "sentence_breakdown": [
+  "conjugation": {{
+    "is_conjugated": false,
+    "form": "Inflection form name if conjugated, or null",
+    "base_form": "Base dictionary form",
+    "explanation": "Why this specific inflection is used here"
+  }},
+  "sentence_translation": {{
+    "jp": "{sentence or word}",
+    "en": "Natural English translation of this context sentence"
+  }},
+  "word_by_word": [
     {{
-      "word": "Segment Japanese (e.g. 悲しま)",
-      "reading": "Hiragana reading (e.g. かなしま)",
-      "romaji": "Romaji transcription (e.g. kanashima)",
-      "meaning": "English gloss (e.g. feel sad / grieve)",
-      "role": "Grammar function (e.g. negative verb stem)",
-      "is_target": true
+      "word": "Segment Japanese (e.g. 書架)",
+      "reading": "Hiragana reading (e.g. しょか)",
+      "romaji": "Romaji transcription (e.g. shoka)",
+      "meaning": "English meaning (e.g. bookshelf)",
+      "role": "noun | particle | verb | adjective | auxiliary",
+      "is_target": false
     }}
-  ],
-  "nuance": "Cultural, emotional, or conversational nuance of this word in real-world spoken Japanese (include romaji for any Japanese terms)",
-  "example": {{
-    "jp": "A natural, simple Japanese sentence using this word",
-    "reading": "Hiragana reading of the example sentence",
-    "romaji": "Accurate Romaji transcription of the example sentence",
-    "en": "Natural English translation"
-  }}
+  ]
 }}"""
 
 
@@ -325,8 +330,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json_response(400, {"status": "error", "message": "Missing 'word' parameter"})
                     return
 
-                # Check cache
-                cache_key = f"{provider}:{word}:{sentence}"
+                # Check cache (v5 compact horizontal gloss format)
+                cache_key = f"v5:{provider}:{word}:{sentence}"
                 cached = get_from_cache(ai_analysis_cache, cache_key)
                 if cached:
                     print(f"  ⚡ Serving cached AI analysis for '{word}'")

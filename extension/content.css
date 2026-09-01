@@ -1,0 +1,388 @@
+/* ══════════════════════════════════════════════════════════════════════
+   LinguaPlay Chrome Extension — YouTube On-Site Content Styles (content.css)
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Hide native YouTube plain subtitle text when LinguaPlay is active */
+.ytp-caption-window-container {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* ── 1. Subtitle Tokens Area (Centered Bottom of Video) ── */
+#linguaplay-yt-tokens-overlay {
+  position: absolute;
+  bottom: 45px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding: 8px 24px;
+  z-index: 55;
+  pointer-events: none;
+  user-select: none;
+}
+
+#linguaplay-yt-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  max-width: 950px;
+  text-align: center;
+  pointer-events: auto;
+  background: rgba(8, 7, 26, 0.75);
+  padding: 6px 16px;
+  border-radius: 12px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(167, 139, 250, 0.2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  transition: opacity 0.2s ease;
+}
+
+#linguaplay-yt-tokens:empty {
+  display: none !important;
+}
+
+/* ── Token Styles on YouTube ── */
+.linguaplay-yt-token {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.linguaplay-yt-token:hover {
+  background: rgba(167, 139, 250, 0.35);
+}
+
+.linguaplay-yt-token:hover .linguaplay-jp-text {
+  text-decoration: underline;
+  text-decoration-color: #a78bfa;
+}
+
+.linguaplay-yt-token.active {
+  background: rgba(167, 139, 250, 0.5);
+  box-shadow: 0 0 12px rgba(167, 139, 250, 0.5);
+}
+
+.linguaplay-token-reading {
+  font-size: 11.5px;
+  line-height: 1.1;
+  color: #fda4af;
+  font-family: 'Inter', 'Noto Sans JP', sans-serif;
+  letter-spacing: 0.02em;
+  font-weight: 500;
+}
+
+.linguaplay-token-reading.hidden-reading {
+  visibility: hidden;
+  height: 0;
+  opacity: 0;
+}
+
+.linguaplay-jp-text {
+  font-family: 'Noto Sans JP', 'Hiragino Sans', -apple-system, sans-serif;
+  color: #ffffff;
+  font-size: 22px;
+  font-weight: 600;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.9);
+}
+
+/* ── 2. Retractable Floating Control Panel (Top-Right) ── */
+#linguaplay-yt-widget {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 65;
+  display: flex;
+  align-items: center;
+  user-select: none;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#linguaplay-toggle-trigger {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(22, 19, 42, 0.85);
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  color: #a78bfa;
+  font-weight: bold;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: all 0.25s ease;
+}
+
+#linguaplay-toggle-trigger:hover {
+  background: rgba(124, 58, 237, 0.8);
+  color: white;
+  transform: scale(1.08);
+  box-shadow: 0 0 12px rgba(167, 139, 250, 0.6);
+}
+
+#linguaplay-yt-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 5px;
+  background: rgba(22, 19, 42, 0.9);
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  padding: 4px 8px;
+  border-radius: 12px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.7);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top right;
+  overflow: hidden;
+}
+
+#linguaplay-yt-widget.collapsed #linguaplay-yt-bar {
+  display: none !important;
+}
+
+#linguaplay-yt-widget:not(.collapsed) #linguaplay-toggle-trigger {
+  display: none !important;
+}
+
+.linguaplay-bar-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.linguaplay-bar-btn:hover {
+  background: rgba(167, 139, 250, 0.25);
+  color: white;
+  border-color: rgba(167, 139, 250, 0.4);
+}
+
+.linguaplay-bar-btn.active {
+  background: rgba(124, 58, 237, 0.7);
+  border-color: #a78bfa;
+  color: white;
+  box-shadow: 0 0 8px rgba(167, 139, 250, 0.3);
+}
+
+.linguaplay-collapse-btn {
+  color: #94a3b8;
+  padding: 2px 5px;
+  font-size: 12px;
+  margin-left: 2px;
+}
+
+.linguaplay-collapse-btn:hover {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* ── 3. Native-Aligned YouTube Sidebar Translation Card ── */
+#linguaplay-yt-drawer {
+  width: 100%;
+  background: rgba(22, 19, 42, 0.95);
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #e2e8f0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.5;
+  box-sizing: border-box;
+  transition: all 0.25s ease;
+}
+
+/* When in Floating/Fullscreen/Theater fallback mode */
+#linguaplay-yt-drawer.floating-fallback {
+  position: fixed;
+  top: 70px;
+  right: 20px;
+  width: 360px;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  z-index: 2147483647;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.85);
+}
+
+#linguaplay-yt-drawer.hidden {
+  display: none !important;
+}
+
+.linguaplay-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+}
+
+.linguaplay-card-wrapper {
+  background: rgba(18, 15, 36, 0.7);
+  border: 1px solid rgba(167, 139, 250, 0.15);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+/* ── Horizontal Interlinear Gloss Breakdown ── */
+.linguaplay-gloss-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  background: rgba(12, 10, 24, 0.7);
+  border: 1px solid rgba(167, 139, 250, 0.18);
+  border-radius: 10px;
+  margin-top: 6px;
+}
+
+.linguaplay-gloss-card {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  min-width: 32px;
+  transition: all 0.2s ease;
+  user-select: text;
+}
+
+.linguaplay-gloss-card:hover {
+  background: rgba(167, 139, 250, 0.15);
+  border-color: rgba(167, 139, 250, 0.35);
+}
+
+.linguaplay-gloss-card.is-target {
+  background: rgba(167, 139, 250, 0.22);
+  border-color: rgba(244, 114, 182, 0.6);
+  box-shadow: 0 0 10px rgba(244, 114, 182, 0.25);
+}
+
+.linguaplay-gloss-reading {
+  font-size: 10px;
+  color: #fda4af;
+  font-family: 'Inter', monospace;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+}
+
+.linguaplay-gloss-jp {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 1px 0 2px;
+  font-family: 'Noto Sans JP', sans-serif;
+}
+
+.linguaplay-gloss-card.is-target .linguaplay-gloss-jp {
+  color: #f472b6;
+}
+
+.linguaplay-gloss-en {
+  font-size: 10px;
+  color: #94a3b8;
+  line-height: 1.15;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linguaplay-gloss-card:hover .linguaplay-gloss-en {
+  white-space: normal;
+  color: #f1f5f9;
+}
+
+.linguaplay-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(167, 139, 250, 0.2);
+  color: #c4b5fd;
+  border: 1px solid rgba(167, 139, 250, 0.3);
+  margin-right: 4px;
+}
+
+.linguaplay-btn {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+  margin-bottom: 8px;
+}
+
+.linguaplay-btn-primary {
+  background: linear-gradient(135deg, #7c3aed, #a78bfa);
+  color: white;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+}
+
+.linguaplay-btn-primary:hover {
+  filter: brightness(1.1);
+}
+
+.linguaplay-btn-secondary {
+  background: rgba(30, 27, 46, 0.85);
+  border: 1px solid rgba(167, 139, 250, 0.2);
+  color: #cbd5e1;
+}
+
+.linguaplay-btn-secondary:hover {
+  background: rgba(167, 139, 250, 0.2);
+  color: white;
+}
+
+.linguaplay-shimmer {
+  background: linear-gradient(90deg, rgba(167, 139, 250, 0.06) 25%, rgba(167, 139, 250, 0.18) 50%, rgba(167, 139, 250, 0.06) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+  height: 40px;
+  margin-bottom: 8px;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
