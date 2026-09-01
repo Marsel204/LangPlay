@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LinguaPlay</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="width: 26px; height: 26px; border-radius: 8px; background: #7c3aed; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 13px;">
+        言
+      </div>
+      <div>
+        <div style="font-size: 13px; font-weight: bold; color: white;">LinguaPlay</div>
+        <div style="font-size: 9px; color: #a78bfa; text-transform: uppercase; letter-spacing: 0.1em;">Japanese Immersion</div>
+      </div>
+    </div>
+    <span style="font-size: 10px; color: #34d399; background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.2); border-radius: 12px; padding: 2px 6px;">
+      Active
+    </span>
+  </div>
+
+  <!-- Primary Launch Button -->
+  <button id="open-player-btn" class="btn-primary" style="margin-bottom: 10px;">
+    <span>🚀</span> Open Immersion Player
+  </button>
+
+  <!-- YouTube Direct Launch (if active on YouTube) -->
+  <div id="yt-active-box" class="popup-card" style="display: none; border-color: rgba(52,211,153,0.3); background: rgba(6,78,59,0.2);">
+    <div style="font-size: 11px; font-weight: 600; color: #6ee7b7; margin-bottom: 6px;">
+      ▶ YouTube Video Detected
+    </div>
+    <button id="launch-current-yt-btn" class="btn-secondary" style="background: rgba(52,211,153,0.15); border-color: rgba(52,211,153,0.3); color: #6ee7b7;">
+      Open This Video in LinguaPlay
+    </button>
+  </div>
+
+  <!-- Search YouTube Box -->
+  <div class="popup-card">
+    <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 6px;">Quick YouTube Search</div>
+    <form id="popup-search-form" class="search-wrap">
+      <input type="text" id="popup-search-input" class="search-input" placeholder="Search Japanese videos…">
+      <button type="submit" class="search-btn">Search</button>
+    </form>
+  </div>
+
+  <!-- Stats / Anki Card Counter -->
+  <div class="popup-card" style="display: flex; align-items: center; justify-content: space-between;">
+    <div>
+      <div style="font-size: 11px; font-weight: 600; color: #cbd5e1;">Saved Anki Cards</div>
+      <div id="anki-card-count" style="font-size: 16px; font-weight: bold; color: #a78bfa;">0 cards</div>
+    </div>
+    <button id="export-tsv-btn" class="btn-secondary" style="width: auto; padding: 4px 10px; font-size: 11px;">
+      📥 Export TSV
+    </button>
+  </div>
+
+  <!-- Footer Actions -->
+  <div style="display: flex; gap: 6px;">
+    <button id="open-options-btn" class="btn-secondary" style="flex: 1;">
+      ⚙️ Options / Keys
+    </button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

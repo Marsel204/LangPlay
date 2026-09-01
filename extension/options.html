@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LinguaPlay — Extension Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+
+  <div class="container">
+
+    <!-- Header -->
+    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 28px;">
+      <div style="width: 36px; height: 36px; border-radius: 10px; background: #7c3aed; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px;">
+        言
+      </div>
+      <div>
+        <h1 style="font-size: 20px; font-weight: bold; color: white;">LinguaPlay Settings</h1>
+        <p style="font-size: 12px; color: #a78bfa;">Configure AI Linguistic Models, Anki Deck Sync, and Immersion Preferences</p>
+      </div>
+    </div>
+
+    <!-- AI Models Card -->
+    <div class="card">
+      <h2><span>🤖</span> AI Breakdown Engine</h2>
+
+      <div class="form-group">
+        <label for="ai-provider">Default AI Provider</label>
+        <select id="ai-provider">
+          <option value="antigravity" selected>Local Antigravity CLI / Server (http://127.0.0.1:8000)</option>
+          <option value="gemini">Google Gemini API (Direct 2.5 Flash)</option>
+          <option value="openrouter">OpenRouter (DeepSeek V4 Flash)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="gemini-key">Google Gemini API Key</label>
+        <input type="password" id="gemini-key" placeholder="AIzaSy...">
+        <p class="help-text">Obtain a free Gemini API key from Google AI Studio (aistudio.google.com).</p>
+      </div>
+
+      <div class="form-group">
+        <label for="openrouter-key">OpenRouter API Key</label>
+        <input type="password" id="openrouter-key" placeholder="sk-or-...">
+        <p class="help-text">From openrouter.ai/keys (for DeepSeek/Claude streaming breakdowns).</p>
+      </div>
+
+      <div class="form-group">
+        <label for="server-url">Local Server URL (Antigravity CLI)</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="server-url" placeholder="http://127.0.0.1:8000" value="http://127.0.0.1:8000" style="flex: 1;">
+          <button id="test-server-btn" class="btn-secondary" type="button">Test Server</button>
+        </div>
+        <p id="server-status-text" class="help-text">Used if you run Server.py for local Antigravity CLI execution.</p>
+      </div>
+    </div>
+
+    <!-- Anki Card Sync Card -->
+    <div class="card">
+      <h2><span>🗃️</span> Anki Flashcard Sync</h2>
+
+      <div class="form-group">
+        <label for="anki-deck">Anki Target Deck Name</label>
+        <input type="text" id="anki-deck" value="LinguaPlay">
+        <p class="help-text">Cards will automatically be created under this deck name in Anki.</p>
+      </div>
+
+      <div class="form-group">
+        <label for="ankiconnect-url">AnkiConnect URL</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="ankiconnect-url" value="http://127.0.0.1:8765" style="flex: 1;">
+          <button id="test-anki-btn" class="btn-secondary" type="button">Test AnkiConnect</button>
+        </div>
+        <p id="anki-status-text" class="help-text">Requires Anki open with AnkiConnect add-on (code 2055492159).</p>
+      </div>
+    </div>
+
+    <!-- Immersion Preferences -->
+    <div class="card">
+      <h2><span>⚙️</span> Immersion & Subtitle Display</h2>
+
+      <div class="form-group">
+        <label for="reading-mode">Default Subtitle Reading Mode</label>
+        <select id="reading-mode">
+          <option value="furigana">Furigana (Hiragana ruby above Kanji)</option>
+          <option value="romaji">Romaji (Alphabetical pronunciation)</option>
+          <option value="hidden">Hidden (Kanji only for pure immersion)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Stored Flashcards Export Card -->
+    <div class="card">
+      <h2><span>💾</span> Stored Flashcard Collection</h2>
+      <p style="font-size: 13px; color: #cbd5e1; margin-bottom: 12px;">
+        When AnkiConnect is offline, cards are automatically stored in the extension collection.
+      </p>
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <span id="saved-card-counter" style="font-size: 14px; font-weight: bold; color: #a78bfa;">0 cards in storage</span>
+        <div style="display: flex; gap: 8px;">
+          <button id="export-tsv-btn" class="btn-secondary" type="button">📥 Export TSV File</button>
+          <button id="clear-cards-btn" class="btn-secondary" type="button" style="color: #fca5a5; border-color: rgba(244,63,94,0.3);">Clear Cards</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Save Button -->
+    <button id="save-settings-btn" class="btn-primary" style="width: 100%;">
+      Save Settings
+    </button>
+
+  </div>
+
+  <div id="save-toast" class="toast">✓ Settings saved successfully!</div>
+
+  <script src="options.js"></script>
+</body>
+</html>

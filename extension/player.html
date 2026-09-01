@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LinguaPlay — Japanese AI Immersion Player</title>
+  
+  <link rel="stylesheet" href="css/styles.css">
+  
+  <!-- Local Vendor Scripts -->
+  <script src="lib/wanakana.min.js"></script>
+  <script src="lib/kuromoji.js"></script>
+</head>
+
+<body>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       Header
+       ══════════════════════════════════════════════════════════════════════ -->
+  <header class="sticky top-0 z-50 glass-strong px-6 py-3.5 flex items-center justify-between border-b border-white/5 relative overflow-hidden">
+    <!-- Branding -->
+    <div class="flex items-center gap-3.5 relative z-10">
+      <div class="relative w-9 h-9 rounded-xl bg-accent flex items-center justify-center text-white font-bold text-base shadow-xl border border-white/10">
+        言
+      </div>
+
+      <div class="flex flex-col justify-center">
+        <h1 class="text-lg font-bold tracking-tight text-white">
+          LinguaPlay
+        </h1>
+        <span class="text-[10px] font-bold text-accent-light uppercase tracking-[0.2em]">
+          Japanese Immersion Player Extension
+        </span>
+      </div>
+    </div>
+
+    <!-- Status & Info -->
+    <div class="flex items-center gap-3 relative z-10">
+      <span class="flex items-center gap-2 text-[10px] font-bold text-emerald-300 px-3 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 uppercase tracking-wider backdrop-blur-sm">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400" style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#34d399;"></span>
+        Chrome Extension v1.0
+      </span>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       Main Workspace
+       ══════════════════════════════════════════════════════════════════════ -->
+  <main class="flex flex-col lg:flex-row gap-4 p-4 lg:p-5 max-w-[1920px] mx-auto">
+
+    <!-- LEFT COLUMN: Video Environment & Subtitle Toolbar (70%) -->
+    <section id="video-column" class="flex flex-col gap-3 lg:w-[70%] min-w-0">
+
+      <!-- Unified Top Controls -->
+      <div class="flex flex-wrap items-stretch gap-2">
+
+        <!-- Video Source Input (Local File or YouTube URL/Search) -->
+        <div class="flex-1 flex items-stretch bg-surface-100/60 border border-slate-700/60 rounded-xl overflow-hidden" style="min-width: 260px;">
+          <label class="file-label cursor-pointer px-3 py-2 flex items-center gap-2 border-r border-slate-700/60 shrink-0" title="Open Local Video (.mp4, .webm)">
+            <span class="text-xs text-accent">📁</span>
+            <span id="video-file-label" class="text-xs font-semibold text-slate-300 truncate" style="max-width: 90px;">Local Video</span>
+            <input type="file" id="video-input" accept="video/mp4,video/webm,video/*" class="hidden">
+          </label>
+          <input type="text" id="youtube-url-input" placeholder="Search YouTube or paste URL…"
+            class="flex-1 bg-transparent px-3 py-2 text-xs text-slate-300 outline-none">
+          <button id="youtube-load-btn"
+            class="px-3.5 py-1 my-1 mr-1 text-[11px] font-semibold text-accent-light bg-accent/10 rounded-lg hover:bg-accent/20 cursor-pointer border border-accent/20 shrink-0">
+            Search / Load
+          </button>
+        </div>
+
+        <!-- Subtitles File Input -->
+        <label class="file-label cursor-pointer flex items-center gap-2 px-3 py-2 bg-surface-100/60 border border-slate-700/60 rounded-xl shrink-0"
+          title="Select Subtitle File (.vtt/.srt)">
+          <span class="text-xs text-rose-subtle">💬</span>
+          <span id="sub-file-label" class="text-xs font-semibold text-slate-300 truncate" style="max-width: 100px;">Subtitles</span>
+          <input type="file" id="sub-input" accept=".srt,.vtt" class="hidden">
+        </label>
+
+        <!-- AI Engine & Key Selector -->
+        <div class="flex items-stretch bg-surface-100/60 border border-slate-700/60 rounded-xl overflow-hidden shrink-0">
+          <div class="px-2.5 py-1.5 flex items-center gap-1.5 border-r border-slate-700/60 bg-surface-200/50">
+            <span id="ai-provider-icon" class="text-xs">⚡</span>
+            <select id="ai-provider-select" class="bg-transparent text-xs text-slate-200 font-semibold outline-none cursor-pointer pr-1">
+              <option value="antigravity" class="bg-surface-200 text-slate-200" selected>Local Antigravity CLI</option>
+              <option value="gemini" class="bg-surface-200 text-slate-200">Google Gemini API</option>
+              <option value="openrouter" class="bg-surface-200 text-slate-200">OpenRouter DeepSeek</option>
+            </select>
+          </div>
+
+          <div id="ai-key-box" class="flex items-center gap-2 px-3 py-1.5">
+            <div id="ai-key-input-wrap" class="flex items-center gap-2">
+              <input type="password" id="ai-api-key" placeholder="Paste API key…"
+                class="bg-transparent text-xs text-slate-300 outline-none" style="width: 120px;">
+              <span id="api-key-status" class="hidden text-[10px] text-emerald-400 shrink-0">Saved</span>
+            </div>
+            <div id="ai-local-badge" class="hidden flex items-center gap-1.5 text-[11px] font-semibold text-emerald-400">
+              <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#34d399;"></span>
+              Local Engine
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Feedback Banner -->
+      <p id="youtube-feedback" class="hidden text-[11px] text-amber-400 -mt-1 px-2 leading-relaxed"></p>
+
+      <!-- Video Player Viewport -->
+      <div class="video-wrap shadow-2xl border border-slate-800 relative">
+        <video id="player" controls playsinline></video>
+
+        <div id="youtube-player-container" class="hidden absolute inset-0 w-full h-full">
+          <div id="youtube-player" class="w-full h-full"></div>
+        </div>
+
+        <!-- Subtitle Overlay -->
+        <div class="subtitle-overlay" id="subtitle-overlay">
+          <div id="tokens-container" class="flex flex-wrap items-end justify-center gap-1 max-w-4xl text-center px-4 mb-2"></div>
+        </div>
+      </div>
+
+      <!-- Subtitle & Playback Quick Toolbar -->
+      <div class="glass flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl border border-slate-800/80">
+        
+        <!-- Left: Reading Mode Switcher -->
+        <div class="flex items-center gap-1.5">
+          <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mr-1">Reading:</span>
+          <button class="sub-btn-pill active" data-reading-mode="furigana" title="Show Hiragana readings">Furigana</button>
+          <button class="sub-btn-pill" data-reading-mode="romaji" title="Show Romaji alphabet">Romaji</button>
+          <button class="sub-btn-pill" data-reading-mode="hidden" title="Hide readings for kanji immersion">Hidden</button>
+        </div>
+
+        <!-- Center: Timing Offset Adjuster -->
+        <div class="flex items-center gap-1">
+          <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mr-1">Sync:</span>
+          <button id="offset-sub-500" class="sub-btn-pill" title="Advance 0.5s">-0.5s</button>
+          <button id="offset-sub-100" class="sub-btn-pill" title="Advance 0.1s (Shortcut: [ )">-0.1s</button>
+          <span id="timing-offset-display" class="text-[11px] font-mono text-slate-400 px-1.5">0.0s</span>
+          <button id="offset-add-100" class="sub-btn-pill" title="Delay 0.1s (Shortcut: ] )">+0.1s</button>
+          <button id="offset-add-500" class="sub-btn-pill" title="Delay 0.5s">+0.5s</button>
+          <button id="offset-reset" class="sub-btn-pill text-slate-400" title="Reset offset">↺</button>
+        </div>
+
+        <!-- Right: Cue Action Helpers -->
+        <div class="flex items-center gap-1.5">
+          <button id="repeat-cue-btn" class="sub-btn-pill" title="Repeat Current Cue (Shortcut: R)">
+            <span>🔁</span> Repeat
+          </button>
+          <button id="copy-sentence-btn" class="sub-btn-pill" title="Copy Japanese Sentence (Shortcut: C)">
+            <span>📋</span> Copy
+          </button>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- RIGHT COLUMN: Linguistic Analysis & AI Drawer (30%) -->
+    <section id="sidebar-column" class="flex flex-col lg:w-[30%] min-w-0">
+      <div class="glass-strong rounded-2xl p-5 flex flex-col gap-4 border border-slate-800/80 shadow-2xl flex-1 overflow-y-auto">
+
+        <!-- 1. Placeholder State -->
+        <div id="placeholder-state" class="flex flex-col items-center justify-center text-center my-auto py-12 px-4">
+          <div class="w-16 h-16 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center text-2xl text-accent-light mb-4 shadow-lg">
+            📖
+          </div>
+          <h3 class="text-base font-semibold text-slate-200">Interactive Immersion</h3>
+          <p class="text-xs text-slate-400 mt-2 leading-relaxed" style="max-width: 260px;">
+            Click any word or kanji in the subtitles to inspect dictionary definitions, grammar breakdowns, and trigger Gemini AI explanations.
+          </p>
+
+          <!-- Keyboard Shortcuts Cheat Sheet -->
+          <div class="w-full mt-8 p-3.5 rounded-xl bg-surface-200/50 border border-slate-700/40 text-left">
+            <h4 class="text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+              <span>⌨️</span> Keyboard Shortcuts
+            </h4>
+            <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+              <div><kbd>Space</kbd> Play / Pause</div>
+              <div><kbd>← / →</kbd> Seek 5s</div>
+              <div><kbd>↑ / ↓</kbd> Jump Cue</div>
+              <div><kbd>R</kbd> Repeat Cue</div>
+              <div><kbd>C</kbd> Copy Sentence</div>
+              <div><kbd>[ / ]</kbd> Offset ±0.1s</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Active Analysis State -->
+        <div id="active-state" class="hidden flex flex-col gap-4">
+
+          <!-- Header with Target Word & Romaji -->
+          <div class="flex items-start justify-between gap-3 border-b border-white/5 pb-3">
+            <div class="flex flex-col">
+              <span id="active-romaji" class="text-xs font-semibold text-rose-subtle"></span>
+              <h2 id="active-word" class="text-3xl font-bold text-white tracking-wide" style="font-family: 'Noto Sans JP', sans-serif;"></h2>
+              <span id="active-pos" class="text-[11px] text-slate-400 mt-1 leading-relaxed"></span>
+            </div>
+            <button id="dismiss-btn" class="p-1.5 rounded-lg text-slate-400 hover:text-white cursor-pointer" title="Resume Playback">
+              ✕
+            </button>
+          </div>
+
+          <!-- Dictionary Definition Card -->
+          <div class="ai-card-wrapper">
+            <div class="ai-card-header">
+              <div class="ai-card-icon bg-accent/15 text-accent-light">📚</div>
+              <span class="ai-card-label text-accent-light">Dictionary Definition</span>
+            </div>
+            <div id="active-def" class="ai-card-body"></div>
+          </div>
+
+          <!-- Quick Anki Add -->
+          <button id="quick-anki-btn"
+            class="w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-slate-300 bg-surface-200 border border-slate-700/60 hover:border-slate-500 hover:text-white transition-all cursor-pointer flex items-center justify-center gap-2">
+            🗃️ Quick Add to Anki
+          </button>
+          <p id="quick-anki-feedback" class="hidden text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl"></p>
+
+          <!-- Ask AI Section -->
+          <div id="ai-trigger-section" class="pt-2">
+            <button id="ask-ai-btn"
+              class="w-full py-3 px-4 rounded-xl text-sm font-bold text-white bg-accent hover:brightness-110 shadow-lg cursor-pointer flex items-center justify-center gap-2" style="background: linear-gradient(135deg, #7c3aed, #a78bfa);">
+              <span>✨</span> <span id="ask-ai-btn-text">Ask AI for Breakdown</span>
+            </button>
+          </div>
+
+          <!-- AI Response Section -->
+          <div id="ai-response-container" class="hidden flex flex-col gap-3 pt-2">
+            
+            <div id="ai-loading-skeleton" class="flex flex-col gap-3">
+              <div class="skeleton-shimmer" style="height: 60px;"></div>
+              <div class="skeleton-shimmer" style="height: 80px;"></div>
+            </div>
+
+            <pre id="ai-stream-preview" class="hidden text-xs font-mono text-slate-300 bg-black/40 p-3 rounded-xl overflow-x-auto max-h-40 whitespace-pre-wrap leading-relaxed"></pre>
+            <div id="ai-error-display" class="hidden text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 p-3 rounded-xl"></div>
+            <div id="ai-cards-container" class="flex flex-col gap-3"></div>
+
+            <button id="ai-save-anki-btn"
+              class="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-accent-light bg-accent/10 border border-accent/30 hover:bg-accent/20 cursor-pointer flex items-center justify-center gap-1.5 mt-2">
+              <span>🗂️</span> Save Enriched AI Card to Anki
+            </button>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       Modals
+       ══════════════════════════════════════════════════════════════════════ -->
+
+  <!-- YouTube Search Results Modal -->
+  <div id="youtube-search-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-strong rounded-2xl w-full max-w-4xl flex flex-col border border-slate-700 shadow-2xl overflow-hidden" style="max-height: 85vh;">
+      <div class="p-4 border-b border-white/10 flex items-center justify-between gap-3">
+        <form id="modal-search-form" class="flex-1 flex items-center gap-2 bg-surface-200/80 border border-slate-700 rounded-xl px-3 py-1.5">
+          <span class="text-slate-400">🔍</span>
+          <input type="text" id="modal-search-input" placeholder="Search YouTube videos…"
+            class="flex-1 bg-transparent text-xs text-slate-200 outline-none">
+          <button type="submit" class="px-2.5 py-1 text-[11px] font-semibold text-white bg-accent rounded-lg cursor-pointer">Search</button>
+        </form>
+        <button id="youtube-search-modal-close" class="text-slate-400 hover:text-white p-2 rounded-lg text-sm cursor-pointer">✕</button>
+      </div>
+      <div id="youtube-search-results-container" class="flex-1 overflow-y-auto p-4"></div>
+    </div>
+  </div>
+
+  <!-- YT-DLP Subtitle Helper Modal -->
+  <div id="ytdlp-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-strong rounded-2xl w-full p-5 flex flex-col gap-4 border border-slate-700 shadow-2xl" style="max-width: 500px;">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+          <span>📥</span> Subtitle Download Helper
+        </h3>
+        <button id="ytdlp-modal-close" class="text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer">✕</button>
+      </div>
+      <p class="text-xs text-slate-300 leading-relaxed">
+        If automatic subtitle extraction failed for this YouTube video, you can download the Japanese subtitles manually using <code class="text-accent-light font-mono">yt-dlp</code>:
+      </p>
+      <div class="bg-black/50 p-3 rounded-xl border border-slate-800">
+        <code id="captions-ytdlp-cmd" class="text-xs font-mono text-emerald-300 break-all select-all"></code>
+      </div>
+      <div class="flex items-center justify-between gap-3">
+        <span id="captions-copy-feedback" class="hidden text-xs text-emerald-400">✓ Copied to clipboard</span>
+        <button id="captions-copy-btn" class="ml-auto px-4 py-2 rounded-xl text-xs font-semibold text-white bg-accent cursor-pointer">
+          Copy Command
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap Script -->
+  <script type="module" src="js/app.js"></script>
+</body>
+
+</html>

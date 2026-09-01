@@ -1,0 +1,70 @@
+{
+  "manifest_version": 3,
+  "name": "LinguaPlay — Japanese AI Immersion Player",
+  "version": "1.0.0",
+  "description": "AI-enhanced Japanese language immersion player with interactive subtitles, Kuromoji grammar breakdown, Gemini AI tutor, and Anki sync.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "LinguaPlay — Japanese Immersion",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/watch*"
+      ],
+      "js": [
+        "lib/wanakana.min.js",
+        "lib/kuromoji.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://*.youtube.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://openrouter.ai/*",
+    "https://translate.googleapis.com/*",
+    "http://127.0.0.1:8765/*",
+    "http://127.0.0.1:8000/*",
+    "http://localhost:8765/*",
+    "http://localhost:8000/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/*",
+        "lib/*",
+        "css/*",
+        "player.html"
+      ],
+      "matches": [
+        "*://*.youtube.com/*"
+      ]
+    }
+  ]
+}
