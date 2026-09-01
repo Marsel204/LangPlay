@@ -1,0 +1,2295 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>LinguaPlay — AI Japanese Immersion Player</title>
+  <meta name="description"
+    content="An AI-enhanced Japanese language immersion video player with interactive subtitles and real-time grammar analysis.">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap"
+    rel="stylesheet">
+  <script src="https://unpkg.com/wanakana"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js"></script>
+  <script>
+    tailwindcss.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'Noto Sans JP', 'sans-serif'] },
+          colors: {
+            surface: { 50: '#f8fafc', 100: '#1e1b2e', 200: '#16132a', 300: '#120f24', 400: '#0d0b1e', 900: '#08071a' },
+            accent: { DEFAULT: '#a78bfa', light: '#c4b5fd', dark: '#7c3aed' },
+            rose: { subtle: '#fda4af' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', 'Noto Sans JP', sans-serif;
+      background: #08071a;
+      color: #e2e8f0;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+
+    /* Glassmorphism panels */
+    .glass {
+      background: rgba(30, 27, 46, 0.65);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(167, 139, 250, 0.12);
+    }
+
+    .glass-strong {
+      background: rgba(30, 27, 46, 0.85);
+      backdrop-filter: blur(24px);
+      border: 1px solid rgba(167, 139, 250, 0.18);
+    }
+
+    /* Subtitle token hover */
+    .token-group {
+      cursor: pointer;
+      transition: all 0.2s ease;
+      padding: 2px 6px;
+      border-radius: 6px;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .token-group:hover {
+      background: rgba(167, 139, 250, 0.2);
+    }
+
+    .token-group:hover .jp-text {
+      text-decoration: underline;
+      text-decoration-color: #a78bfa;
+      text-underline-offset: 3px;
+    }
+
+    .token-group.active {
+      background: rgba(167, 139, 250, 0.3);
+      box-shadow: 0 0 12px rgba(167, 139, 250, 0.25);
+    }
+
+    /* Fade-in animation */
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .animate-fade-up {
+      animation: fadeUp 0.35s ease-out forwards;
+    }
+
+    /* Staggered card fade-in */
+    @keyframes cardReveal {
+      from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.97);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .ai-card {
+      animation: cardReveal 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      opacity: 0;
+    }
+
+    /* Pulse glow on sidebar active */
+    @keyframes pulseGlow {
+
+      0%,
+      100% {
+        box-shadow: 0 0 0 0 rgba(167, 139, 250, 0.15);
+      }
+
+      50% {
+        box-shadow: 0 0 20px 4px rgba(167, 139, 250, 0.1);
+      }
+    }
+
+    .glow-pulse {
+      animation: pulseGlow 2.5s ease-in-out infinite;
+    }
+
+    /* Shimmer loading skeleton */
+    @keyframes shimmer {
+      0% {
+        background-position: -200% 0;
+      }
+
+      100% {
+        background-position: 200% 0;
+      }
+    }
+
+    .skeleton-shimmer {
+      background: linear-gradient(90deg, rgba(167, 139, 250, 0.06) 25%, rgba(167, 139, 250, 0.15) 50%, rgba(167, 139, 250, 0.06) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.8s ease-in-out infinite;
+      border-radius: 8px;
+    }
+
+    /* AI Card Styling */
+    .ai-card-wrapper {
+      background: rgba(18, 15, 36, 0.6);
+      border: 1px solid rgba(167, 139, 250, 0.1);
+      border-radius: 14px;
+      padding: 14px 16px;
+      transition: all 0.25s ease;
+    }
+
+    .ai-card-wrapper:hover {
+      border-color: rgba(167, 139, 250, 0.25);
+      background: rgba(18, 15, 36, 0.75);
+      box-shadow: 0 4px 20px rgba(167, 139, 250, 0.08);
+    }
+
+    .ai-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .ai-card-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .ai-card-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .ai-card-body {
+      font-size: 13.5px;
+      line-height: 1.65;
+      color: #cbd5e1;
+    }
+
+    .ai-card-body .jp-inline {
+      font-family: 'Noto Sans JP', sans-serif;
+      font-weight: 500;
+      color: #e2e8f0;
+    }
+
+    /* Badge styles for JLPT / formality */
+    .ai-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 10px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+
+    .badge-jlpt {
+      background: rgba(167, 139, 250, 0.15);
+      color: #c4b5fd;
+      border: 1px solid rgba(167, 139, 250, 0.25);
+    }
+
+    .badge-formality {
+      background: rgba(253, 164, 175, 0.12);
+      color: #fda4af;
+      border: 1px solid rgba(253, 164, 175, 0.2);
+    }
+
+    .badge-conjugation {
+      background: rgba(52, 211, 153, 0.12);
+      color: #6ee7b7;
+      border: 1px solid rgba(52, 211, 153, 0.2);
+    }
+
+    /* Sentence breakdown highlight */
+    .breakdown-segment {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 4px 6px;
+      border-radius: 6px;
+      margin: 2px 1px;
+      transition: background 0.2s;
+    }
+
+    .breakdown-segment:hover {
+      background: rgba(167, 139, 250, 0.12);
+    }
+
+    .breakdown-jp {
+      font-family: 'Noto Sans JP', sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      color: #e2e8f0;
+    }
+
+    .breakdown-en {
+      font-size: 10px;
+      color: #94a3b8;
+      margin-top: 2px;
+    }
+
+    .breakdown-highlight .breakdown-jp {
+      color: #a78bfa;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      text-decoration-color: rgba(167, 139, 250, 0.4);
+    }
+
+    /* Video container aspect ratio */
+    .video-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .video-wrap video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+
+    /* YouTube embed container */
+    #youtube-player-container {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    #youtube-player-container iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
+
+    /* Subtitle overlay */
+    .subtitle-overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      padding: 16px 24px 28px;
+      pointer-events: auto;
+      background: linear-gradient(to top, rgba(0, 0, 0, 0.82) 0%, rgba(0, 0, 0, 0.4) 60%, transparent 100%);
+    }
+
+    /* File input styling */
+    .file-label {
+      transition: all 0.2s ease;
+    }
+
+    .file-label:hover {
+      border-color: #a78bfa;
+      background: rgba(167, 139, 250, 0.08);
+    }
+  </style>
+</head>
+
+<body class="min-h-screen overflow-x-hidden">
+
+  <header
+    class="sticky top-0 z-50 glass-strong px-6 py-4 flex items-center justify-between border-b border-white/5 relative overflow-hidden">
+    <!-- Decorative subtle gradient background effect -->
+    <div class="absolute inset-0 bg-gradient-to-r from-accent/10 via-transparent to-rose-subtle/5 opacity-50"></div>
+    <!-- Top glowing line -->
+    <div
+      class="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-accent-light to-transparent opacity-40">
+    </div>
+
+    <div class="flex items-center gap-4 relative z-10">
+      <!-- Icon with glowing pulse behind it -->
+      <div class="relative group cursor-pointer">
+        <div
+          class="absolute inset-0 bg-accent rounded-xl blur-md opacity-40 group-hover:opacity-70 transition-opacity duration-500">
+        </div>
+        <div
+          class="relative w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-600 to-accent flex items-center justify-center text-white font-bold text-lg shadow-xl shadow-accent/30 border border-white/10 transform transition-transform duration-300 group-hover:scale-105 group-hover:-rotate-3">
+          言
+        </div>
+      </div>
+
+      <div class="flex flex-col justify-center">
+        <h1
+          class="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-indigo-100 to-accent-light bg-clip-text text-transparent drop-shadow-sm">
+          KotobaPlay
+        </h1>
+        <span class="text-[10px] font-bold text-indigo-300/70 uppercase tracking-[0.2em] mt-0.5">
+          Japanese AI Immersion
+        </span>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-4 relative z-10">
+      <!-- Animated status badge -->
+      <div class="relative group cursor-default">
+        <div
+          class="absolute inset-0 bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full blur opacity-20 group-hover:opacity-40 transition-opacity duration-300">
+        </div>
+        <span
+          class="relative flex items-center gap-2 text-[10px] font-bold text-emerald-300 px-3 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 uppercase tracking-wider backdrop-blur-sm shadow-[0_0_15px_rgba(16,185,129,0.1)] transition-all duration-300 group-hover:border-emerald-500/40">
+          <span
+            class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></span>
+          Beta v0.1
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex flex-col lg:flex-row gap-4 p-4 lg:p-5 max-w-[1920px] mx-auto" style="height: calc(100vh - 52px);">
+
+    <!-- LEFT COLUMN — Video Environment (70%) -->
+    <section id="video-column" class="flex flex-col gap-4 lg:w-[70%] min-w-0">
+
+      <!-- Unified Control Bar -->
+      <div class="flex flex-wrap items-stretch gap-2 lg:gap-3">
+
+        <!-- Video Input (Local File or YT URL) -->
+        <div
+          class="flex-1 min-w-[250px] flex items-stretch bg-surface-100/50 border border-slate-700/60 rounded-xl overflow-hidden focus-within:border-accent/50 transition-colors">
+          <label
+            class="cursor-pointer px-3 py-2 flex items-center gap-2 border-r border-slate-700/60 hover:bg-slate-700/30 transition-colors shrink-0"
+            title="Open Local MP4 Video">
+            <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
+            </svg>
+            <span id="video-file-label" class="text-xs font-semibold text-slate-300 truncate max-w-[80px]">Vid
+              (Loc)</span>
+            <input type="file" id="video-input" accept="video/mp4,video/*" class="hidden">
+          </label>
+          <input type="text" id="youtube-url-input" placeholder="...paste YT URL or search"
+            class="flex-1 min-w-0 bg-transparent px-3 py-2 text-xs text-slate-300 placeholder-slate-500 outline-none">
+          <button id="youtube-load-btn"
+            class="px-3 py-1 my-1 mr-1 text-[11px] font-semibold text-accent-light hover:text-white bg-accent/10 rounded-lg hover:bg-accent/20 transition-all shrink-0">Search
+            / Load</button>
+        </div>
+
+        <!-- Subtitles -->
+        <label
+          class="cursor-pointer flex items-center gap-2 px-3 py-2 bg-surface-100/50 border border-slate-700/60 rounded-xl hover:bg-slate-700/30 transition-colors shrink-0"
+          title="Select Subtitle File (.vtt/.srt)">
+          <svg class="w-4 h-4 text-rose-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"></path>
+          </svg>
+          <span id="sub-file-label" class="text-xs font-semibold text-slate-300 truncate max-w-[80px]">Sub</span>
+          <input type="file" id="sub-input" accept=".srt,.vtt" class="hidden">
+        </label>
+
+        <!-- API Key -->
+        <div
+          class="flex items-center gap-2 px-3 py-2 bg-surface-100/50 border border-slate-700/60 rounded-xl focus-within:border-emerald-500/50 transition-colors shrink-0"
+          title="Paste your OpenRouter API key once — it's saved automatically">
+          <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L6.5 21.5H3v-3.5l2.5-2.5h3.5l1.257-1.257A6 6 0 1121 9z">
+            </path>
+          </svg>
+          <input type="password" id="openrouter-key" placeholder="Paste key once..."
+            class="w-28 focus:w-44 bg-transparent text-xs text-slate-300 placeholder-slate-500 outline-none transition-all duration-300">
+          <span id="api-key-status" class="hidden text-[10px] text-slate-500 shrink-0"></span>
+        </div>
+
+      </div>
+
+      <!-- YouTube Error / Feedback -->
+      <p id="youtube-feedback" class="hidden text-[11px] text-amber-400/80 -mt-2 px-2 leading-relaxed"></p>
+
+
+
+      <!-- Video Player -->
+      <div class="video-wrap glass rounded-2xl shadow-2xl shadow-black/40 flex-1 min-h-0">
+        <video id="player" controls preload="metadata" class="rounded-xl"></video>
+
+        <!-- YouTube Embed (hidden until a YouTube video is loaded) -->
+        <div id="youtube-player-container" class="hidden">
+          <div id="youtube-player"></div>
+        </div>
+
+        <!-- Subtitle Overlay -->
+        <div class="subtitle-overlay" id="subtitle-overlay">
+          <div class="flex flex-wrap items-end justify-center gap-x-2 gap-y-1 tokens-container" id="tokens-container">
+            <!-- Tokens are rendered dynamically by JS -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT COLUMN — AI Learning Sidebar (30%) -->
+    <aside id="sidebar" class="lg:w-[30%] glass rounded-2xl flex flex-col overflow-hidden min-h-[300px] lg:min-h-0">
+
+      <!-- Sidebar Header -->
+      <div class="px-5 py-4 border-b border-slate-700/40 flex items-center gap-2">
+        <div class="w-2 h-2 rounded-full bg-accent animate-pulse"></div>
+        <h2 class="text-sm font-semibold text-slate-300 tracking-wide uppercase">Analysis Drawer</h2>
+      </div>
+
+      <!-- Sidebar Content -->
+      <div id="sidebar-content" class="flex-1 overflow-y-auto p-5">
+
+        <!-- Placeholder State -->
+        <div id="placeholder-state" class="flex flex-col items-center justify-center h-full text-center gap-4 py-12">
+          <div class="w-16 h-16 rounded-2xl bg-surface-300/60 flex items-center justify-center">
+            <svg class="w-8 h-8 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zM12 2.25V4.5m5.834.166l-1.591 1.591M20.25 10.5H18M7.757 14.743l-1.59 1.59M6 10.5H3.75m4.007-4.243l-1.59-1.59" />
+            </svg>
+          </div>
+          <p class="text-sm text-slate-500 max-w-[220px] leading-relaxed">Click any word in the subtitles to pause the
+            video and see an explanation.</p>
+        </div>
+
+        <!-- Active State (hidden by default) -->
+        <div id="active-state" class="hidden space-y-5">
+
+          <!-- Word Display + Local POS -->
+          <div class="animate-fade-up text-center pb-4 border-b border-slate-700/30">
+            <p id="active-word" class="text-4xl font-bold text-white mb-1"
+              style="font-family:'Noto Sans JP',sans-serif"></p>
+            <p id="active-romaji" class="text-base text-accent-light font-medium tracking-wide"></p>
+            <p id="active-pos" class="text-xs text-slate-400 mt-1 italic"></p>
+          </div>
+
+          <!-- Quick Definition (instant, no AI) -->
+          <div class="animate-fade-up" style="animation-delay:.06s">
+            <h3 class="flex items-center gap-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+              <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                  d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+              </svg>
+              Quick Definition
+            </h3>
+            <div class="bg-surface-300/50 rounded-xl p-4">
+              <p id="active-def" class="text-sm text-slate-300 leading-relaxed"></p>
+            </div>
+          </div>
+
+          <!-- Quick Add to Anki (No AI) -->
+          <div id="quick-anki-section" class="p-1 animate-fade-up" style="animation-delay:.09s">
+            <button id="quick-anki-btn"
+              class="w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-slate-300 bg-surface-200 border border-slate-700/60 hover:bg-slate-800 hover:border-slate-500 hover:text-white transition-all duration-200 flex items-center justify-center gap-2">
+              🗃️ Quick Add to Anki
+            </button>
+            <p id="quick-anki-feedback" class="text-[11px] text-amber-400/80 mt-2 hidden leading-relaxed px-2"></p>
+          </div>
+
+          <!-- AI Trigger Button -->
+          <div id="ai-trigger-section" class="p-1 animate-fade-up">
+            <button id="ask-ai-btn"
+              class="w-full py-3 px-4 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-accent to-purple-600 hover:from-accent-light hover:to-purple-500 shadow-lg shadow-accent/20 transition-all duration-200 flex items-center justify-center gap-2">
+              ✨ Deep AI Explanation (DeepSeek Flash)
+            </button>
+          </div>
+
+          <!-- AI Structured Response (hidden until button click) -->
+          <div class="hidden space-y-3" id="ai-response-container">
+
+            <!-- Loading skeleton -->
+            <div id="ai-loading-skeleton" class="space-y-3">
+              <div class="ai-card-wrapper">
+                <div class="skeleton-shimmer h-4 w-3/4 mb-3"></div>
+                <div class="skeleton-shimmer h-3 w-full mb-2"></div>
+                <div class="skeleton-shimmer h-3 w-5/6"></div>
+              </div>
+              <div class="ai-card-wrapper">
+                <div class="skeleton-shimmer h-4 w-1/2 mb-3"></div>
+                <div class="skeleton-shimmer h-3 w-full mb-2"></div>
+                <div class="skeleton-shimmer h-3 w-4/6"></div>
+              </div>
+              <div class="ai-card-wrapper">
+                <div class="skeleton-shimmer h-4 w-2/3 mb-3"></div>
+                <div class="skeleton-shimmer h-3 w-full mb-2"></div>
+                <div class="skeleton-shimmer h-3 w-3/4"></div>
+              </div>
+            </div>
+
+            <!-- Cards rendered by JS -->
+            <div id="ai-cards-container" class="space-y-3"></div>
+
+            <!-- Streaming text preview (shown while tokens stream) -->
+            <div id="ai-stream-preview" class="hidden ai-card-wrapper border-accent/30">
+              <div class="ai-card-header">
+                <div class="ai-card-icon bg-accent/15 text-accent">⚡</div>
+                <span class="ai-card-label text-accent">Streaming response...</span>
+              </div>
+              <pre id="ai-stream-text"
+                class="text-xs text-slate-300 font-mono leading-relaxed whitespace-pre-wrap break-words max-h-64 overflow-y-auto mt-2"></pre>
+            </div>
+
+            <!-- Error fallback -->
+            <div id="ai-error-display" class="hidden ai-card-wrapper border-red-500/30">
+              <div class="ai-card-header">
+                <div class="ai-card-icon bg-red-500/15 text-red-400">⚠</div>
+                <span class="ai-card-label text-red-400">Error</span>
+              </div>
+              <p id="ai-error-text" class="ai-card-body text-red-300/80 text-sm"></p>
+            </div>
+          </div>
+
+          <!-- Dismiss Button -->
+          <button id="dismiss-btn"
+            class="w-full mt-2 py-2.5 rounded-xl text-sm font-medium text-slate-400 border border-slate-700/40 hover:border-accent/40 hover:text-accent transition-all duration-200">
+            ✕ Dismiss &amp; Resume
+          </button>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- yt-dlp Modal -->
+  <div id="ytdlp-modal"
+    class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div
+      class="bg-surface-100 border border-slate-700/60 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+      <div class="px-5 py-4 border-b border-slate-700/60 flex items-center justify-between bg-surface-200/50">
+        <h3 class="text-sm font-bold text-rose-400">Auto-fetch Failed</h3>
+        <button id="ytdlp-modal-close" class="text-slate-400 hover:text-white transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+      <div class="p-5 space-y-4">
+        <p class="text-xs text-slate-300 leading-relaxed">YouTube blocked the automatic caption fetch. Please run this
+          command in your terminal to download the subtitles, then use the <strong>Sub</strong> button to load the
+          resulting <code>.vtt</code> file.</p>
+        <div class="flex items-stretch gap-2">
+          <code id="captions-ytdlp-cmd"
+            class="flex-1 bg-surface-900/70 rounded-lg px-3 py-2 text-[11px] text-emerald-300/90 overflow-x-auto whitespace-nowrap scrollbar-thin"></code>
+          <button id="captions-copy-btn" type="button"
+            class="px-4 py-2 bg-accent/20 hover:bg-accent/30 text-accent-light hover:text-white text-xs font-semibold rounded-lg border border-accent/30 transition-all shrink-0">Copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- YouTube Search Modal -->
+  <div id="youtube-search-modal"
+    class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div
+      class="bg-surface-100 border border-slate-700/60 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+      <div class="px-5 py-4 border-b border-slate-700/60 flex items-center justify-between bg-surface-200/50 shrink-0">
+        <div class="flex items-center gap-4 flex-1">
+          <h3 id="youtube-search-modal-title"
+            class="text-sm font-bold text-accent-light flex items-center gap-2 whitespace-nowrap">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path
+                d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z" />
+            </svg>
+            YouTube Search Results
+          </h3>
+          <form id="modal-search-form" class="hidden flex-1 max-w-sm relative">
+            <input type="text" id="modal-search-input" placeholder="Search inside channel..."
+              class="w-full bg-surface-100/80 border border-slate-700/60 rounded-lg px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-accent/50 transition-colors">
+            <button type="submit" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-accent">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+              </svg>
+            </button>
+          </form>
+        </div>
+        <button id="youtube-search-modal-close" class="text-slate-400 hover:text-white transition-colors ml-4">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+      <div class="p-5 overflow-y-auto" id="youtube-search-results-container">
+        <!-- Results will be injected here -->
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── State Management ──
+    let subtitleTimeline = [];
+    let tokenizer = null;
+    let currentSubIndex = -1;
+    let currentActive = null;
+
+    // ── Media Source State (native <video> vs YouTube embed) ──
+    let mediaMode = 'native'; // 'native' | 'youtube'
+    let ytPlayer = null;
+    let ytApiReadyPromise = null;
+    let ytPollInterval = null;
+
+    // ── DOM References ──
+    const player = document.getElementById('player');
+    const videoInput = document.getElementById('video-input');
+    const subInput = document.getElementById('sub-input');
+    const videoLabel = document.getElementById('video-file-label');
+    const subLabel = document.getElementById('sub-file-label');
+    const placeholderSt = document.getElementById('placeholder-state');
+    const activeSt = document.getElementById('active-state');
+    const activeWord = document.getElementById('active-word');
+    const activeRomaji = document.getElementById('active-romaji');
+    const activePos = document.getElementById('active-pos');
+    const dismissBtn = document.getElementById('dismiss-btn');
+    const overlay = document.getElementById('subtitle-overlay');
+    const tokensContainer = document.getElementById('tokens-container');
+    const quickAnkiBtn = document.getElementById('quick-anki-btn');
+    const quickAnkiFeedback = document.getElementById('quick-anki-feedback');
+    const youtubeUrlInput = document.getElementById('youtube-url-input');
+    const youtubeLoadBtn = document.getElementById('youtube-load-btn');
+    const youtubePlayerContainer = document.getElementById('youtube-player-container');
+    const youtubeFeedback = document.getElementById('youtube-feedback');
+
+    // ── Captions Panel refs (YouTube mode) ──
+    const ytdlpModal = document.getElementById('ytdlp-modal');
+    const ytdlpModalClose = document.getElementById('ytdlp-modal-close');
+    const captionsYtdlpCmd = document.getElementById('captions-ytdlp-cmd');
+    const captionsCopyBtn = document.getElementById('captions-copy-btn');
+    const captionsCopyFeedback = document.getElementById('captions-copy-feedback');
+
+    // ── YouTube Search Modal refs ──
+    const ytSearchModal = document.getElementById('youtube-search-modal');
+    const ytSearchModalClose = document.getElementById('youtube-search-modal-close');
+    const ytSearchResultsContainer = document.getElementById('youtube-search-results-container');
+
+    // True once the user loads captions manually (paste box or file picker) —
+    // prevents a late auto-fetch result from clobbering their choice.
+    let manualCaptionsLoaded = false;
+    let lastYouTubeUrl = '';
+    let currentYouTubeId = null;
+
+    // True if the LinguaPlay Chrome extension bridge is present on this page.
+    // When present, caption fetches go DIRECT to YouTube (no CORS / no proxy /
+    // no consent wall) — that is the path that actually works reliably.
+    let bridgeReady = false;
+    window.addEventListener('LINGUAPLAY_BRIDGE_READY', () => {
+      bridgeReady = true;
+      console.log('[LinguaPlay] Caption bridge detected — direct fetch enabled.');
+    });
+
+    // ── Persist API key in localStorage ──
+    const openRouterKeyInput = document.getElementById('openrouter-key');
+    const apiKeyStatusEl = document.getElementById('api-key-status');
+    const LS_KEY = 'linguaplay_openrouter_key';
+
+    function loadSavedKey() {
+      try {
+        const saved = localStorage.getItem(LS_KEY);
+        if (saved && saved.startsWith('sk-or-')) {
+          openRouterKeyInput.value = saved;
+          apiKeyStatusEl.classList.remove('hidden');
+          apiKeyStatusEl.textContent = 'Key saved';
+          apiKeyStatusEl.className = 'text-[10px] text-emerald-400 shrink-0';
+          return true;
+        }
+      } catch (e) {
+        console.warn('localStorage unavailable:', e.message);
+      }
+      apiKeyStatusEl.classList.add('hidden');
+      return false;
+    }
+
+    function persistKey(val) {
+      try {
+        if (val && val.startsWith('sk-or-')) {
+          localStorage.setItem(LS_KEY, val);
+          apiKeyStatusEl.classList.remove('hidden');
+          apiKeyStatusEl.textContent = 'Key saved';
+          apiKeyStatusEl.className = 'text-[10px] text-emerald-400 shrink-0';
+        } else if (!val) {
+          localStorage.removeItem(LS_KEY);
+          apiKeyStatusEl.classList.add('hidden');
+        }
+      } catch (e) {
+        console.warn('Failed to persist key:', e.message);
+      }
+    }
+
+    loadSavedKey();
+    openRouterKeyInput.addEventListener('input', () => persistKey(openRouterKeyInput.value.trim()));
+    openRouterKeyInput.addEventListener('blur', () => persistKey(openRouterKeyInput.value.trim()));
+
+    // ══════════════════════════════════════════
+    //  Kuromoji Initialization
+    // ══════════════════════════════════════════
+    function initKuromoji() {
+      // Disable inputs & show loading state
+      videoInput.disabled = true;
+      subInput.disabled = true;
+      youtubeUrlInput.disabled = true;
+      youtubeLoadBtn.disabled = true;
+      videoLabel.innerHTML = '<span class="animate-pulse">Loading dictionary…</span>';
+      subLabel.innerHTML = '<span class="animate-pulse">Please wait…</span>';
+
+      kuromoji.builder({
+        dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/'
+      }).build((err, _tokenizer) => {
+        if (err) {
+          console.error('Kuromoji failed to load:', err);
+          videoLabel.textContent = '⚠ Dictionary failed to load';
+          subLabel.textContent = 'Reload the page to retry';
+          return;
+        }
+        tokenizer = _tokenizer;
+        videoInput.disabled = false;
+        subInput.disabled = false;
+        youtubeUrlInput.disabled = false;
+        youtubeLoadBtn.disabled = false;
+        videoLabel.textContent = 'Select MP4 video…';
+        subLabel.textContent = 'Select subtitle file (.srt/.vtt)…';
+        console.log('Kuromoji tokenizer ready.');
+      });
+    }
+
+    // ══════════════════════════════════════════
+    //  OpenRouter API Integration
+    // ══════════════════════════════════════════
+    const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+    const OPENROUTER_MODEL = 'deepseek/deepseek-v4-flash';
+    let aiAbortController = null;
+    const activeDef = document.getElementById('active-def');
+
+    // ── Built-in Japanese → English Dictionary ──
+    const JDICT = {
+      '私': 'I; me', '俺': 'I; me (masculine)', '僕': 'I; me (humble, male)', 'あなた': 'you', '彼': 'he; him; boyfriend', '彼女': 'she; her; girlfriend', '誰': 'who',
+      'これ': 'this', 'それ': 'that', 'あれ': 'that (over there)', 'どれ': 'which one', 'ここ': 'here', 'そこ': 'there', 'あそこ': 'over there', 'どこ': 'where',
+      'は': '(topic marker)', 'が': '(subject marker)', 'を': '(object marker)', 'に': 'to; at; in', 'で': 'at; by; with', 'へ': 'towards', 'も': 'also; too',
+      'の': '(possessive; of)', 'と': 'and; with; quotation', 'か': '(question marker)', 'よ': '(emphasis)', 'ね': '(confirmation; right?)', 'より': 'than; from',
+      'から': 'from; since; because', 'まで': 'until; even', 'だけ': 'only; just', 'しか': 'only; but (with negative)', 'けど': 'but; however',
+      'する': 'to do', 'ある': 'to exist (inanimate); to have', 'いる': 'to exist (animate); to be', '行く': 'to go', '来る': 'to come', '見る': 'to see; to look; to watch',
+      '聞く': 'to hear; to listen; to ask', '言う': 'to say; to tell', '食べる': 'to eat', '飲む': 'to drink', '買う': 'to buy', '書く': 'to write',
+      '読む': 'to read', '話す': 'to speak; to talk', '会う': 'to meet', '待つ': 'to wait', '立つ': 'to stand', '座る': 'to sit', '歩く': 'to walk', '走る': 'to run',
+      '止まる': 'to stop', '始まる': 'to begin', '終わる': 'to end; to finish', '作る': 'to make; to create', '出る': 'to leave; to go out', '入る': 'to enter',
+      '乗る': 'to ride; to get on', '降りる': 'to get off; to descend', '開ける': 'to open', '閉める': 'to close', '教える': 'to teach; to tell',
+      '学ぶ': 'to learn; to study', '勉強する': 'to study', '働く': 'to work', '休む': 'to rest; to take a day off', '遊ぶ': 'to play; to hang out',
+      '使う': 'to use', '持つ': 'to hold; to have', '置く': 'to put; to place', '取る': 'to take; to get', '送る': 'to send', '受ける': 'to receive',
+      '返す': 'to return (something)', '帰る': 'to return home', '死ぬ': 'to die', '生きる': 'to live; to be alive', '生まれる': 'to be born',
+      '変わる': 'to change (intrans.)', '変える': 'to change (trans.)', '思う': 'to think; to feel', '考える': 'to think; to consider', '知る': 'to know',
+      '分かる': 'to understand; to know', '忘れる': 'to forget', '覚える': 'to remember; to memorize', '信じる': 'to believe', '感じる': 'to feel',
+      '好き': 'to like', '嫌い': 'to dislike; to hate', '欲しい': 'to want (adjective)', 'できる': 'can do; to be able to', 'なる': 'to become',
+      '見える': 'to be visible; can see', '聞こえる': 'to be audible; can hear', '決める': 'to decide', '選ぶ': 'to choose',
+      '探す': 'to search; to look for', '見つける': 'to find; to discover', '試す': 'to try', '続ける': 'to continue',
+      '歌う': 'to sing', '踊る': 'to dance', '泳ぐ': 'to swim', '飛ぶ': 'to fly; to jump', '打つ': 'to hit; to strike', '切る': 'to cut',
+      '着る': 'to wear (upper body)', '脱ぐ': 'to take off (clothes)', '洗う': 'to wash', '料理する': 'to cook',
+      '運転する': 'to drive', '電話する': 'to call (phone)', '結婚する': 'to marry', '離婚する': 'to divorce',
+      '引っ越す': 'to move (residence)', '紹介する': 'to introduce', '説明する': 'to explain', '練習する': 'to practice',
+      '準備する': 'to prepare', '心配する': 'to worry', '期待する': 'to expect; to look forward to',
+      '人': 'person; people', '子': 'child', '男': 'man; male', '女': 'woman; female', '友達': 'friend', '先生': 'teacher; doctor', '学生': 'student',
+      '今': 'now', '今日': 'today', '明日': 'tomorrow', '昨日': 'yesterday', '朝': 'morning', '昼': 'noon; daytime', '夜': 'night', '時間': 'time; hour',
+      '家': 'house; home', '学校': 'school', '会社': 'company', '駅': 'train station', '病院': 'hospital', '店': 'shop; store',
+      '水': 'water', '食べ物': 'food', '飲み物': 'drink; beverage', 'お金': 'money', '車': 'car', '電車': 'train', '飛行機': 'airplane',
+      '日本': 'Japan', '日本語': 'Japanese (language)', '英語': 'English (language)', '言葉': 'word; language', '名前': 'name', '仕事': 'work; job',
+      '天気': 'weather', '雨': 'rain', '雪': 'snow', '風': 'wind', '山': 'mountain', '海': 'sea; ocean', '川': 'river', '花': 'flower', '木': 'tree; wood',
+      '犬': 'dog', '猫': 'cat', '魚': 'fish', '鳥': 'bird', '音楽': 'music', '映画': 'movie; film', '本': 'book', '写真': 'photograph', '色': 'color',
+      '心': 'heart; mind', '気持ち': 'feeling', '愛': 'love', '夢': 'dream', '命': 'life; fate', '力': 'power; force', '光': 'light', '影': 'shadow',
+      '世界': 'world', '歴史': 'history', '未来': 'future', '過去': 'past', '平和': 'peace', '戦争': 'war',
+      '大きい': 'big; large', '小さい': 'small; little', '新しい': 'new', '古い': 'old', '良い': 'good', '悪い': 'bad',
+      '高い': 'tall; high; expensive', '低い': 'low; short', '長い': 'long', '短い': 'short', '早い': 'early; fast', '遅い': 'slow; late',
+      '強い': 'strong', '弱い': 'weak', '暖かい': 'warm', '暑い': 'hot (weather)', '寒い': 'cold (weather)', '冷たい': 'cold (to touch)',
+      '美しい': 'beautiful', '可愛い': 'cute', '難しい': 'difficult', '易しい': 'easy', '楽しい': 'fun; enjoyable', '嫁しい': 'happy; glad',
+      '悲しい': 'sad', '怖い': 'scary', '痛い': 'painful', 'すごい': 'amazing; incredible', 'やばい': 'dangerous; risky', 'おいしい': 'delicious',
+      'うれしい': 'happy; glad', '寂しい': 'lonely', 'つまらない': 'boring', 'おもしろい': 'interesting; funny', '忩しい': 'busy',
+      '元気': 'healthy; energetic', '有名': 'famous', '好き': 'liked; favorite', '嫌い': 'disliked', '上手': 'skilled; good at', '下手': 'unskilled; bad at',
+      '素敵': 'wonderful; lovely', '大切': 'important; precious', '大丈夫': 'all right; OK', '簡単': 'easy; simple', '色々': 'various',
+      '静か': 'quiet', '資有名': 'famous', '便利': 'convenient; handy', '不便': 'inconvenient', '危険': 'dangerous', '安全': 'safe',
+      'とても': 'very; really', 'すごく': 'very; extremely', 'ちょっと': 'a little; slightly', '全然': 'not at all (with neg.)',
+      'まだ': 'still; yet; not yet', 'もう': 'already; soon', 'いつも': 'always', '時々': 'sometimes', 'ずっと': 'the whole time; always',
+      '初めて': 'for the first time', '一緒に': 'together', '一番': 'the most; number one', 'たくさん': 'many; a lot', '少し': 'a little; a few',
+      '本当に': 'really; truly', '絶対': 'absolutely', '全部': 'all; everything', '大体': 'mostly; generally',
+      'ありがとう': 'thank you', 'ごめん': 'sorry', 'おはよう': 'good morning', 'こんにちは': 'hello', 'さよなら': 'goodbye',
+      'お願い': 'please (request)', 'だめ': 'no good; useless', '大丈夫': 'all right; fine', '無理': 'impossible; unreasonable',
+      '本当': 'truth; reality', '崩壊': 'collapse; destruction', '最後': 'last; final', '最初': 'first; beginning', '次': 'next', '前': 'before; front', '後': 'after; behind',
+    };
+
+    function getActiveSentence() {
+      if (currentSubIndex >= 0 && currentSubIndex < subtitleTimeline.length) {
+        return subtitleTimeline[currentSubIndex].text;
+      }
+      const spans = tokensContainer.querySelectorAll('.token-group');
+      return Array.from(spans).map(s => s.dataset.word).join('');
+    }
+
+    function getActiveSentenceRomaji() {
+      const spans = tokensContainer.querySelectorAll('.token-group');
+      return Array.from(spans).map(s => s.dataset.romaji).join(' ').trim();
+    }
+
+    async function analyzeWord(clickedWord, romaji) {
+      if (aiAbortController) { aiAbortController.abort(); aiAbortController = null; }
+
+      const apiKey = document.getElementById('openrouter-key').value.trim();
+      const statusEl = document.getElementById('api-key-status');
+      const skeleton = document.getElementById('ai-loading-skeleton');
+      const cardsContainer = document.getElementById('ai-cards-container');
+      const errorDisplay = document.getElementById('ai-error-display');
+      const errorText = document.getElementById('ai-error-text');
+      const streamPreview = document.getElementById('ai-stream-preview');
+      const streamText = document.getElementById('ai-stream-text');
+
+      cardsContainer.innerHTML = '';
+      errorDisplay.classList.add('hidden');
+      skeleton.classList.remove('hidden');
+      streamPreview.classList.add('hidden');
+      streamText.textContent = '';
+
+      if (!apiKey) {
+        skeleton.classList.add('hidden');
+        errorDisplay.classList.remove('hidden');
+        errorText.textContent = 'Please enter your OpenRouter API key in the field above.';
+        statusEl.textContent = '⚠ No key';
+        statusEl.className = 'text-[11px] text-amber-400';
+        return;
+      }
+
+      const fullSentence = getActiveSentence();
+      statusEl.textContent = '⏳';
+      statusEl.className = 'text-[11px] text-accent animate-pulse';
+
+      const systemPrompt = `You are a JSON-only Japanese language analysis API. You MUST respond with ONLY a valid JSON object. No markdown, no explanation outside JSON, no code fences. Do NOT wrap in \`\`\`json blocks.
+
+Return exactly this JSON structure:
+{
+  "meaning": "concise English definition of the word",
+  "reading": "hiragana reading",
+  "jlpt_level": "N5|N4|N3|N2|N1|unknown",
+  "formality": "casual|polite|formal|honorific|humble|neutral",
+  "grammar_role": "brief explanation of grammatical role in this sentence",
+  "sentence_translation": "natural English translation of the FULL input sentence (not the example sentence)",
+  "conjugation": {
+    "form": "current conjugation form name (e.g. te-form, past tense, potential, etc.) or null if not conjugated",
+    "from_base": "dictionary/base form if conjugated, or null",
+    "explanation": "brief conjugation explanation or null"
+  },
+  "sentence_breakdown": [
+    { "word": "each", "role": "part of speech", "meaning": "english meaning", "is_target": false }
+  ],
+  "nuance": "cultural or usage nuance, comparison with similar words, or contextual insight",
+  "example": {
+    "jp": "a different example sentence using this word",
+    "en": "english translation of the example",
+    "romaji": "romaji of the example"
+  }
+}
+
+Rules:
+- sentence_breakdown must contain EVERY token/word from the input sentence, in order
+- Set is_target: true for the clicked word in the breakdown
+- All string values must be filled in (no empty strings)
+- conjugation fields can be null if word is not conjugated
+- Respond with raw JSON only. No text before or after.`;
+
+      const userPrompt = `Analyze the word "${clickedWord}" (romaji: ${romaji}) clicked in this sentence: "${fullSentence}"`;
+
+      aiAbortController = new AbortController();
+
+      let accumulated = '';
+      let parsed = null;
+      let done = false;
+
+      try {
+        const res = await fetch(OPENROUTER_URL, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': window.location.href,
+            'X-Title': 'LinguaPlay AI Japanese Immersion'
+          },
+          body: JSON.stringify({
+            model: OPENROUTER_MODEL,
+            stream: true,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.2,
+            max_tokens: 900
+          }),
+          signal: aiAbortController.signal
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`API ${res.status}: ${errText.slice(0, 300)}`);
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (!done) {
+          const { value, done: readerDone } = await reader.read();
+          if (readerDone) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith('data: ')) continue;
+
+            const payload = trimmed.slice(6);
+            if (payload === '[DONE]') { done = true; break; }
+
+            try {
+              const chunk = JSON.parse(payload);
+              const delta = chunk.choices?.[0]?.delta?.content;
+              if (delta) {
+                accumulated += delta;
+
+                if (accumulated.length <= 2) {
+                  skeleton.classList.add('hidden');
+                  streamPreview.classList.remove('hidden');
+                }
+                streamText.textContent = accumulated;
+                streamText.scrollTop = streamText.scrollHeight;
+
+                if (!parsed) {
+                  let cleaned = accumulated.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+                  if (cleaned.startsWith('{') && cleaned.endsWith('}')) {
+                    try { parsed = JSON.parse(cleaned); } catch (e) { /* incomplete */ }
+                  }
+                }
+              }
+            } catch (e) { /* skip malformed SSE */ }
+          }
+        }
+
+        if (!parsed) {
+          let cleaned = accumulated.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+          try { parsed = JSON.parse(cleaned); } catch (e) {
+            throw new Error('AI returned invalid JSON. Try again.');
+          }
+        }
+
+        skeleton.classList.add('hidden');
+        streamPreview.classList.add('hidden');
+        renderAICards(parsed, clickedWord, cardsContainer);
+
+        const ankiBtnWrapper = document.createElement('div');
+        ankiBtnWrapper.className = 'mt-5 animate-fade-up';
+        ankiBtnWrapper.style.animationDelay = '400ms';
+
+        const ankiBtn = document.createElement('button');
+        ankiBtn.id = 'add-to-anki-btn';
+        ankiBtn.className = 'w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-white bg-surface-200 border border-accent/40 hover:bg-accent/20 hover:border-accent shadow-lg transition-all duration-200 flex items-center justify-center gap-2';
+        ankiBtn.innerHTML = '🗃️ + Add to Anki';
+
+        const ankiFeedback = document.createElement('p');
+        ankiFeedback.className = 'text-[11px] text-amber-400/80 mt-2 hidden leading-relaxed px-2';
+
+        ankiBtnWrapper.appendChild(ankiBtn);
+        ankiBtnWrapper.appendChild(ankiFeedback);
+        cardsContainer.appendChild(ankiBtnWrapper);
+
+        ankiBtn.addEventListener('click', async () => {
+          ankiBtn.disabled = true;
+          ankiBtn.innerHTML = '⏳ Connecting...';
+          ankiBtn.classList.remove('hover:bg-accent/20', 'hover:border-accent');
+          ankiFeedback.classList.add('hidden');
+
+          const hl = (text) => text ? text.split(clickedWord).join(`<b style="color: #a78bfa;">${clickedWord}</b>`) : '';
+          const fullRomaji = getActiveSentenceRomaji();
+
+          // Front now shows the whole context sentence (target word highlighted) so the
+          // card tests sentence comprehension, not just isolated word recall.
+          const frontText = `<div style="font-size: 1.3em; line-height: 1.6;">${hl(fullSentence)}</div><div style="font-size: 0.85em; color: gray; margin-top: 6px;">${fullRomaji}</div>`.trim();
+
+          let backHTML = `<div style="font-size: 1.05em;"><strong>Translation:</strong> ${parsed.sentence_translation || ''}</div><br>`;
+          backHTML += `<div style="font-size: 1.1em;"><strong>${clickedWord}</strong>${parsed.reading ? ` [${parsed.reading}]` : ''} <span style="font-size: 0.85em; color: gray;">(${romaji})</span></div><br>`;
+          backHTML += `<div><strong>Meaning:</strong> ${parsed.meaning || ''}</div>`;
+          if (parsed.grammar_role) backHTML += `<div style="font-size: 0.9em; color: #999; margin-top: 4px;"><strong>Role in sentence:</strong> ${parsed.grammar_role}</div>`;
+
+          const payload = {
+            action: "addNote",
+            version: 6,
+            params: {
+              note: {
+                deckName: "LinguaPlay",
+                modelName: "Basic",
+                fields: {
+                  Front: frontText,
+                  Back: backHTML
+                },
+                tags: ["linguaplay", "immersion"]
+              }
+            }
+          };
+
+          try {
+            await fetch('http://127.0.0.1:8765', {
+              method: 'POST',
+              body: JSON.stringify({ action: "createDeck", version: 6, params: { deck: "LinguaPlay" } })
+            });
+
+            const response = await fetch('http://127.0.0.1:8765', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) throw new Error('AnkiConnect fetch failed. Check CORS configuration.');
+
+            const result = await response.json();
+
+            if (result.error) {
+              console.warn("AnkiConnect error:", result.error);
+              throw new Error(result.error);
+            }
+
+            ankiBtn.innerHTML = '✓ Added to Anki';
+            ankiBtn.className = 'w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center gap-2 cursor-default';
+          } catch (err) {
+            console.error('Anki sync failed:', err);
+            ankiBtn.disabled = false;
+            ankiBtn.innerHTML = '⚠ Connection Blocked';
+            ankiBtn.className = 'w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 transition-all duration-200 flex items-center justify-center gap-2';
+
+            ankiFeedback.innerHTML = `<strong>Action Required:</strong> Anki blocked the connection due to security settings.<br><br>
+                  1. In Anki, go to <strong>Tools > Add-ons</strong><br>
+                  2. Select <strong>AnkiConnect</strong> and click <strong>Config</strong><br>
+                  3. Change <code>"webCorsOriginList"</code> to include <code>"*"</code><br>
+                  4. <strong>Restart Anki</strong> and try again.`;
+            ankiFeedback.classList.remove('hidden');
+          }
+        });
+
+        statusEl.textContent = '✓';
+        statusEl.className = 'text-[11px] text-emerald-400';
+
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          statusEl.textContent = '—';
+          statusEl.className = 'text-[11px] text-slate-500';
+          return;
+        }
+        console.error('AI analysis failed:', err);
+        skeleton.classList.add('hidden');
+        streamPreview.classList.add('hidden');
+        errorDisplay.classList.remove('hidden');
+
+        if (err.message.includes('401') || err.message.includes('403')) {
+          errorText.textContent = 'Invalid or expired API key. Double-check your OpenRouter key.';
+        } else if (err.message.includes('429')) {
+          errorText.textContent = 'Rate limited. Please wait a moment and try again.';
+        } else {
+          errorText.textContent = err.message || 'Network error or API failure.';
+        }
+        statusEl.textContent = '✕';
+        statusEl.className = 'text-[11px] text-red-400';
+      } finally {
+        aiAbortController = null;
+      }
+    }
+
+    // ══════════════════════════════════════════
+    //  Render Structured AI Cards
+    // ══════════════════════════════════════════
+    function renderAICards(data, clickedWord, container) {
+      container.innerHTML = '';
+      let delay = 0;
+
+      function addCard(icon, iconBg, label, labelColor, bodyHTML) {
+        const card = document.createElement('div');
+        card.className = 'ai-card ai-card-wrapper';
+        card.style.animationDelay = `${delay}ms`;
+        delay += 90;
+
+        card.innerHTML = `
+          <div class="ai-card-header">
+            <div class="ai-card-icon ${iconBg}">${icon}</div>
+            <span class="ai-card-label ${labelColor}">${label}</span>
+          </div>
+          <div class="ai-card-body">${bodyHTML}</div>
+        `;
+        container.appendChild(card);
+      }
+
+      const badges = [];
+      if (data.jlpt_level && data.jlpt_level !== 'unknown') {
+        badges.push(`<span class="ai-badge badge-jlpt">${data.jlpt_level}</span>`);
+      }
+      if (data.formality && data.formality !== 'neutral') {
+        badges.push(`<span class="ai-badge badge-formality">${data.formality}</span>`);
+      }
+      const badgeRow = badges.length ? `<div class="flex gap-2 mt-2">${badges.join('')}</div>` : '';
+      const readingLine = data.reading ? `<span class="text-accent-light text-xs ml-2">(${data.reading})</span>` : '';
+
+      addCard('📖', 'bg-accent/15', 'Meaning', 'text-accent-light',
+        `<p class="text-[15px] text-slate-200 font-medium"><span class="jp-inline">${clickedWord}</span>${readingLine}</p>
+         <p class="mt-1">${data.meaning || '—'}</p>
+         ${badgeRow}`
+      );
+
+      if (data.grammar_role) {
+        addCard('⚙️', 'bg-sky-500/12', 'Grammar Role', 'text-sky-400',
+          `<p>${data.grammar_role}</p>`
+        );
+      }
+
+      if (data.conjugation && data.conjugation.form) {
+        const conjParts = [];
+        conjParts.push(`<span class="ai-badge badge-conjugation">${data.conjugation.form}</span>`);
+        if (data.conjugation.from_base) {
+          conjParts.push(`<p class="mt-2">Base form: <span class="jp-inline text-base">${data.conjugation.from_base}</span></p>`);
+        }
+        if (data.conjugation.explanation) {
+          conjParts.push(`<p class="mt-1 text-slate-400 text-xs">${data.conjugation.explanation}</p>`);
+        }
+        addCard('🔄', 'bg-emerald-500/12', 'Conjugation', 'text-emerald-400', conjParts.join(''));
+      }
+
+      if (data.sentence_breakdown && data.sentence_breakdown.length > 0) {
+        const segments = data.sentence_breakdown.map(seg => {
+          const hl = seg.is_target ? ' breakdown-highlight' : '';
+          return `<span class="breakdown-segment${hl}" title="${seg.role}">
+            <span class="breakdown-jp">${seg.word}</span>
+            <span class="breakdown-en">${seg.meaning || ''}</span>
+          </span>`;
+        }).join('');
+
+        addCard('🧩', 'bg-amber-500/12', 'Sentence Breakdown', 'text-amber-400',
+          `<div class="flex flex-wrap items-end gap-0.5 mt-1">${segments}</div>`
+        );
+      }
+
+      if (data.nuance) {
+        addCard('💡', 'bg-rose-500/12', 'Nuance & Usage', 'text-rose-300',
+          `<p class="italic text-slate-300/90">${data.nuance}</p>`
+        );
+      }
+
+      if (data.example && data.example.jp) {
+        addCard('💬', 'bg-violet-500/12', 'Example', 'text-violet-400',
+          `<p class="jp-inline text-base leading-relaxed">${data.example.jp}</p>
+           ${data.example.romaji ? `<p class="text-xs text-accent/70 mt-1">${data.example.romaji}</p>` : ''}
+           <p class="text-slate-400 text-xs mt-1.5">${data.example.en || ''}</p>`
+        );
+      }
+    }
+
+    // ══════════════════════════════════════════
+    //  VTT Parser (handles cue lines with or
+    //  without a leading numeric/identifier line —
+    //  this covers yt-dlp's auto-sub output)
+    const VTT_TIME_RE = new RegExp("(\\d{2}):(\\d{2}):(\\d{2})[.,](\\d{3})\\s*-->\\s*(\\d{2}):(\\d{2}):(\\d{2})[.,](\\d{3})");
+
+    function parseVTT(raw) {
+      const cleaned = raw.replace(/\r\n/g, '\n').replace(/^\uFEFF/, '').replace(/^WEBVTT[^\n]*\n/i, '');
+      const blocks = cleaned.trim().split(/\n\n+/);
+      const timeline = [];
+
+      for (const block of blocks) {
+        const lines = block.split('\n').filter(l => l.trim() !== '');
+        if (!lines.length) continue;
+
+        const timeLineIdx = lines.findIndex(l => VTT_TIME_RE.test(l));
+        if (timeLineIdx === -1) continue;
+
+        const m = lines[timeLineIdx].match(VTT_TIME_RE);
+        const start = +m[1] * 3600 + +m[2] * 60 + +m[3] + +m[4] / 1000;
+        const end = +m[5] * 3600 + +m[6] * 60 + +m[7] + +m[8] / 1000;
+
+        const text = lines.slice(timeLineIdx + 1)
+          .join(' ')
+          .replace(/<[^>]+>/g, '')
+          .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+          .trim();
+
+        if (text) timeline.push({ start, end, text });
+      }
+      return timeline;
+    }
+
+    function parseSubtitleFile(raw, filename) {
+      const isVTT = /\.vtt$/i.test(filename || '') || /^\uFEFF?WEBVTT/i.test(raw.trim());
+      return isVTT ? parseVTT(raw) : parseSRT(raw);
+    }
+
+    // ══════════════════════════════════════════
+    //  SRT Parser (FIXED REGEX)
+    // ══════════════════════════════════════════
+    function parseSRT(raw) {
+      const blocks = raw.trim().replace(/\r\n/g, '\n').split(/\n\n+/);
+      const timeline = [];
+
+      for (const block of blocks) {
+        const lines = block.split('\n');
+        if (lines.length < 2) continue;
+
+        // Cleaned up syntax spaces introduced into previous regex definition
+        const m = lines[1]?.match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/);
+        if (!m) continue;
+
+        const start = +m[1] * 3600 + +m[2] * 60 + +m[3] + +m[4] / 1000;
+        const end = +m[5] * 3600 + +m[6] * 60 + +m[7] + +m[8] / 1000;
+        const text = lines.slice(2).join(' ').replace(/<[^>]+>/g, '').trim();
+
+        if (text) timeline.push({ start, end, text });
+      }
+      return timeline;
+    }
+
+    // ══════════════════════════════════════════
+    //  Romaji Helpers
+    // ══════════════════════════════════════════
+    const PARTICLE_ROMAJI = { 'は': 'wa', 'へ': 'e', 'を': 'o' };
+
+    function toRomaji(token) {
+      if (token.pos === '助詞' && PARTICLE_ROMAJI[token.surface_form]) {
+        return PARTICLE_ROMAJI[token.surface_form];
+      }
+      const reading = token.reading || token.surface_form;
+      try { return wanakana.toRomaji(reading); }
+      catch { return reading; }
+    }
+
+    // ══════════════════════════════════════════
+    //  Media Adapter — unifies native <video> and
+    //  the YouTube IFrame Player behind one API
+    // ══════════════════════════════════════════
+    function getCurrentTime() {
+      if (mediaMode === 'youtube' && ytPlayer && ytPlayer.getCurrentTime) {
+        return ytPlayer.getCurrentTime();
+      }
+      return player.currentTime;
+    }
+
+    function seekTo(t) {
+      if (t < 0) t = 0;
+      if (mediaMode === 'youtube' && ytPlayer && ytPlayer.seekTo) {
+        ytPlayer.seekTo(t, true);
+      } else {
+        player.currentTime = t;
+      }
+    }
+
+    function playMedia() {
+      if (mediaMode === 'youtube' && ytPlayer && ytPlayer.playVideo) {
+        ytPlayer.playVideo();
+      } else {
+        const p = player.play();
+        if (p !== undefined) p.catch(() => { });
+      }
+    }
+
+    function pauseMedia() {
+      if (mediaMode === 'youtube' && ytPlayer && ytPlayer.pauseVideo) {
+        ytPlayer.pauseVideo();
+      } else {
+        player.pause();
+      }
+    }
+
+    function isMediaPaused() {
+      if (mediaMode === 'youtube' && ytPlayer && ytPlayer.getPlayerState) {
+        return ytPlayer.getPlayerState() !== 1; // 1 = YT.PlayerState.PLAYING
+      }
+      return player.paused;
+    }
+
+    // ══════════════════════════════════════════
+    //  Subtitle Sync — shared by native 'timeupdate'
+    //  and the YouTube polling loop
+    // ══════════════════════════════════════════
+    function syncSubtitles() {
+      const t = getCurrentTime();
+
+      let idx = -1;
+      for (let i = 0; i < subtitleTimeline.length; i++) {
+        if (t >= subtitleTimeline[i].start && t <= subtitleTimeline[i].end) {
+          idx = i;
+          break;
+        }
+      }
+
+      if (idx !== currentSubIndex) {
+        currentSubIndex = idx;
+        if (idx >= 0) {
+          renderTokens(subtitleTimeline[idx].text);
+        } else {
+          tokensContainer.innerHTML = '';
+        }
+      }
+    }
+
+    // ══════════════════════════════════════════
+    //  Captions Panel UI helpers
+    // ══════════════════════════════════════════
+    function setCaptionsStatus(state, message) {
+      if (state === 'failed') {
+        ytdlpModal.classList.remove('hidden');
+      } else {
+        ytdlpModal.classList.add('hidden');
+      }
+    }
+
+    function showCaptionsFallback(open) {
+      // Stubbed to prevent errors from other legacy code paths
+    }
+
+    function loadCaptionTimeline(timeline, sourceLabel) {
+      if (!timeline || !timeline.length) return false;
+      subtitleTimeline = timeline;
+      currentSubIndex = -1;
+      tokensContainer.innerHTML = '';
+      manualCaptionsLoaded = true;
+      setCaptionsStatus('success', `${sourceLabel} • ${timeline.length} cues loaded`);
+      // If the video is already playing, sync right away.
+      syncSubtitles();
+      return true;
+    }
+
+    ytdlpModalClose.addEventListener('click', () => {
+      ytdlpModal.classList.add('hidden');
+    });
+
+    captionsCopyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(captionsYtdlpCmd.textContent);
+        const originalText = captionsCopyBtn.textContent;
+        captionsCopyBtn.textContent = 'Copied!';
+        setTimeout(() => {
+          captionsCopyBtn.textContent = originalText;
+          ytdlpModal.classList.add('hidden');
+        }, 500);
+      } catch {
+        // Fallback silently if copy fails
+      }
+    });
+
+    // ══════════════════════════════════════════
+    //  YouTube caption auto-fetch
+    //  Two-stage, best-effort:
+    //   1) InnerTube POST /youtubei/v1/player with the
+    //      TVHTML5 client (bypasses the consent wall the
+    //      watch-page HTML now serves to proxies, and
+    //      historically avoids the PO-token requirement
+    //      for a larger share of videos than the web client).
+    //   2) Fallback: scrape ytInitialPlayerResponse from
+    //      the proxied watch page (older path).
+    //  Caption text is pulled as fmt=json3 (structured)
+    //  with a VTT fallback, parsed through parseVTT/
+    //  parseJSON3.
+    //
+    //  Hard limit: some videos now require a PO token that
+    //  can only be minted by YouTube's BotGuard JS, which a
+    //  browser page cannot run. Those videos cannot be
+    //  auto-fetched here — use the local helper or yt-dlp.
+    // ══════════════════════════════════════════
+    const CORS_PROXIES = [
+      (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+      (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+      (u) => `https://thingproxy.freeboard.io/fetch/${u}`,
+      (u) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`
+    ];
+
+    async function proxyFetchText(url) {
+      let lastErr;
+      for (const wrap of CORS_PROXIES) {
+        try {
+          const res = await fetch(wrap(url), { credentials: 'omit' });
+          if (!res.ok) { lastErr = new Error(`HTTP ${res.status}`); continue; }
+          const text = await res.text();
+          if (text && text.length > 0) return text;
+          lastErr = new Error('empty response');
+        } catch (e) { lastErr = e; }
+      }
+      throw lastErr || new Error('All proxies failed');
+    }
+
+    // POST through proxies that forward a body (codetabs/allorigins are GET-only;
+    // for the InnerTube POST we instead fetch the GET watch page and also try a
+    // POST-capable relay). We keep a dedicated list for POST.
+    const CORS_POST_PROXIES = [
+      // allorigins can relay arbitrary GETs of the watch page (used for scrape fallback)
+    ];
+
+    function buildInnertubePayload(videoId) {
+      // TVHTML5 (Smart TV) client context — historically PO-token-exempt.
+      return {
+        context: {
+          client: {
+            clientName: 'TVHTML5',
+            clientVersion: '7.20240813.07.00'
+          }
+        },
+        videoId
+      };
+    }
+
+    async function fetchPlayerResponseJSON(videoId) {
+      const endpoint = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
+      // Try a direct POST first (works in some extension/CORS-relaxed contexts).
+      const attempts = [
+        async () => {
+          const r = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(buildInnertubePayload(videoId))
+          });
+          return r.ok ? await r.text() : null;
+        }
+      ];
+      for (const a of attempts) {
+        try {
+          const txt = await a();
+          if (txt) {
+            try { return JSON.parse(txt); } catch { /* not JSON */ }
+          }
+        } catch { /* CORS — expected */ }
+      }
+      return null;
+    }
+
+    function pickJapaneseTrack(captionTracks) {
+      if (!captionTracks || !captionTracks.length) return null;
+      const ja = captionTracks.filter(t => /^ja/i.test(t.languageCode || ''));
+      if (ja.length) {
+        return ja.find(t => (t.kind || '') !== 'asr') || ja[0]; // prefer human-authored
+      }
+      return captionTracks[0];
+    }
+
+    function extractPlayerResponse(html) {
+      const marker = 'ytInitialPlayerResponse';
+      const start = html.indexOf(marker);
+      if (start === -1) return null;
+      const eq = html.indexOf('{', start);
+      if (eq === -1) return null;
+
+      let depth = 0, inStr = false, esc = false;
+      for (let i = eq; i < html.length; i++) {
+        const c = html[i];
+        if (inStr) {
+          if (esc) { esc = false; continue; }
+          if (c === '\\') { esc = true; continue; }
+          if (c === '"') inStr = false;
+        } else {
+          if (c === '"') inStr = true;
+          else if (c === '{') depth++;
+          else if (c === '}') { depth--; if (depth === 0) { try { return JSON.parse(html.slice(eq, i + 1)); } catch { return null; } } }
+        }
+      }
+      return null;
+    }
+
+    // ── json3 structured caption parser ──
+    // json3 = { events: [ { tStartMs, dDurationMs?, segs: [ { utf8 } ] } ] }
+    function parseJSON3(json) {
+      let data;
+      try { data = typeof json === 'string' ? JSON.parse(json) : json; }
+      catch { return []; }
+      const events = data.events || [];
+      const timeline = [];
+      for (const ev of events) {
+        if (typeof ev.tStartMs !== 'number') continue;
+        const segs = (ev.segs || []).filter(s => s && s.utf8);
+        const text = segs.map(s => s.utf8).join('').replace(/\n/g, ' ').replace(/<[^>]+>/g, '').trim();
+        if (!text) continue;
+        const start = ev.tStartMs / 1000;
+        const dur = typeof ev.dDurationMs === 'number' ? ev.dDurationMs / 1000 : 0;
+        const end = dur > 0 ? start + dur : start + 3;
+        timeline.push({ start, end, text });
+      }
+      // Merge adjacent duplicate-ish cues and drop empty ones.
+      return timeline;
+    }
+
+    async function fetchCaptionTimelineForTrack(track) {
+      const base = track.baseUrl || '';
+      // Try json3 first (most robust), then vtt.
+      for (const fmt of ['json3', 'vtt']) {
+        const url = base + (base.includes('fmt=') ? '' : `&fmt=${fmt}`);
+        try {
+          const raw = await proxyFetchText(url);
+          if (!raw) continue;
+          const timeline = fmt === 'json3' ? parseJSON3(raw) : parseVTT(raw);
+          if (timeline.length) return timeline;
+        } catch { /* try next */ }
+      }
+      return [];
+    }
+
+    async function fetchYouTubeCaptions(videoId) {
+      if (manualCaptionsLoaded) return;
+      setCaptionsStatus('fetching', 'fetching Japanese captions…');
+
+      // Preferred path: the LinguaPlay extension bridge. When the page is
+      // opened with the extension installed, the bridge fetches DIRECTLY from
+      // youtube.com (extension host_permission → no CORS, no proxy, no consent
+      // wall). This is the only path that works reliably in a browser.
+      if (bridgeReady) {
+        try {
+          const result = await requestCaptionsFromBridge(videoId);
+          if (result && result.ok && result.timeline && result.timeline.length) {
+            if (!manualCaptionsLoaded) {
+              loadCaptionTimeline(result.timeline, `${result.isJa ? 'Auto JA' : 'Auto'} (${result.label}) via bridge`);
+            }
+            return;
+          }
+          if (result && !result.ok) {
+            console.warn('[LinguaPlay] Bridge returned error:', result.error);
+            if (!manualCaptionsLoaded) captionFetchFailed(`Bridge: ${result.error}`);
+            return;
+          }
+        } catch (e) {
+          console.warn('[LinguaPlay] Bridge request failed, falling back:', e.message);
+          // fall through to proxy path below
+        }
+      }
+
+      // Fallback path: Try the local python ytdlp_server.py
+      try {
+        const localApiUrl = `http://127.0.0.1:8000/api/captions?v=${videoId}`;
+        const localRes = await fetch(localApiUrl);
+        if (localRes.ok) {
+          const vttText = await localRes.text();
+          const timeline = parseVTT(vttText);
+          if (timeline.length) {
+            if (!manualCaptionsLoaded) {
+              loadCaptionTimeline(timeline, 'Auto JA (yt-dlp local)');
+            }
+            return;
+          }
+        } else {
+          console.warn('Local yt-dlp server returned error:', localRes.status);
+        }
+      } catch (e) {
+        console.warn('Local yt-dlp server not running or failed:', e.message);
+      }
+
+      // If we reach here, it means neither the bridge nor the local server worked.
+      if (!manualCaptionsLoaded) {
+        captionFetchFailed('Local server fetch failed. Please run the server or use yt-dlp manually.');
+      }
+    }
+
+    // Talk to the extension content script via a CustomEvent pair. Resolves to
+    // { ok, timeline, label, isJa } or { ok:false, error }.
+    function requestCaptionsFromBridge(videoId) {
+      return new Promise((resolve) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (!settled) { settled = true; window.removeEventListener('LINGUAPLAY_CAPTIONS_RESULT', onResult); resolve(null); }
+        }, 30000);
+        function onResult(e) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          window.removeEventListener('LINGUAPLAY_CAPTIONS_RESULT', onResult);
+          resolve(e.detail);
+        }
+        window.addEventListener('LINGUAPLAY_CAPTIONS_RESULT', onResult);
+        window.dispatchEvent(new CustomEvent('LINGUAPLAY_REQUEST_CAPTIONS', { detail: { videoId } }));
+      });
+    }
+
+    function captionFetchFailed(reason) {
+      setCaptionsStatus('failed', `${reason} — use local helper, paste box, or yt-dlp`);
+      showCaptionsFallback(true);
+    }
+
+    // ══════════════════════════════════════════
+    //  YouTube Integration
+    // ══════════════════════════════════════════
+    function extractYouTubeId(input) {
+      input = input.trim();
+
+      // Already a bare 11-character video ID
+      if (/^[a-zA-Z0-9_-]{11}$/.test(input)) return input;
+
+      try {
+        const url = new URL(input);
+        const host = url.hostname.replace(/^www\./, '');
+
+        if (host === 'youtu.be') {
+          return url.pathname.slice(1).split('/')[0] || null;
+        }
+        if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com') {
+          if (url.pathname === '/watch') return url.searchParams.get('v');
+          if (url.pathname.startsWith('/embed/')) return url.pathname.split('/embed/')[1].split('/')[0];
+          if (url.pathname.startsWith('/shorts/')) return url.pathname.split('/shorts/')[1].split('/')[0];
+          if (url.pathname.startsWith('/live/')) return url.pathname.split('/live/')[1].split('/')[0];
+        }
+      } catch (e) {
+        // Not a valid URL — fall through
+      }
+      return null;
+    }
+
+    function checkYouTubeEnvironment() {
+      if (location.protocol === 'file:') {
+        youtubeUrlInput.disabled = true;
+        youtubeLoadBtn.disabled = true;
+        youtubeLoadBtn.title = 'Serve this file over http(s) to enable YouTube playback';
+        showYoutubeFeedback(
+          "YouTube videos can't play when this file is opened directly (file:// in the address bar) — YouTube requires a real web origin. " +
+          "Run a tiny local server instead: open a terminal in this file's folder and run  py -m http.server 8000  (or  python3 -m http.server 8000), " +
+          "then open http://localhost:8000/App.html. For auto-fetching captions (Language-Reactor-style), also install the LinguaPlay bridge extension — see README.md."
+        );
+      } else if (!bridgeReady) {
+        // On a proper origin but no bridge detected yet. The content script may
+        // still be injecting (document_idle); re-check after a short delay and
+        // surface a gentle hint only if it never appears.
+        setTimeout(() => {
+          if (!bridgeReady) {
+            showYoutubeFeedback(
+              "Tip: for auto-fetched Japanese captions, install the LinguaPlay bridge extension (Load unpacked from the 'extension' folder — see README.md). " +
+              "Without it, YouTube blocks caption fetching from the browser."
+            );
+          }
+        }, 1500);
+      }
+    }
+
+    function loadYouTubeAPI() {
+      if (ytApiReadyPromise) return ytApiReadyPromise;
+      ytApiReadyPromise = new Promise((resolve) => {
+        if (window.YT && window.YT.Player) {
+          resolve();
+          return;
+        }
+        const previousCallback = window.onYouTubeIframeAPIReady;
+        window.onYouTubeIframeAPIReady = () => {
+          if (typeof previousCallback === 'function') previousCallback();
+          resolve();
+        };
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(tag);
+      });
+      return ytApiReadyPromise;
+    }
+
+    function startYTPolling() {
+      if (ytPollInterval) clearInterval(ytPollInterval);
+      ytPollInterval = setInterval(syncSubtitles, 200);
+    }
+
+    function stopYTPolling() {
+      if (ytPollInterval) {
+        clearInterval(ytPollInterval);
+        ytPollInterval = null;
+      }
+    }
+
+    function showYouTubeUI() {
+      mediaMode = 'youtube';
+      player.pause();
+      player.removeAttribute('src');
+      player.load();
+      player.classList.add('hidden');
+      youtubePlayerContainer.classList.remove('hidden');
+    }
+
+    function showNativeUI() {
+      mediaMode = 'native';
+      stopYTPolling();
+      if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo();
+      youtubePlayerContainer.classList.add('hidden');
+      player.classList.remove('hidden');
+      // Captions panel is YouTube-only — hide it in native mode.
+      ytdlpModal.classList.add('hidden');
+    }
+
+    const YT_ERROR_MESSAGES = {
+      2: 'That video ID looks invalid. Double-check the URL.',
+      5: "This video can't be played in the embedded player (HTML5 error).",
+      100: 'Video not found — it may have been removed or made private.',
+      101: 'The video owner has disabled embedding for this video.',
+      150: 'The video owner has disabled embedding for this video.'
+    };
+
+    function showYoutubeFeedback(message) {
+      youtubeFeedback.textContent = message;
+      youtubeFeedback.classList.remove('hidden');
+    }
+
+    function clearYoutubeFeedback() {
+      youtubeFeedback.classList.add('hidden');
+      youtubeFeedback.textContent = '';
+    }
+
+    async function loadYouTubeVideo(rawInput) {
+      const videoId = extractYouTubeId(rawInput);
+      if (!videoId) {
+        youtubeUrlInput.classList.add('ring-2', 'ring-rose-500');
+        showYoutubeFeedback("Couldn't read that as a YouTube URL or video ID — try pasting the full link.");
+        setTimeout(() => youtubeUrlInput.classList.remove('ring-2', 'ring-rose-500'), 1800);
+        return;
+      }
+
+      currentYouTubeId = videoId;
+
+      clearYoutubeFeedback();
+      youtubeLoadBtn.disabled = true;
+      youtubeLoadBtn.textContent = '…';
+
+      try {
+        await loadYouTubeAPI();
+        showYouTubeUI();
+
+        // Reset caption state for the new video.
+        currentSubIndex = -1;
+        subtitleTimeline = [];
+        manualCaptionsLoaded = false;
+        tokensContainer.innerHTML = '';
+
+        captionsYtdlpCmd.textContent = `python -m yt_dlp --no-playlist --skip-download --write-subs --write-auto-subs --sub-langs "ja" --convert-subs vtt "${rawInput}"`;
+        lastYouTubeUrl = rawInput;
+        ytdlpModal.classList.add('hidden');
+        showCaptionsFallback(false);
+        setCaptionsStatus('idle', 'idle');
+
+        if (ytPlayer) {
+          ytPlayer.loadVideoById(videoId);
+          startYTPolling();
+        } else {
+          ytPlayer = new YT.Player('youtube-player', {
+            videoId,
+            host: 'https://www.youtube-nocookie.com',
+            playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+            events: {
+              onReady: () => {
+                clearYoutubeFeedback();
+                startYTPolling();
+              },
+              onError: async (e) => {
+                console.error('YouTube player error:', e.data);
+
+                // If embedding is disabled (101 or 150), attempt raw stream bypass
+                if (e.data === 101 || e.data === 150) {
+                  showYoutubeFeedback("Embedding disabled by owner. Attempting to extract raw video stream via local server...");
+                  try {
+                    const res = await fetch(`http://127.0.0.1:8000/api/stream?v=${currentYouTubeId}`);
+                    if (res.ok) {
+                      const data = await res.json();
+                      if (data.url) {
+                        showNativeUI();
+                        player.src = data.url;
+                        player.load();
+                        player.play().catch(err => console.warn("Auto-play prevented", err));
+                        clearYoutubeFeedback();
+                        return;
+                      }
+                    }
+                  } catch (err) {
+                    console.error('Stream extraction error:', err);
+                  }
+                }
+
+                showYoutubeFeedback(YT_ERROR_MESSAGES[e.data] ||
+                  "This video failed to load in the embedded player. If you're served over http(s) and still see this, " +
+                  'try disabling ad blockers/privacy extensions for this page, or a different browser.');
+              }
+            }
+          });
+        }
+
+        // Best-effort caption auto-fetch (runs in parallel with player init).
+        fetchYouTubeCaptions(videoId);
+      } catch (err) {
+        console.error('Failed to load YouTube player:', err);
+        showYoutubeFeedback('Could not load the YouTube player. Check your connection and try again.');
+      } finally {
+        youtubeLoadBtn.disabled = false;
+        youtubeLoadBtn.textContent = 'Load';
+      }
+    }
+
+    youtubeLoadBtn.addEventListener('click', () => {
+      const val = youtubeUrlInput.value.trim();
+      if (!val) return;
+      if (extractYouTubeId(val)) {
+        loadYouTubeVideo(val);
+      } else {
+        searchYouTube(val);
+      }
+    });
+
+    youtubeUrlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        youtubeLoadBtn.click();
+      }
+    });
+
+    // ══════════════════════════════════════════
+    //  YouTube Search
+    // ══════════════════════════════════════════
+    let currentChannelContext = null;
+
+    document.getElementById('modal-search-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = document.getElementById('modal-search-input').value.trim();
+      if (!q || !currentChannelContext) return;
+      const searchUrl = `${currentChannelContext}/search?query=${encodeURIComponent(q)}`;
+      youtubeUrlInput.value = searchUrl;
+      searchYouTube(searchUrl);
+    });
+
+    async function searchYouTube(query) {
+      youtubeLoadBtn.disabled = true;
+      youtubeLoadBtn.textContent = 'Searching...';
+
+      // Update channel context for the modal search box
+      if (query.includes('/channel/') || query.includes('/@')) {
+        let base = query.split('/playlists')[0];
+        base = base.split('/search?')[0];
+        currentChannelContext = base;
+        document.getElementById('modal-search-form').classList.remove('hidden');
+      } else {
+        currentChannelContext = null;
+        document.getElementById('modal-search-form').classList.add('hidden');
+        document.getElementById('modal-search-input').value = '';
+      }
+
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/api/search?q=${encodeURIComponent(query)}`);
+        if (!res.ok) throw new Error('Search failed');
+        const videos = await res.json();
+
+        ytSearchResultsContainer.innerHTML = '';
+        if (videos.length === 0) {
+          ytSearchResultsContainer.innerHTML = '<p class="text-center text-slate-400 py-8">No results found.</p>';
+        } else {
+          const grid = document.createElement('div');
+          grid.className = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4';
+
+          videos.forEach(v => {
+            if (!v.id && !v.url) return;
+            const card = document.createElement('div');
+            card.className = 'bg-surface-200/50 rounded-xl overflow-hidden cursor-pointer hover:ring-2 hover:ring-accent transition-all group flex flex-col';
+            let thumbUrl = v.id ? `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg` : '';
+            if (v.thumbnails && v.thumbnails.length > 0) {
+              thumbUrl = v.thumbnails[0].url;
+            }
+
+            const isChannelOrPlaylist = v.ie_key === 'YoutubeTab' || v._type === 'playlist' || (v.url && (v.url.includes('/channel/') || v.url.includes('/@') || v.url.includes('playlist?list=')));
+
+            let badgeHtml = '';
+            if (isChannelOrPlaylist) {
+              badgeHtml = `<div class="absolute top-1.5 left-1.5 bg-accent/90 px-2 py-0.5 rounded text-[10px] text-white font-bold backdrop-blur-sm shadow-md uppercase tracking-wider">Folder</div>`;
+            }
+
+            let durationStr = '';
+            if (v.duration) {
+              durationStr = new Date(v.duration * 1000).toISOString().substr(11, 8).replace(/^00:/, '');
+            } else if (isChannelOrPlaylist) {
+              durationStr = 'Browse';
+            }
+
+            card.innerHTML = `
+              <div class="relative aspect-video bg-black overflow-hidden shrink-0">
+                <img src="${thumbUrl}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                ${badgeHtml}
+                <div class="absolute bottom-1.5 right-1.5 bg-black/80 px-1.5 py-0.5 rounded text-[10px] text-white font-medium backdrop-blur-sm">
+                  ${durationStr}
+                </div>
+              </div>
+              <div class="p-3 space-y-1 flex-1 flex flex-col">
+                <h4 class="text-xs font-bold text-slate-200 line-clamp-2 leading-snug group-hover:text-accent-light transition-colors">${v.title || ''}</h4>
+                <div class="flex-1"></div>
+                <p class="text-[10px] text-slate-400 truncate mt-1">${v.uploader || v.channel || ''}</p>
+              </div>
+            `;
+            card.addEventListener('click', () => {
+              if (isChannelOrPlaylist && v.url) {
+                let searchUrl = v.url;
+                // If it's a channel URL, append /playlists to view the channel's playlists
+                if ((v.url.includes('/channel/') || v.url.includes('/@')) && !v.url.includes('/playlists')) {
+                  searchUrl = v.url.replace(/\/$/, '') + '/playlists';
+                }
+                youtubeUrlInput.value = searchUrl;
+                searchYouTube(searchUrl);
+              } else {
+                ytSearchModal.classList.add('hidden');
+                youtubeUrlInput.value = `https://www.youtube.com/watch?v=${v.id}`;
+                loadYouTubeVideo(v.id);
+              }
+            });
+            grid.appendChild(card);
+          });
+          ytSearchResultsContainer.appendChild(grid);
+        }
+        ytSearchModal.classList.remove('hidden');
+      } catch (err) {
+        console.error(err);
+        showYoutubeFeedback('Search failed. Make sure the local python server is running.');
+      } finally {
+        youtubeLoadBtn.disabled = false;
+        youtubeLoadBtn.textContent = 'Search / Load';
+      }
+    }
+
+    ytSearchModalClose.addEventListener('click', () => {
+      ytSearchModal.classList.add('hidden');
+    });
+
+    // ══════════════════════════════════════════
+    //  Render Tokens into Overlay
+    // ══════════════════════════════════════════
+    function renderTokens(text) {
+      tokensContainer.innerHTML = '';
+      if (!tokenizer || !text) return;
+
+      const tokens = tokenizer.tokenize(text);
+
+      for (const tk of tokens) {
+        const surface = tk.surface_form;
+        if (!surface.trim()) continue;
+
+        const romaji = toRomaji(tk);
+
+        const span = document.createElement('span');
+        span.className = 'token-group';
+        span.dataset.word = surface;
+        span.dataset.romaji = romaji;
+        span.dataset.reading = tk.reading || surface;
+        span.dataset.pos = tk.pos || '';
+        span.dataset.posDetail = tk.pos_detail_1 || '';
+        span.dataset.baseform = tk.basic_form || surface;
+
+        span.innerHTML =
+          `<span class="text-[11px] text-rose-subtle/80 leading-tight">${romaji}</span>` +
+          `<span class="jp-text text-white text-xl font-medium" style="font-family:'Noto Sans JP',sans-serif">${surface}</span>`;
+
+        tokensContainer.appendChild(span);
+      }
+    }
+
+    // ══════════════════════════════════════════
+    //  File Input Listeners (FIXED FEEDBACK)
+    // ══════════════════════════════════════════
+    videoInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      videoLabel.textContent = file.name;
+
+      if (mediaMode === 'youtube') {
+        showNativeUI();
+        youtubeUrlInput.value = '';
+      }
+
+      player.src = URL.createObjectURL(file);
+      player.load();
+    });
+
+    subInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      subLabel.textContent = file.name;
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        subtitleTimeline = parseSubtitleFile(evt.target.result, file.name);
+        currentSubIndex = -1;
+        tokensContainer.innerHTML = '';
+        manualCaptionsLoaded = true; // user supplied captions — protect from auto-fetch
+
+        if (subtitleTimeline.length === 0) {
+          subLabel.textContent = "⚠ Parsing failed. Check file format!";
+          console.error("Parsed 0 cues. Verify the file conforms to .srt or .vtt syntax.");
+        } else {
+          console.log(`Parsed ${subtitleTimeline.length} subtitle cues.`);
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    // ══════════════════════════════════════════
+    //  Video Timeupdate — Subtitle Sync (native mode)
+    // ══════════════════════════════════════════
+    player.addEventListener('timeupdate', syncSubtitles);
+
+    // ══════════════════════════════════════════
+    //  Token Click → Analysis Drawer
+    // ══════════════════════════════════════════
+    overlay.addEventListener('click', (e) => {
+      const token = e.target.closest('.token-group');
+      if (!token) return;
+
+      if (currentActive) currentActive.classList.remove('active');
+      token.classList.add('active');
+      currentActive = token;
+
+      const word = token.dataset.word;
+      const romaji = token.dataset.romaji;
+
+      activeWord.textContent = word;
+      activeRomaji.textContent = romaji;
+      activePos.textContent = `Part of Speech: ${token.dataset.pos || '—'} (${token.dataset.posDetail || '—'}) • Base Form: ${token.dataset.baseform || word} `;
+
+      const base = token.dataset.baseform || word;
+      let def = JDICT[base] || JDICT[word];
+
+      if (def) {
+        activeDef.innerHTML = `${base !== word ? base + ' — ' : ''}${def} `;
+      } else {
+        activeDef.innerHTML = '<span class="animate-pulse">Fetching local translation...</span>';
+
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=en&dt=t&dt=bd&q=${encodeURIComponent(base)}`;
+        fetch(url)
+          .then(res => res.json())
+          .then(data => {
+            let translation = data[0]?.[0]?.[0] || '';
+            let dictDefs = [];
+
+            if (data[1]) {
+              data[1].forEach(pos => {
+                if (pos[1]) dictDefs.push(`${pos[0]}: ${pos[1].join(', ')}`);
+              });
+            }
+
+            let result = translation;
+            if (dictDefs.length > 0) {
+              result += ` — <span class="text-slate-400 italic text-xs">(${dictDefs.join(' | ')})</span>`;
+            }
+
+            if (result) {
+              activeDef.innerHTML = `${base !== word ? base + ' — ' : ''}${result}`;
+            } else {
+              activeDef.textContent = `No local definition for "${base}". Click the AI button below for a full explanation.`;
+            }
+          })
+          .catch(err => {
+            console.error('Local translation fallback failed:', err);
+            activeDef.textContent = `No local definition for "${base}". Click the AI button below for a full explanation.`;
+          });
+      }
+
+      if (aiAbortController) { aiAbortController.abort(); aiAbortController = null; }
+      document.getElementById('ai-trigger-section').classList.remove('hidden');
+      document.getElementById('ai-response-container').classList.add('hidden');
+      document.getElementById('ai-stream-preview').classList.add('hidden');
+
+      quickAnkiBtn.disabled = false;
+      quickAnkiBtn.innerHTML = '🗃️ Quick Add to Anki';
+      quickAnkiBtn.className = 'w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-slate-300 bg-surface-200 border border-slate-700/60 hover:bg-slate-800 hover:border-slate-500 hover:text-white transition-all duration-200 flex items-center justify-center gap-2';
+      quickAnkiFeedback.classList.add('hidden');
+      document.getElementById('ai-cards-container').innerHTML = '';
+      document.getElementById('ai-error-display').classList.add('hidden');
+      document.getElementById('ai-loading-skeleton').classList.remove('hidden');
+
+      placeholderSt.classList.add('hidden');
+      activeSt.classList.remove('hidden');
+
+      activeSt.querySelectorAll('.animate-fade-up').forEach((el) => {
+        el.style.animation = 'none';
+        el.offsetHeight;
+        el.style.animation = '';
+      });
+    });
+
+    // ══════════════════════════════════════════
+    //  AI Button → On-Demand Analysis
+    // ══════════════════════════════════════════
+    document.getElementById('ask-ai-btn').addEventListener('click', () => {
+      document.getElementById('ai-trigger-section').classList.add('hidden');
+      document.getElementById('ai-response-container').classList.remove('hidden');
+      analyzeWord(activeWord.textContent, activeRomaji.textContent);
+    });
+
+    // ══════════════════════════════════════════
+    //  Quick Add to Anki (No AI)
+    // ══════════════════════════════════════════
+    quickAnkiBtn.addEventListener('click', async () => {
+      quickAnkiBtn.disabled = true;
+      quickAnkiBtn.innerHTML = '⏳ Connecting...';
+      quickAnkiBtn.classList.remove('hover:bg-slate-800', 'hover:border-slate-500', 'hover:text-white');
+      quickAnkiFeedback.classList.add('hidden');
+
+      const clickedWord = activeWord.textContent;
+      const romaji = activeRomaji.textContent;
+      const fullSentence = getActiveSentence();
+
+      const meaningHTML = activeDef.innerHTML;
+      const token = currentActive;
+      const reading = token ? (token.dataset.reading || '') : '';
+
+      const frontText = `${clickedWord} ${reading && reading !== clickedWord ? `[${reading}]` : ''} <br><span style="font-size: 0.8em; color: gray;">${romaji}</span>`.trim();
+
+      const hl = (text) => text ? text.split(clickedWord).join(`<b style="color: #a78bfa;">${clickedWord}</b>`) : '';
+      let backHTML = `<div><strong>Meaning:</strong> ${meaningHTML || ''}</div><br>`;
+      const fullRomaji = getActiveSentenceRomaji();
+      backHTML += `<div><strong>Context Sentence:</strong> ${hl(fullSentence)}<br><span style="font-size: 0.85em; color: gray;">${fullRomaji}</span></div><br>`;
+
+      const payload = {
+        action: "addNote",
+        version: 6,
+        params: {
+          note: {
+            deckName: "LinguaPlay",
+            modelName: "Basic",
+            fields: {
+              Front: frontText,
+              Back: backHTML
+            },
+            tags: ["linguaplay", "immersion", "quick-add"]
+          }
+        }
+      };
+
+      try {
+        await fetch('http://127.0.0.1:8765', {
+          method: 'POST',
+          body: JSON.stringify({ action: "createDeck", version: 6, params: { deck: "LinguaPlay" } })
+        });
+
+        const response = await fetch('http://127.0.0.1:8765', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) throw new Error('AnkiConnect fetch failed.');
+        const result = await response.json();
+        if (result.error) throw new Error(result.error);
+
+        quickAnkiBtn.innerHTML = '✓ Added to Anki';
+        quickAnkiBtn.className = 'w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center gap-2 cursor-default';
+      } catch (err) {
+        console.error('Quick Anki sync failed:', err);
+        quickAnkiBtn.disabled = false;
+        quickAnkiBtn.innerHTML = '⚠ Connection Blocked';
+        quickAnkiBtn.className = 'w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 transition-all duration-200 flex items-center justify-center gap-2';
+
+        quickAnkiFeedback.innerHTML = `<strong>Action Required:</strong> Anki blocked the connection.<br>Ensure AnkiConnect is running.`;
+        quickAnkiFeedback.classList.remove('hidden');
+      }
+    });
+
+    // ══════════════════════════════════════════
+    //  Dismiss & Resume
+    // ══════════════════════════════════════════
+    dismissBtn.addEventListener('click', () => {
+      if (aiAbortController) { aiAbortController.abort(); aiAbortController = null; }
+      activeSt.classList.add('hidden');
+      placeholderSt.classList.remove('hidden');
+      if (currentActive) currentActive.classList.remove('active');
+      currentActive = null;
+      playMedia();
+    });
+
+    // ══════════════════════════════════════════
+    //  Keyboard Shortcuts
+    // ══════════════════════════════════════════
+    document.addEventListener('keydown', (e) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+      switch (e.key) {
+        case ' ':
+          if (mediaMode === 'native' && tag === 'VIDEO') return; // Native video controls handle spacebar
+          if (tag === 'BUTTON') document.activeElement.blur(); // Blur button so space toggles video instead of clicking again
+          e.preventDefault();
+          if (isMediaPaused()) {
+            playMedia();
+          } else {
+            pauseMedia();
+          }
+          break;
+
+        case 'ArrowUp': {
+          e.preventDefault();
+          if (!subtitleTimeline.length) break;
+          const ct = getCurrentTime();
+          let prev = -1;
+          for (let i = subtitleTimeline.length - 1; i >= 0; i--) {
+            if (subtitleTimeline[i].start < ct - 0.15) {
+              prev = i;
+              break;
+            }
+          }
+          if (prev >= 0) seekTo(subtitleTimeline[prev].start);
+          break;
+        }
+
+        case 'ArrowDown': {
+          e.preventDefault();
+          if (!subtitleTimeline.length) break;
+          const ct = getCurrentTime();
+          let next = -1;
+          for (let i = 0; i < subtitleTimeline.length; i++) {
+            if (subtitleTimeline[i].start > ct + 0.15) {
+              next = i;
+              break;
+            }
+          }
+          if (next >= 0) seekTo(subtitleTimeline[next].start);
+          break;
+        }
+
+        case 'ArrowLeft':
+          e.preventDefault();
+          seekTo(getCurrentTime() - 5);
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          seekTo(getCurrentTime() + 5);
+          break;
+
+        case 's':
+        case 'S':
+          overlay.classList.toggle('hidden');
+          break;
+      }
+    });
+
+    // ── Boot ──
+    checkYouTubeEnvironment();
+    initKuromoji();
+  </script>
+</body>
+
+</html>
