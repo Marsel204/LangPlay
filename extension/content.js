@@ -851,8 +851,10 @@
               results.style.display = 'block';
               results.innerHTML = `
                 <div style="font-size: 11px; color: #fca5a5; line-height: 1.45; padding: 4px 0;">
-                  <strong>Antigravity CLI:</strong> Could not connect to local server at <code>${serverUrl}</code>.<br>
-                  Run <code>python3 Server.py</code> or configure a free Gemini API key in extension options.
+                  <strong>Cannot reach local server at ${serverUrl}</strong><br>
+                  <div style="color: #cbd5e1; margin-top: 4px; font-size: 11px;">
+                    When using this extension standalone without <code>Server.py</code>, switch the AI Provider to <strong>Google Gemini API</strong> (free) in Extension Settings.
+                  </div>
                 </div>
               `;
               return;
