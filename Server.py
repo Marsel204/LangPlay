@@ -602,10 +602,19 @@ def is_port_available(host, port):
             return False
 
 
+def get_local_ip():
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+
+
 def main():
     parser = argparse.ArgumentParser(description="LinguaPlay Multithreaded Immersion Server")
     parser.add_argument("-p", "--port", type=int, default=8000, help="Port to listen on (default: 8000)")
-    parser.add_argument("-H", "--host", type=str, default="127.0.0.1", help="Host interface (default: 127.0.0.1)")
+    parser.add_argument("-H", "--host", type=str, default="0.0.0.0", help="Host interface (default: 0.0.0.0 to allow LAN access)")
     parser.add_argument("--open", action="store_true", help="Automatically open browser on startup")
     args = parser.parse_args()
 
@@ -629,17 +638,18 @@ def main():
     http.server.ThreadingHTTPServer.allow_reuse_address = True
     httpd = http.server.ThreadingHTTPServer(server_address, RequestHandler)
 
-    app_url = f"http://{host}:{port}/"
+    local_ip = get_local_ip()
     agy_detected = find_agy_binary()
     print("=" * 64)
     print(" 🚀 LinguaPlay Multithreaded Server Online & Synced!")
-    print(f" -> Access Web App : {app_url}")
+    print(f" -> Localhost URL  : http://127.0.0.1:{port}/")
+    print(f" -> Network LAN URL: http://{local_ip}:{port}/ (Enter this on other devices)")
     print(f" -> Local Cards TSV: {ANKI_FILE}")
     print(f" -> Antigravity CLI: {'✅ ' + agy_detected if agy_detected else '❌ Not found'}")
     print("=" * 64)
 
     if args.open:
-        threading.Timer(0.6, lambda: webbrowser.open(app_url)).start()
+        threading.Timer(0.6, lambda: webbrowser.open(f"http://127.0.0.1:{port}/")).start()
 
     try:
         httpd.serve_forever()
