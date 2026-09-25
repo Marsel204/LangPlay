@@ -1516,14 +1516,25 @@
     });
 
     function openExtensionSettings() {
+      console.log('[LinguaPlay] Opening extension settings...');
       try {
         chrome.runtime.sendMessage({ action: 'OPEN_OPTIONS_PAGE' }, (resp) => {
-          if (chrome.runtime.lastError) {
-            console.warn('[LinguaPlay] Error opening options page:', chrome.runtime.lastError);
+          if (chrome.runtime.lastError || !resp || !resp.success) {
+            console.warn('[LinguaPlay] Background open options returned error, falling back to window.open:', chrome.runtime.lastError);
+            try {
+              window.open(chrome.runtime.getURL('options.html'), '_blank');
+            } catch (fallbackErr) {
+              console.error('[LinguaPlay] Direct window.open fallback failed:', fallbackErr);
+            }
           }
         });
       } catch (err) {
-        console.warn('[LinguaPlay] Failed to send OPEN_OPTIONS_PAGE message:', err);
+        console.warn('[LinguaPlay] Failed to send OPEN_OPTIONS_PAGE message, falling back to window.open:', err);
+        try {
+          window.open(chrome.runtime.getURL('options.html'), '_blank');
+        } catch (fallbackErr) {
+          console.error('[LinguaPlay] Direct window.open fallback failed:', fallbackErr);
+        }
       }
     }
 
@@ -2010,16 +2021,58 @@ Respond with ONLY valid JSON:
           loading.style.display = 'none';
           results.style.display = 'block';
           results.innerHTML = `
-            <div style="background: rgba(124, 58, 237, 0.12); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: #e2e8f0; line-height: 1.5;">
-              <div style="font-weight: 600; color: #f87171; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+            <div style="background: rgba(124, 58, 237, 0.14); border: 1px solid rgba(139, 92, 246, 0.35); border-radius: 8px; padding: 12px; font-size: 12px; color: #e2e8f0; line-height: 1.5;">
+              <div style="font-weight: 600; color: #f87171; margin-bottom: 6px; display: flex; align-items: center; gap: 4px;">
                 <span>⚠️</span> AI Analysis Notice: ${err.message}
               </div>
-              <p style="margin: 0 0 6px; color: #cbd5e1; font-size: 11.5px;">
-                Configure your preferred AI Provider (Gemini, DeepSeek, OpenRouter, OpenCode, or local CLI server) in settings:
+              <p style="margin: 0 0 8px; color: #cbd5e1; font-size: 11.5px;">
+                Quick-save your API key directly below, or open full extension settings:
               </p>
-              <button id="lp-go-options-btn" style="background:#7c3aed; border:none; color:white; font-size:11px; padding:4px 10px; border-radius:6px; cursor:pointer; font-weight:600;">⚙️ Open Extension Settings</button>
+              <div style="display: flex; gap: 6px; margin-bottom: 8px; align-items: center;">
+                <select id="lp-inline-provider" style="background: #1e1b4b; color: #e2e8f0; border: 1px solid rgba(139,92,246,0.5); border-radius: 6px; padding: 4px 6px; font-size: 11px;">
+                  <option value="deepseek" selected>DeepSeek</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="opencode">OpenCode</option>
+                </select>
+                <input id="lp-inline-api-key" type="password" placeholder="Paste API Key (sk-...)" style="flex: 1; background: #0f172a; color: #f8fafc; border: 1px solid rgba(139,92,246,0.4); border-radius: 6px; padding: 4px 8px; font-size: 11px;">
+                <button id="lp-inline-save-key-btn" style="background: #10b981; border: none; color: white; font-size: 11px; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600;">Save</button>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span id="lp-inline-key-status" style="font-size: 11px; color: #34d399;"></span>
+                <button id="lp-go-options-btn" style="background:#7c3aed; border:none; color:white; font-size:11px; padding:4px 10px; border-radius:6px; cursor:pointer; font-weight:600;">⚙️ Open Extension Settings</button>
+              </div>
             </div>
           `;
+
+          const inlineSaveBtn = document.getElementById('lp-inline-save-key-btn');
+          const inlineProvider = document.getElementById('lp-inline-provider');
+          const inlineKeyInput = document.getElementById('lp-inline-api-key');
+          const inlineStatus = document.getElementById('lp-inline-key-status');
+
+          if (inlineSaveBtn && inlineKeyInput && inlineProvider) {
+            inlineSaveBtn.addEventListener('click', (e) => {
+              e.preventDefault();
+              const prov = inlineProvider.value;
+              const rawKey = inlineKeyInput.value.trim();
+              if (!rawKey) {
+                inlineStatus.textContent = 'Please paste a key!';
+                inlineStatus.style.color = '#f87171';
+                return;
+              }
+              const saveObj = { linguaplay_ai_provider: prov };
+              if (prov === 'deepseek') saveObj.linguaplay_deepseek_key = rawKey;
+              else if (prov === 'gemini') saveObj.linguaplay_gemini_key = rawKey;
+              else if (prov === 'openrouter') saveObj.linguaplay_openrouter_key = rawKey;
+              else if (prov === 'opencode') saveObj.linguaplay_opencode_key = rawKey;
+
+              chrome.storage.local.set(saveObj, () => {
+                inlineStatus.textContent = '✓ Saved! Click Ask Sensei again.';
+                inlineStatus.style.color = '#34d399';
+              });
+            });
+          }
+
           const optBtn = document.getElementById('lp-go-options-btn');
           if (optBtn) {
             optBtn.addEventListener('click', (e) => {
