@@ -1171,81 +1171,52 @@
   // ── Render Full Structured Pedagogical AI Breakdown (Horizontal Gloss) ──
   function renderPedagogicalBreakdown(aiJson, providerTitle) {
     const data = aiJson.data || aiJson;
-    const target = data.target_word || {};
-    const meaning = data.contextual_meaning || target.meaning || data.meaning || 'No meaning provided';
-    const jlpt = target.jlpt_level || data.jlpt_level || 'N/A';
-    const pos = target.pos || data.pos || 'Word';
-    const formality = target.formality ? ` • ${target.formality}` : '';
-    
-    const sentenceFit = data.sentence_fit || {};
-    const phraseConn = sentenceFit.phrase_connection || '';
-    const sentenceRole = sentenceFit.role_in_sentence || data.grammar_role || '';
-    const nuance = sentenceFit.context_nuance || data.nuance || '';
-    
-    const conj = data.conjugation;
-    const sentTrans = data.sentence_translation || {};
     const wordByWord = data.word_by_word || data.sentence_breakdown || [];
+
+    // Helper to resolve clean Romaji for each horizontal gloss card
+    function getCardRomaji(w) {
+      if (w.romaji && typeof w.romaji === 'string' && w.romaji.trim()) {
+        return w.romaji.trim();
+      }
+      if (w.word === 'は' || (w.reading === 'は' && (w.role || '').toLowerCase().includes('topic'))) {
+        return 'wa';
+      }
+      if (w.word === 'へ' || (w.reading === 'へ' && (w.role || '').toLowerCase().includes('direction'))) {
+        return 'e';
+      }
+      if (w.word === 'を' || w.reading === 'を') {
+        return 'o';
+      }
+      const raw = w.reading || w.word || '';
+      if (typeof window !== 'undefined' && window.wanakana && window.wanakana.toRomaji) {
+        return window.wanakana.toRomaji(raw);
+      }
+      return raw;
+    }
 
     let html = `
       <div class="linguaplay-card-wrapper">
-        <div style="font-size:10.5px; font-weight:bold; color:#a78bfa; letter-spacing:0.04em;">${providerTitle}</div>
-        
-        <div style="margin-top:6px; display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
-          <span class="linguaplay-badge">${jlpt}</span>
-          <span class="linguaplay-badge" style="background:rgba(59,130,246,0.2); color:#93c5fd; border-color:rgba(59,130,246,0.3);">${pos}${formality}</span>
-          <span style="font-size:13.5px; color:white; font-weight:600; margin-left:2px;">${meaning}</span>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-size:10px; color:#a78bfa; font-weight:bold; text-transform:uppercase; letter-spacing:0.05em;">📖 Horizontal Word-by-Word Gloss</span>
+          <span style="font-size:9.5px; color:#6ee7b7; font-weight:600;">${providerTitle}</span>
         </div>
 
-        ${phraseConn ? `
-          <div style="font-size:12px; color:#cbd5e1; margin-top:8px; line-height:1.45; background:rgba(0,0,0,0.3); padding:8px 10px; border-radius:8px; border:1px solid rgba(167,139,250,0.25);">
-            <strong style="color:#a78bfa; font-size:10px; text-transform:uppercase; display:block; margin-bottom:4px; letter-spacing:0.05em;">🔗 Sentence Connection Flow</strong>
-            <div style="color:#f1f5f9; font-weight:500;">${phraseConn}</div>
-          </div>
-        ` : ''}
-
-        ${sentenceRole ? `
-          <div style="font-size:12px; color:#cbd5e1; margin-top:8px; line-height:1.45; border-top:1px solid rgba(255,255,255,0.08); padding-top:6px;">
-            <strong style="color:#a78bfa; font-size:10px; text-transform:uppercase; display:block; margin-bottom:2px; letter-spacing:0.05em;">🎯 Role in This Sentence</strong>
-            ${sentenceRole}
-          </div>
-        ` : ''}
-
-        ${conj && (conj.is_conjugated || conj.explanation || conj.form) ? `
-          <div style="font-size:11.5px; color:#cbd5e1; margin-top:8px; line-height:1.4; background:rgba(0,0,0,0.3); padding:8px 10px; border-radius:8px; border:1px solid rgba(244,114,182,0.2);">
-            <span style="color:#f472b6; font-weight:600; font-size:10px; text-transform:uppercase; display:block; margin-bottom:2px;">Conjugation in Context:</span>
-            ${conj.form ? `<span class="linguaplay-badge" style="background:rgba(244,114,182,0.2); color:#f472b6; border-color:rgba(244,114,182,0.3); font-size:10px;">${conj.form}</span> ` : ''}
-            ${conj.from_base ? `Base: <strong>${conj.from_base}</strong> (${conj.from_base_romaji || conj.from_base_reading || ''})<br>` : ''}
-            <span style="color:#e2e8f0;">${conj.explanation || ''}</span>
-          </div>
-        ` : ''}
-
-        ${nuance ? `
-          <div style="font-size:11.5px; color:#fda4af; margin-top:6px; font-style:italic; line-height:1.4;">
-            💡 <strong>Context Nuance:</strong> ${nuance}
-          </div>
-        ` : ''}
-
-        ${sentTrans && (sentTrans.en || sentTrans.jp) ? `
-          <div style="margin-top:8px; border-top:1px solid rgba(255,255,255,0.08); padding-top:6px;">
-            <span style="font-size:10px; color:#6ee7b7; font-weight:bold; text-transform:uppercase; letter-spacing:0.05em;">🧩 Full Sentence Translation</span>
-            <div style="font-size:13px; color:#f1f5f9; margin-top:3px; line-height:1.45; font-style:italic;">"${sentTrans.en || ''}"</div>
-          </div>
-        ` : ''}
-
         ${wordByWord.length > 0 ? `
-          <div style="margin-top:8px; border-top:1px solid rgba(255,255,255,0.08); padding-top:6px;">
-            <span style="font-size:10px; color:#a78bfa; font-weight:bold; text-transform:uppercase; letter-spacing:0.05em; display:block; margin-bottom:4px;">📖 Horizontal Word-by-Word Gloss</span>
-            <div class="linguaplay-gloss-container">
-              ${wordByWord.map(w => `
-                <div class="linguaplay-gloss-card ${w.is_target ? 'is-target' : ''}" title="${w.word} (${w.reading || ''}) — ${w.meaning || ''} ${w.role ? '[' + w.role + ']' : ''}">
-                  <span class="linguaplay-gloss-reading">${w.reading || w.romaji || '&nbsp;'}</span>
+          <div class="linguaplay-gloss-container">
+            ${wordByWord.map(w => {
+              const r = getCardRomaji(w);
+              return `
+                <div class="linguaplay-gloss-card ${w.is_target ? 'is-target' : ''}" title="${w.word} (${r}) — ${w.meaning || ''} ${w.role ? '[' + w.role + ']' : ''}">
+                  <span class="linguaplay-gloss-reading" style="font-family:monospace; font-size:11px; color:#fda4af;">${r || '&nbsp;'}</span>
                   <span class="linguaplay-gloss-jp">${w.word}</span>
                   <span class="linguaplay-gloss-en">${w.meaning || ''}</span>
                 </div>
-              `).join('')}
-            </div>
+              `;
+            }).join('')}
           </div>
-        ` : ''}
+        ` : `
+          <div style="font-size:12px; color:#94a3b8; font-style:italic;">No word-by-word gloss available for this sentence.</div>
+        `}
       </div>
     `;
 
