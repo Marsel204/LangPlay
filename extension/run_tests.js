@@ -338,6 +338,35 @@ const dormantResult = findJapaneseCaptionTrack(nonJpTracks);
 assert.strictEqual(dormantResult, null, 'Must return null for non-Japanese tracks to keep LinguaPlay dormant');
 console.log('✅ Test 6f: Non-Japanese Dormant Rejection: PASSED');
 
+// Case 5: Real-World Benchmark Video 1 (nmeccuUXs4Q - tuki. 愛の賞味期限)
+const video1Tracks = [
+  { languageCode: 'en', vssId: '.en', name: { simpleText: '英語' } },
+  { languageCode: 'ko', vssId: '.ko', name: { simpleText: '韓国語' } },
+  { languageCode: 'ja', vssId: '.ja', name: { simpleText: '日本語' } },
+  { languageCode: 'ja', vssId: 'a.ja', kind: 'asr', name: { simpleText: '日本語 (自動生成)' } }
+];
+const video1Ja = findJapaneseCaptionTrack(video1Tracks);
+assert(video1Ja !== null, 'Must discover Japanese track on nmeccuUXs4Q');
+assert.strictEqual(video1Ja.vssId, '.ja', 'Must pick human-curated Japanese (.ja) on nmeccuUXs4Q');
+assert.strictEqual(video1Ja.languageCode, 'ja');
+console.log('✅ Test 6g: Real-World Benchmark Video 1 (nmeccuUXs4Q) Auto-Discovery: PASSED');
+
+// Case 6: Real-World Benchmark Video 2 (1dxlWm7HeRY)
+const video2Tracks = [
+  { languageCode: 'id', vssId: '.id', name: { simpleText: 'インドネシア語' } },
+  { languageCode: 'th', vssId: '.th', name: { simpleText: 'タイ語' } },
+  { languageCode: 'en', vssId: '.en', name: { simpleText: '英語' } },
+  { languageCode: 'ko', vssId: '.ko', name: { simpleText: '韓国語' } },
+  { languageCode: 'zh-Hant', vssId: '.zh-Hant', name: { simpleText: '中国語 (繁体字)' } },
+  { languageCode: 'ja', vssId: '.ja', name: { simpleText: '日本語' } },
+  { languageCode: 'ja', vssId: 'a.ja', kind: 'asr', name: { simpleText: '日本語 (自動生成)' } }
+];
+const video2Ja = findJapaneseCaptionTrack(video2Tracks);
+assert(video2Ja !== null, 'Must discover Japanese track on 1dxlWm7HeRY');
+assert.strictEqual(video2Ja.vssId, '.ja', 'Must pick human-curated Japanese (.ja) on 1dxlWm7HeRY over Indonesian default');
+assert.strictEqual(video2Ja.languageCode, 'ja');
+console.log('✅ Test 6h: Real-World Benchmark Video 2 (1dxlWm7HeRY) Auto-Discovery: PASSED');
+
 function parseVTT(raw) {
   if (!raw) return [];
   const lines = raw.replace(/\r\n/g, '\n').split('\n');

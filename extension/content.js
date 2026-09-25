@@ -620,11 +620,12 @@
               const targetCode = ${JSON.stringify(targetLang)};
               let matched = null;
               if (targetVss) matched = tracklist.find(t => t.vssId === targetVss);
-              if (!matched) matched = tracklist.find(t => t.languageCode && t.languageCode.toLowerCase().startsWith(targetCode));
+              if (!matched) matched = tracklist.find(t => t.languageCode && t.languageCode.toLowerCase().startsWith('ja') && t.kind !== 'asr');
+              if (!matched) matched = tracklist.find(t => t.languageCode && t.languageCode.toLowerCase().startsWith('ja'));
               if (!matched) {
                 matched = tracklist.find(t => {
-                  const n = (t.displayName || t.languageName || '').toLowerCase();
-                  return n.includes('japan') || n.includes('jepang') || n.includes('日本語');
+                  const n = (t.displayName || t.languageName || (t.name?.runs?.[0]?.text) || (typeof t.name === 'string' ? t.name : '') || '').toLowerCase();
+                  return n.includes('japan') || n.includes('jepang') || n.includes('日本語') || n.includes('にほんご');
                 });
               }
               if (matched && typeof player.setOption === 'function') {
@@ -633,7 +634,42 @@
               }
             }
             if (typeof player.setOption === 'function') {
-              player.setOption('captions', 'track', { languageCode: ${JSON.stringify(targetLang)} });
+              player.setOption('captions', 'track', { languageCode: 'ja' });
+            }
+          } catch (e) {}
+        })();
+      `;
+      (document.head || document.documentElement).appendChild(script);
+      script.remove();
+    } catch (e) {}
+  }
+
+  // ── In-Memory Player Track Discovery Bridge ──
+  function inspectAndSwitchPlayerTracks() {
+    try {
+      const script = document.createElement('script');
+      script.textContent = `
+        (function() {
+          try {
+            const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+            if (!player) return;
+            if (typeof player.loadModule === 'function') player.loadModule('captions');
+            const tracklist = (typeof player.getOption === 'function') ? player.getOption('captions', 'tracklist') : null;
+            if (Array.isArray(tracklist) && tracklist.length > 0) {
+              function isJp(t) {
+                if (!t) return false;
+                const code = (t.languageCode || t.lang || '').toLowerCase();
+                if (code.startsWith('ja')) return true;
+                const vss = (t.vssId || '').toLowerCase();
+                if (vss === '.ja' || vss === 'a.ja' || vss.endsWith('.ja') || vss.includes('ja')) return true;
+                const name = (t.displayName || t.languageName || (t.name?.runs?.[0]?.text) || (typeof t.name === 'string' ? t.name : '') || '').toLowerCase();
+                return name.includes('japan') || name.includes('jepang') || name.includes('日本語') || name.includes('にほんご');
+              }
+              const manualJa = tracklist.find(t => isJp(t) && t.kind !== 'asr' && !(t.vssId && t.vssId.startsWith('a.')));
+              const target = manualJa || tracklist.find(t => isJp(t));
+              if (target && typeof player.setOption === 'function') {
+                player.setOption('captions', 'track', target);
+              }
             }
           } catch (e) {}
         })();
@@ -655,10 +691,17 @@
       }
     } catch (e) { /* ignore */ }
 
-    // 1. Check on-page script data first (fastest zero-latency path)
+    // 1. Probe player in-memory tracklist directly
+    inspectAndSwitchPlayerTracks();
+
+    // 2. Check on-page script data first (fastest zero-latency path)
     const onPageTracks = getOnPageCaptionTracks();
     if (onPageTracks) {
       const jaTrack = findJapaneseCaptionTrack(onPageTracks);
+      if (jaTrack) {
+        switchYouTubePlayerCaptionTrack(jaTrack);
+        ensureYouTubeCCEnabled();
+      }
       if (jaTrack && jaTrack.baseUrl) {
         try {
           const sep = jaTrack.baseUrl.includes('?') ? '&' : '?';
@@ -666,16 +709,13 @@
           if (vttRes.ok) {
             const vtt = await vttRes.text();
             const cues = parseVTT(vtt);
-            if (cues.length > 0) {
-              switchYouTubePlayerCaptionTrack(jaTrack);
-              return cues;
-            }
+            if (cues.length > 0) return cues;
           }
         } catch (e) { /* ignore */ }
       }
     }
 
-    // 2. Fallback to fetching YouTube page HTML with hl=ja
+    // 3. Fallback to fetching YouTube page HTML with hl=ja
     try {
       const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=ja`);
       if (pageRes.ok) {
@@ -684,16 +724,17 @@
         if (m) {
           const tracks = JSON.parse(m[1]);
           const jaTrack = findJapaneseCaptionTrack(tracks);
+          if (jaTrack) {
+            switchYouTubePlayerCaptionTrack(jaTrack);
+            ensureYouTubeCCEnabled();
+          }
           if (jaTrack && jaTrack.baseUrl) {
             const sep = jaTrack.baseUrl.includes('?') ? '&' : '?';
             const vttRes = await fetch(`${jaTrack.baseUrl}${sep}fmt=vtt`);
             if (vttRes.ok) {
               const vtt = await vttRes.text();
               const cues = parseVTT(vtt);
-              if (cues.length > 0) {
-                switchYouTubePlayerCaptionTrack(jaTrack);
-                return cues;
-              }
+              if (cues.length > 0) return cues;
             }
           }
         }
@@ -914,6 +955,9 @@
               renderSentenceTokens('');
             }
           }
+        } else if (activeLiveSentence && subtitleTimeline.length === 0) {
+          activeLiveSentence = '';
+          renderSentenceTokens('');
         }
       }
     });
@@ -925,12 +969,17 @@
       for (let i = 0; i < activeVideoEl.textTracks.length; i++) {
         const track = activeVideoEl.textTracks[i];
         track.oncuechange = () => {
-          if (subtitleTimeline.length === 0 && track.activeCues && track.activeCues.length > 0) {
-            const cueText = track.activeCues[0].text;
-            if (cueText && hasJapaneseCharacters(cueText)) {
-              activeLiveSentence = cueText;
-              renderSentenceTokens(cueText);
-            } else {
+          if (subtitleTimeline.length === 0) {
+            if (track.activeCues && track.activeCues.length > 0) {
+              const cueText = track.activeCues[0].text;
+              if (cueText && hasJapaneseCharacters(cueText)) {
+                activeLiveSentence = cueText;
+                renderSentenceTokens(cueText);
+              } else {
+                activeLiveSentence = '';
+                renderSentenceTokens('');
+              }
+            } else if (activeLiveSentence) {
               activeLiveSentence = '';
               renderSentenceTokens('');
             }
@@ -1386,6 +1435,8 @@ Respond with ONLY valid JSON:
         activeVideoEl.addEventListener('timeupdate', onTimeUpdate);
         setupLiveCaptionHooking();
       }
+
+      inspectAndSwitchPlayerTracks();
 
       const cues = await fetchYouTubeCaptions(vid);
       if (cues && cues.length > 0) {
