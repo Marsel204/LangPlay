@@ -1060,8 +1060,34 @@
       if (viewChat) viewChat.style.display = 'block';
       if (tabChatBtn) tabChatBtn.classList.add('active');
       if (tabBreakdownBtn) tabBreakdownBtn.classList.remove('active');
+
+      const sentJpEl = document.getElementById('lp-sentence-jp');
+      const sentRomajiEl = document.getElementById('lp-sentence-romaji');
+      const sentEnEl = document.getElementById('lp-sentence-en');
+      const sentSpeedEl = document.getElementById('lp-sentence-speed');
       const chatContextEl = document.getElementById('lp-chat-context-sentence');
-      if (chatContextEl) chatContextEl.textContent = activeLiveSentence || '';
+      const chatRomajiEl = document.getElementById('lp-chat-sentence-romaji');
+      const chatEnEl = document.getElementById('lp-chat-sentence-en');
+      const chatBadgeEl = document.getElementById('lp-sensei-provider-badge');
+
+      if (chatContextEl) {
+        if (sentJpEl && sentJpEl.innerHTML) {
+          chatContextEl.innerHTML = sentJpEl.innerHTML;
+        } else {
+          chatContextEl.textContent = activeLiveSentence || '';
+        }
+      }
+      if (chatRomajiEl && sentRomajiEl) {
+        chatRomajiEl.innerHTML = sentRomajiEl.innerHTML;
+        chatRomajiEl.style.display = sentRomajiEl.style.display;
+      }
+      if (chatEnEl && sentEnEl) {
+        chatEnEl.innerHTML = sentEnEl.innerHTML;
+      }
+      if (chatBadgeEl && (!chatBadgeEl.textContent || chatBadgeEl.textContent === 'Instant')) {
+        chatBadgeEl.textContent = sentSpeedEl ? sentSpeedEl.textContent : 'Instant';
+      }
+
       const chatInputEl = document.getElementById('lp-chat-input');
       if (chatInputEl) {
         setTimeout(() => chatInputEl.focus(), 50);
@@ -1109,6 +1135,12 @@
     const sentEnEl = document.getElementById('lp-sentence-en');
     const sentSpeedEl = document.getElementById('lp-sentence-speed');
 
+    const chatSentenceWrap = document.getElementById('lp-chat-sentence-wrapper');
+    const chatContextEl = document.getElementById('lp-chat-context-sentence');
+    const chatRomajiEl = document.getElementById('lp-chat-sentence-romaji');
+    const chatEnEl = document.getElementById('lp-chat-sentence-en');
+    const chatBadgeEl = document.getElementById('lp-sensei-provider-badge');
+
     const readingData = getWordReading(token.surface);
     const displayReading = readingData.romaji && readingData.furigana !== readingData.romaji
       ? `${readingData.furigana} (${readingData.romaji})`
@@ -1130,33 +1162,49 @@
       const activeText = (activeLiveSentence || '').trim();
       if (activeText) {
         sentenceWrap.style.display = 'block';
+        if (chatSentenceWrap) chatSentenceWrap.style.display = 'block';
+
         if (token.surface && activeText.includes(token.surface)) {
           const parts = activeText.split(token.surface);
-          sentJpEl.innerHTML = parts.join(`<span style="color:#a78bfa; font-weight:bold; background:rgba(167,139,250,0.2); padding:1px 4px; border-radius:4px;">${token.surface}</span>`);
+          const highlightedJp = parts.join(`<span style="color:#a78bfa; font-weight:bold; background:rgba(167,139,250,0.2); padding:1px 4px; border-radius:4px;">${token.surface}</span>`);
+          sentJpEl.innerHTML = highlightedJp;
+          if (chatContextEl) chatContextEl.innerHTML = highlightedJp;
         } else {
           sentJpEl.textContent = activeText;
+          if (chatContextEl) chatContextEl.textContent = activeText;
         }
 
         if (sentRomajiEl) {
           const romajiHtml = generateSentenceRomaji(activeText, token.surface);
           sentRomajiEl.innerHTML = romajiHtml;
           sentRomajiEl.style.display = romajiHtml ? 'block' : 'none';
+          if (chatRomajiEl) {
+            chatRomajiEl.innerHTML = romajiHtml;
+            chatRomajiEl.style.display = romajiHtml ? 'block' : 'none';
+          }
         }
 
         if (sentenceTranslationCache.has(activeText)) {
-          sentEnEl.textContent = sentenceTranslationCache.get(activeText);
+          const trans = sentenceTranslationCache.get(activeText);
+          sentEnEl.textContent = trans;
+          if (chatEnEl) chatEnEl.textContent = trans;
           if (sentSpeedEl) sentSpeedEl.textContent = '0ms (Cached)';
+          if (chatBadgeEl && (!chatBadgeEl.textContent || chatBadgeEl.textContent === 'Instant')) chatBadgeEl.textContent = '0ms (Cached)';
         } else {
           sentEnEl.innerHTML = '<span style="opacity:0.6; font-size:12px;">⚡ Translating sentence...</span>';
+          if (chatEnEl) chatEnEl.innerHTML = '<span style="opacity:0.6; font-size:12px;">⚡ Translating sentence...</span>';
           if (sentSpeedEl) sentSpeedEl.textContent = 'Translating...';
           const targetSentence = activeText;
           fetchSentenceTranslation(targetSentence).then(trans => {
             if (activeLiveSentence.trim() === targetSentence) {
               if (trans) {
                 sentEnEl.textContent = trans;
+                if (chatEnEl) chatEnEl.textContent = trans;
                 if (sentSpeedEl) sentSpeedEl.textContent = 'Instant';
+                if (chatBadgeEl && (!chatBadgeEl.textContent || chatBadgeEl.textContent === 'Instant')) chatBadgeEl.textContent = 'Instant';
               } else {
                 sentEnEl.textContent = 'Sentence translation unavailable';
+                if (chatEnEl) chatEnEl.textContent = 'Sentence translation unavailable';
                 if (sentSpeedEl) sentSpeedEl.textContent = '';
               }
             }
@@ -1164,6 +1212,7 @@
         }
       } else {
         sentenceWrap.style.display = 'none';
+        if (chatSentenceWrap) chatSentenceWrap.style.display = 'none';
       }
     }
 
@@ -1179,10 +1228,6 @@
 
     if (typeof switchDrawerTab === 'function') {
       switchDrawerTab('breakdown');
-    }
-    const chatContextEl = document.getElementById('lp-chat-context-sentence');
-    if (chatContextEl) {
-      chatContextEl.textContent = activeLiveSentence || token.surface || '';
     }
 
     const local = JDICT[token.baseForm] || JDICT[token.surface];
@@ -1464,12 +1509,14 @@
 
       <!-- Tab 2: Dedicated Chatbot View -->
       <div id="lp-view-chat" style="display:none;">
-        <div class="linguaplay-card-wrapper" style="margin-bottom:10px; background:rgba(30,27,75,0.45); border:1px solid rgba(139,92,246,0.3); border-radius:10px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
-          <div style="flex:1; min-width:0; padding-right:8px;">
-            <div style="font-size:9.5px; color:#a78bfa; font-weight:bold; text-transform:uppercase;">Context Sentence</div>
-            <div id="lp-chat-context-sentence" style="font-size:12.5px; color:#f8fafc; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
+        <div id="lp-chat-sentence-wrapper" class="linguaplay-card-wrapper" style="margin-bottom:10px; background:rgba(30,27,75,0.45); border:1px solid rgba(139,92,246,0.3); border-radius:10px; padding:10px 12px;">
+          <div style="font-size:10px; font-weight:bold; color:#a78bfa; text-transform:uppercase; margin-bottom:4px; letter-spacing:0.04em; display:flex; justify-content:space-between; align-items:center;">
+            <span>💬 Context Sentence</span>
+            <span id="lp-sensei-provider-badge" style="font-size:9.5px; color:#34d399; font-weight:600; text-transform:none;"></span>
           </div>
-          <span id="lp-sensei-provider-badge" style="font-size:9.5px; color:#6ee7b7; background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:4px; flex-shrink:0;"></span>
+          <div id="lp-chat-context-sentence" style="font-size:14px; color:#f8fafc; font-weight:500; line-height:1.5; margin-bottom:2px; font-family:'Noto Sans JP',sans-serif;"></div>
+          <div id="lp-chat-sentence-romaji" style="font-size:12px; color:#fda4af; font-family:monospace; line-height:1.4; margin-bottom:4px;"></div>
+          <div id="lp-chat-sentence-en" style="font-size:13px; color:#cbd5e1; line-height:1.45; font-style:italic;"></div>
         </div>
 
         <div class="lp-chat-chips-row" style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px;">
