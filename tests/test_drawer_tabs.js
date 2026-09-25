@@ -33,5 +33,15 @@ assert.ok(
   'FAIL: Breakdown card must contain #lp-goto-chat-btn shortcut!'
 );
 
+// 5. Verify chat view contains full rich context elements (romaji and translation meaning)
+assert.ok(
+  contentJs.includes('id="lp-chat-sentence-romaji"'),
+  'FAIL: Chat view must display #lp-chat-sentence-romaji for reading!'
+);
+assert.ok(
+  contentJs.includes('id="lp-chat-sentence-en"'),
+  'FAIL: Chat view must display #lp-chat-sentence-en for translation meaning!'
+);
+
 console.log('PASS: Drawer tab navigation structure verified!');
 
