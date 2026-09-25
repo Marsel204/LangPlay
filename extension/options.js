@@ -14,6 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
   
   const testServerBtn = document.getElementById('test-server-btn');
   const serverStatusText = document.getElementById('server-status-text');
+  const testGeminiBtn = document.getElementById('test-gemini-btn');
+  const geminiStatusText = document.getElementById('gemini-status-text');
   const testAnkiBtn = document.getElementById('test-anki-btn');
   const ankiStatusText = document.getElementById('anki-status-text');
   
@@ -61,7 +63,42 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 3. Test Local Server
+  // 3. Test Gemini API Key
+  if (testGeminiBtn) {
+    testGeminiBtn.addEventListener('click', async () => {
+      const key = geminiKey.value.trim();
+      if (!key) {
+        geminiStatusText.textContent = '❌ Please enter a Gemini API key first.';
+        geminiStatusText.style.color = '#f87171';
+        return;
+      }
+      geminiStatusText.textContent = 'Testing Gemini 2.5 Flash connection…';
+      geminiStatusText.style.color = '#a78bfa';
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Respond with the single word: OK' }] }]
+          }),
+          signal: AbortSignal.timeout(5000)
+        });
+        if (res.ok) {
+          geminiStatusText.textContent = '✓ Gemini 2.5 Flash API Key is Valid & Working!';
+          geminiStatusText.style.color = '#34d399';
+        } else {
+          const err = await res.json().catch(() => ({}));
+          geminiStatusText.textContent = `❌ API Error: ${err.error?.message || 'Status ' + res.status}`;
+          geminiStatusText.style.color = '#f87171';
+        }
+      } catch (e) {
+        geminiStatusText.textContent = `❌ Network Error: ${e.message}`;
+        geminiStatusText.style.color = '#f87171';
+      }
+    });
+  }
+
+  // 4. Test Local Server
   testServerBtn.addEventListener('click', async () => {
     serverStatusText.textContent = 'Testing connection…';
     serverStatusText.style.color = '#a78bfa';
@@ -82,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 4. Test AnkiConnect
+  // 5. Test AnkiConnect
   testAnkiBtn.addEventListener('click', async () => {
     ankiStatusText.textContent = 'Testing AnkiConnect…';
     ankiStatusText.style.color = '#a78bfa';
@@ -108,7 +145,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 5. Export TSV
+  // 6. Export TSV
   exportTsvBtn.addEventListener('click', () => {
     chrome.storage.local.get(['linguaplay_cards'], (res) => {
       const cards = res.linguaplay_cards || [];
@@ -120,11 +157,13 @@ document.addEventListener('DOMContentLoaded', () => {
       let tsv = "#separator:Tab\n#html:true\n#deck:LinguaPlay Japanese Immersion\n";
       cards.forEach(c => {
         const sent = (c.sentence || '').replace(/\t/g, ' ').replace(/\n/g, ' ');
+        const sentEn = (c.sentence_en || '').replace(/\t/g, ' ').replace(/\n/g, ' ');
         const word = (c.word || '').replace(/\t/g, ' ').replace(/\n/g, ' ');
         const reading = (c.reading || '').replace(/\t/g, ' ').replace(/\n/g, ' ');
         const meaning = (c.meaning || '').replace(/\t/g, ' ').replace(/\n/g, ' ');
-        const boldSent = word && sent.includes(word) ? sent.replace(word, `<b>${word}</b>`) : sent;
-        tsv += `${boldSent}\t${word}\t${reading}\t${meaning}\n`;
+        const boldSent = word && sent.includes(word) ? sent.split(word).join(`<b>${word}</b>`) : sent;
+        const fullMeaning = sentEn ? `${meaning}<br><small style="color:#94a3b8">${sentEn}</small>` : meaning;
+        tsv += `${boldSent}\t${word}\t${reading}\t${fullMeaning}\n`;
       });
 
       const blob = new Blob([tsv], { type: 'text/tab-separated-values;charset=utf-8;' });

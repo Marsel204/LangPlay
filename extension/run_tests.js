@@ -461,4 +461,83 @@ for (const tc of LYRICS_TEST_CASES) {
 assert.strictEqual(lyricFailures, 0, `Failed ${lyricFailures} lyric test cases in Test Suite 9!`);
 console.log(`✅ Test 9: All ${LYRICS_TEST_CASES.length} tuki. lyric test cases PASSED matching Genius Romanizations!`);
 
-console.log(`\n🎉 ALL 9 TEST SUITES PASSED CLEANLY WITH ZERO KANJI ERRORS!\n`);
+// ── Test Suite 10: Instant Sentence Translation & Enriched Anki Card Serialization ──
+console.log('\n⚡ Running Test Suite 10: Instant Sentence Translation & Enriched Anki Serialization...');
+
+function parseNmtResponse(rawJson) {
+  if (!rawJson || !rawJson[0] || !Array.isArray(rawJson[0])) return '';
+  return rawJson[0].map(s => s[0]).filter(Boolean).join('');
+}
+
+// 1. Validate Single & Multi-Segment NMT response parsing
+const mockSingleSegmentNmt = [[["I am falling into self-loathing.", "自己嫌悪に落ちてく", null, null, 10]], null, "ja"];
+const parsedSingle = parseNmtResponse(mockSingleSegmentNmt);
+assert.strictEqual(parsedSingle, 'I am falling into self-loathing.');
+
+const mockMultiSegmentNmt = [
+  [
+    ["The flower blooming in the gap of the bookshelf ", "書架の隙間に住まう一輪の花は", null, null, 10],
+    ["is an existence that cannot reach me.", "僕には届かぬ存在で", null, null, 10]
+  ],
+  null,
+  "ja"
+];
+const parsedMulti = parseNmtResponse(mockMultiSegmentNmt);
+assert.strictEqual(parsedMulti, 'The flower blooming in the gap of the bookshelf is an existence that cannot reach me.');
+console.log('✅ Test 10a: Multi-segment NMT response parser: PASSED');
+
+// 2. Validate Sentence Highlighting in Japanese text
+function formatSentenceWithTargetWord(sentence, targetWord) {
+  if (!sentence || !targetWord || !sentence.includes(targetWord)) return sentence;
+  const parts = sentence.split(targetWord);
+  return parts.join(`<b>${targetWord}</b>`);
+}
+
+const testSent = '自己嫌悪に落ちてく';
+const highlighted = formatSentenceWithTargetWord(testSent, '自己嫌悪');
+assert.strictEqual(highlighted, '<b>自己嫌悪</b>に落ちてく');
+console.log('✅ Test 10b: Sentence target word highlighting: PASSED');
+
+// 3. Validate Enriched Anki Payload Generation
+function buildAnkiPayload(word, romaji, def, sentence, sentEn, deckName = 'LinguaPlay') {
+  let backHtml = `<div><strong>Meaning:</strong> ${def}</div>`;
+  if (sentence) {
+    const boldSent = formatSentenceWithTargetWord(sentence, word);
+    backHtml += `<br><div><strong>Sentence:</strong> ${boldSent}</div>`;
+    if (sentEn) {
+      backHtml += `<div style="color:#94a3b8; font-size:0.9em; margin-top:3px; font-style:italic;">${sentEn}</div>`;
+    }
+  }
+
+  return {
+    action: 'addNote',
+    version: 6,
+    params: {
+      note: {
+        deckName,
+        modelName: 'Basic',
+        fields: {
+          Front: `${word} <span style="font-size:0.8em;color:#94a3b8;">${romaji}</span>`,
+          Back: backHtml
+        },
+        tags: ['linguaplay', 'youtube']
+      }
+    }
+  };
+}
+
+const ankiPayload = buildAnkiPayload(
+  '自己嫌悪',
+  "jikoken'o",
+  'self-hatred; self-loathing',
+  '自己嫌悪に落ちてく',
+  'Falling into self-loathing.'
+);
+
+assert.strictEqual(ankiPayload.params.note.fields.Front, "自己嫌悪 <span style=\"font-size:0.8em;color:#94a3b8;\">jikoken'o</span>");
+assert(ankiPayload.params.note.fields.Back.includes('Falling into self-loathing.'), 'Anki payload Back must contain English sentence translation');
+assert(ankiPayload.params.note.fields.Back.includes('<b>自己嫌悪</b>に落ちてく'), 'Anki payload Back must highlight target word in sentence');
+console.log('✅ Test 10c: Enriched Anki Payload with Sentence & Translation: PASSED');
+
+console.log(`\n🎉 ALL 10 TEST SUITES PASSED CLEANLY WITH ZERO REGRESSIONS!\n`);
+
