@@ -45,6 +45,7 @@
       "js": [
         "lib/wanakana.min.js",
         "lib/kuromoji.js",
+        "lib/yomitan-deinflector.js",
         "content.js"
       ],
       "css": [

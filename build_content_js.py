@@ -3,6 +3,9 @@ import json, re
 with open('extension/js/kanji-dict.js', 'r', encoding='utf-8') as f:
     dict_content = f.read()
 
+with open('extension/lib/deinflect-rules.json', 'r', encoding='utf-8') as f:
+    deinflect_rules_json = f.read()
+
 m_spec = re.search(r'export const SPECIAL_WORDS = ({.*?});', dict_content, re.DOTALL)
 m_db = re.search(r'export const KANJI_DB = ({.*?});', dict_content, re.DOTALL)
 
@@ -23,6 +26,90 @@ content_code = """/**
   const SPECIAL_WORDS = """ + special_words_code + """;
 
   const KANJI_DB = """ + kanji_db_code + """;
+
+  // ── Yomitan Deinflection Engine (<0.1ms rule-driven state transitions) ──
+  const YOMITAN_DEINFLECT_RULES = """ + deinflect_rules_json + """;
+
+  class YomitanDeinflector {
+    constructor(rules) {
+      this.reasons = rules || YOMITAN_DEINFLECT_RULES;
+    }
+
+    deinflect(source) {
+      if (!source || typeof source !== 'string') return [];
+      const results = [{ term: source, rules: 0, reasons: [] }];
+      for (let i = 0; i < results.length; ++i) {
+        const { rules, term, reasons } = results[i];
+        for (let r = 0; r < this.reasons.length; r++) {
+          const reasonEntry = this.reasons[r];
+          const reasonName = reasonEntry[0];
+          const variants = reasonEntry[1];
+          for (let v = 0; v < variants.length; v++) {
+            const [kanaIn, kanaOut, rulesIn, rulesOut] = variants[v];
+            if (
+              (rules !== 0 && (rules & rulesIn) === 0) ||
+              !term.endsWith(kanaIn) ||
+              (term.length - kanaIn.length + kanaOut.length) <= 0
+            ) {
+              continue;
+            }
+
+            const deinflectedTerm = term.substring(0, term.length - kanaIn.length) + kanaOut;
+            results.push({
+              term: deinflectedTerm,
+              rules: rulesOut,
+              reasons: [reasonName, ...reasons]
+            });
+          }
+        }
+      }
+      return results;
+    }
+  }
+
+  const yomitanDeinflector = new YomitanDeinflector();
+
+  function resolveDeinflectedReading(word) {
+    if (!word || !word.trim()) return null;
+    const w = word.trim();
+    if (SPECIAL_WORDS[w]) return SPECIAL_WORDS[w];
+    const deinflections = yomitanDeinflector.deinflect(w);
+    for (let dIdx = 0; dIdx < deinflections.length; dIdx++) {
+      const { term } = deinflections[dIdx];
+      if (SPECIAL_WORDS[term]) {
+        const baseReading = SPECIAL_WORDS[term];
+        if (term.endsWith('い') && baseReading.endsWith('い')) {
+          const stemReading = baseReading.slice(0, -1);
+          const stemWord = term.slice(0, -1);
+          if (w.startsWith(stemWord)) {
+            return stemReading + w.slice(stemWord.length);
+          }
+        }
+        if (term.endsWith('る') && baseReading.endsWith('る')) {
+          const stemReading = baseReading.slice(0, -1);
+          const stemWord = term.slice(0, -1);
+          if (w.startsWith(stemWord)) {
+            return stemReading + w.slice(stemWord.length);
+          }
+        }
+      }
+      const firstChar = term[0];
+      const dbEntry = KANJI_DB[firstChar];
+      if (dbEntry && dbEntry[1]) {
+        const okuri = term.slice(1);
+        for (let kIdx = 0; kIdx < dbEntry[1].length; kIdx++) {
+          const kun = dbEntry[1][kIdx];
+          if (kun.includes('.')) {
+            const [stemReading, okuriReading] = kun.split('.');
+            if (okuri === okuriReading) {
+              return stemReading + w.slice(1);
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
 
   /**
    * Matches verb/adjective inflections and Onbin shifts (Godan, Ichidan, Kuru, Suru).
@@ -103,6 +190,8 @@ content_code = """/**
     if (!word || !word.trim()) return '';
     const w = word.trim();
     if (SPECIAL_WORDS[w]) return SPECIAL_WORDS[w];
+    const deinf = resolveDeinflectedReading(w);
+    if (deinf) return deinf;
 
     const isKanji = (c) => c >= 0x4E00 && c <= 0x9FAF;
     const isKatakana = (c) => c >= 0x30A1 && c <= 0x30F6;
@@ -225,9 +314,15 @@ content_code = """/**
     return { furigana: hira, romaji };
   }
 
+  const COPULAS = new Set([
+    'だった', 'でした', 'だろう', 'でしょう', 'だ', 'です',
+    'じゃない', 'じゃなかった', 'ではない', 'ではなかった'
+  ]);
+
   const PARTICLES = new Set([
-    'は', 'が', 'を', 'に', 'で', 'へ', 'と', 'も', 'の', 'か', 'よ', 'ね',
-    'より', 'から', 'まで', 'だけ', 'しか', 'けど', 'だ', 'です', 'って', 'なら', 'ば'
+    'は', 'が', 'を', 'に', 'で', 'へ', 'と', 'も', 'の', 'か', 'よ', 'ね', 'な', 'ぞ', 'ぜ', 'さ',
+    'より', 'から', 'まで', 'だけ', 'ほど', 'ばかり', 'など', 'くらい', 'ぐらい',
+    'けれど', 'けれども', 'けど', 'のに', 'ので', 'ても', 'でも', 'なら', 'って'
   ]);
 
   const COMMON_WORDS = new Set([
@@ -239,99 +334,108 @@ content_code = """/**
   function segmentJapaneseSentence(text) {
     if (!text || !text.trim()) return [];
     const clean = text.trim();
-    const tokens = [];
+    const rawTokens = [];
     let i = 0;
 
     while (i < clean.length) {
-      if (/\s/.test(clean[i])) { i++; continue; }
+      if (/\\s/.test(clean[i])) { i++; continue; }
       if (/[、。！？，．…〜「」『』（）,.!?]/.test(clean[i])) {
-        tokens.push({ text: clean[i], isPunct: true });
+        rawTokens.push({ text: clean[i], isPunct: true });
         i++;
         continue;
       }
 
-      // 1. Check longest match in SPECIAL_WORDS or COMMON_WORDS
-      let matchedSpecial = null;
-      for (let len = Math.min(12, clean.length - i); len >= 1; len--) {
+      // 1. Check longest match in SPECIAL_WORDS, COMMON_WORDS, or COPULAS
+      let matchedPrefix = null;
+      for (let len = Math.min(12, clean.length - i); len >= 2; len--) {
         const sub = clean.slice(i, i + len);
-        if (len >= 2 && SPECIAL_WORDS[sub]) {
-          matchedSpecial = sub;
-          break;
-        }
-        if (COMMON_WORDS.has(sub)) {
-          matchedSpecial = sub;
+        if (SPECIAL_WORDS[sub] || COMMON_WORDS.has(sub) || COPULAS.has(sub)) {
+          matchedPrefix = sub;
           break;
         }
       }
-      if (matchedSpecial) {
-        tokens.push({ text: matchedSpecial, isSpecial: true });
-        i += matchedSpecial.length;
+      if (matchedPrefix) {
+        const isCop = COPULAS.has(matchedPrefix);
+        rawTokens.push({ text: matchedPrefix, isSpecial: !isCop, isCopula: isCop });
+        i += matchedPrefix.length;
         continue;
       }
 
-      // 2. Kanji word + Okurigana / Auxiliary chain
-      if (/[\u4E00-\u9FAF]/.test(clean[i])) {
+      // 2. Check if candidate starting at i can be deinflected as a verb/adjective
+      let matchedVerb = null;
+      for (let len = Math.min(12, clean.length - i); len >= 2; len--) {
+        const candidate = clean.slice(i, i + len);
+        if (resolveDeinflectedReading(candidate)) {
+          matchedVerb = candidate;
+          break;
+        }
+      }
+      if (matchedVerb) {
+        rawTokens.push({ text: matchedVerb, isVerb: true });
+        i += matchedVerb.length;
+        continue;
+      }
+
+      // 3. Kanji word (run of Kanji)
+      if (/[\\u4E00-\\u9FAF]/.test(clean[i])) {
         let wordEnd = i + 1;
-        while (wordEnd < clean.length && /[\u4E00-\u9FAF]/.test(clean[wordEnd])) {
+        while (wordEnd < clean.length && /[\\u4E00-\\u9FAF]/.test(clean[wordEnd])) {
           wordEnd++;
         }
-        while (wordEnd < clean.length && /[\u3040-\u309F]/.test(clean[wordEnd])) {
-          let isPart = false;
-          for (let pLen = 3; pLen >= 1; pLen--) {
-            if (wordEnd + pLen <= clean.length && PARTICLES.has(clean.slice(wordEnd, wordEnd + pLen))) {
-              isPart = true;
-              break;
-            }
-          }
-          if (isPart) break;
-          if (/[\u4E00-\u9FAF]/.test(clean[wordEnd])) break;
-          wordEnd++;
-        }
-        tokens.push({ text: clean.slice(i, wordEnd), isKanjiWord: true });
+        rawTokens.push({ text: clean.slice(i, wordEnd), isKanjiWord: true });
         i = wordEnd;
         continue;
       }
 
-      // 3. Match Particle
-      let matchedParticle = null;
-      for (let pLen = 3; pLen >= 1; pLen--) {
-        if (i + pLen <= clean.length && PARTICLES.has(clean.slice(i, i + pLen))) {
-          matchedParticle = clean.slice(i, i + pLen);
+      // 4. Copulas / Particles
+      let matchedPart = null;
+      for (let pLen = Math.min(6, clean.length - i); pLen >= 1; pLen--) {
+        const sub = clean.slice(i, i + pLen);
+        if (COPULAS.has(sub) || PARTICLES.has(sub)) {
+          matchedPart = sub;
           break;
         }
       }
-      if (matchedParticle) {
-        tokens.push({ text: matchedParticle, isParticle: true });
-        i += matchedParticle.length;
+      if (matchedPart) {
+        const isCop = COPULAS.has(matchedPart);
+        rawTokens.push({ text: matchedPart, isParticle: !isCop, isCopula: isCop });
+        i += matchedPart.length;
         continue;
       }
 
-      // 4. Standalone Kana word
+      // 5. Standalone Kana word
       let kanaEnd = i + 1;
-      while (kanaEnd < clean.length && /[\u3040-\u309F\u30A0-\u30FF]/.test(clean[kanaEnd])) {
+      while (kanaEnd < clean.length && /[\\u3040-\\u309F\\u30A0-\\u30FF]/.test(clean[kanaEnd])) {
+        if (/[、。！？，．…〜「」『』（）,.!?\\s]/.test(clean[kanaEnd]) || /[\\u4E00-\\u9FAF]/.test(clean[kanaEnd])) break;
         let isPart = false;
-        for (let pLen = 3; pLen >= 1; pLen--) {
-          if (kanaEnd + pLen <= clean.length && PARTICLES.has(clean.slice(kanaEnd, kanaEnd + pLen))) {
-            isPart = true;
-            break;
-          }
+        for (let pLen = Math.min(6, clean.length - kanaEnd); pLen >= 1; pLen--) {
+          const sub = clean.slice(kanaEnd, kanaEnd + pLen);
+          if (PARTICLES.has(sub) || COPULAS.has(sub)) { isPart = true; break; }
         }
-        if (isPart || /[\u4E00-\u9FAF]/.test(clean[kanaEnd]) || /[、。！？，．…〜「」『』（）,.!?\s]/.test(clean[kanaEnd])) {
-          break;
-        }
+        if (isPart) break;
         kanaEnd++;
       }
-      tokens.push({ text: clean.slice(i, kanaEnd), isKana: true });
+      rawTokens.push({ text: clean.slice(i, kanaEnd), isKana: true });
       i = kanaEnd;
     }
 
-    return tokens;
+    // Sokuon safety binder: merge any leading 'っ' token into preceding token
+    const boundTokens = [];
+    for (let idx = 0; idx < rawTokens.length; idx++) {
+      const tok = rawTokens[idx];
+      if (tok.text.startsWith('っ') && boundTokens.length > 0 && !boundTokens[boundTokens.length - 1].isPunct) {
+        boundTokens[boundTokens.length - 1].text += tok.text;
+      } else {
+        boundTokens.push(tok);
+      }
+    }
+
+    return boundTokens;
   }
 
   function generateSentenceRomaji(sentenceText, targetWord) {
     if (!sentenceText || !sentenceText.trim()) return '';
     const clean = sentenceText.trim();
-    const wk = typeof window !== 'undefined' ? window.wanakana : null;
     const tokens = segmentJapaneseSentence(clean);
 
     const targetClean = targetWord ? targetWord.trim() : '';
@@ -385,6 +489,16 @@ content_code = """/**
       } else {
         romajiTokens.push(tokRomaji);
       }
+
+      // Sokuon safety check on romaji token level: merge floating double consonants with preceding token
+      if (romajiTokens.length >= 2) {
+        const lastIdx = romajiTokens.length - 1;
+        const currentTok = romajiTokens[lastIdx];
+        if (/^(tt|kk|pp|ss|cc|hh|mm|nn|rr|ww|yy|zz)/i.test(currentTok)) {
+          romajiTokens[lastIdx - 1] += currentTok;
+          romajiTokens.pop();
+        }
+      }
     }
 
     return romajiTokens.join(' ');
@@ -397,6 +511,7 @@ content_code = """/**
     'これ': 'this', 'それ': 'that', 'あれ': 'that (over there)', 'どれ': 'which one', 'ここ': 'here', 'そこ': 'there', 'あそこ': 'over there', 'どこ': 'where',
     '自己': 'self; oneself', '嫌悪': 'disgust; hate; abhorrence', '自己嫌悪': 'self-hatred; self-disgust',
     '綺麗': 'beautiful; pretty; lovely; clean', '世界': 'world; universe; society',
+    '美味しい': 'delicious; tasty', '美味しかった': 'was delicious', '届く': 'to reach; to arrive; to deliver', '届かぬ': 'unreachable; cannot reach',
     'は': '(topic marker)', 'が': '(subject marker)', 'を': '(object marker)', 'に': 'to; at; in', 'で': 'at; by; with', 'へ': 'towards', 'も': 'also; too',
     'の': '(possessive; of)', 'と': 'and; with; quotation', 'か': '(question marker)', 'よ': '(emphasis)', 'ね': '(confirmation; right?)', 'より': 'than; from',
     'から': 'from; since; because', 'まで': 'until; even', 'だけ': 'only; just', 'しか': 'only; but (with negative)', 'けど': 'but; however',
