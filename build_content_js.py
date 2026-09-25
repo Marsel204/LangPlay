@@ -225,21 +225,169 @@ content_code = """/**
     return { furigana: hira, romaji };
   }
 
+  const PARTICLES = new Set([
+    'は', 'が', 'を', 'に', 'で', 'へ', 'と', 'も', 'の', 'か', 'よ', 'ね',
+    'より', 'から', 'まで', 'だけ', 'しか', 'けど', 'だ', 'です', 'って', 'なら', 'ば'
+  ]);
+
+  const COMMON_WORDS = new Set([
+    'また', 'もっと', 'ずっと', 'いつも', 'きっと', 'たぶん', 'とても', 'たくさん',
+    'ちょっと', 'すぐ', 'もう', '僕', '君', '私', '俺', 'これ', 'それ', 'あれ', 'どれ',
+    'ここ', 'そこ', 'あそこ', 'どこ', 'どう', 'そう', 'こう', 'なぜ', 'どうして'
+  ]);
+
+  function segmentJapaneseSentence(text) {
+    if (!text || !text.trim()) return [];
+    const clean = text.trim();
+    const tokens = [];
+    let i = 0;
+
+    while (i < clean.length) {
+      if (/\s/.test(clean[i])) { i++; continue; }
+      if (/[、。！？，．…〜「」『』（）,.!?]/.test(clean[i])) {
+        tokens.push({ text: clean[i], isPunct: true });
+        i++;
+        continue;
+      }
+
+      // 1. Check longest match in SPECIAL_WORDS or COMMON_WORDS
+      let matchedSpecial = null;
+      for (let len = Math.min(12, clean.length - i); len >= 1; len--) {
+        const sub = clean.slice(i, i + len);
+        if (len >= 2 && SPECIAL_WORDS[sub]) {
+          matchedSpecial = sub;
+          break;
+        }
+        if (COMMON_WORDS.has(sub)) {
+          matchedSpecial = sub;
+          break;
+        }
+      }
+      if (matchedSpecial) {
+        tokens.push({ text: matchedSpecial, isSpecial: true });
+        i += matchedSpecial.length;
+        continue;
+      }
+
+      // 2. Kanji word + Okurigana / Auxiliary chain
+      if (/[\u4E00-\u9FAF]/.test(clean[i])) {
+        let wordEnd = i + 1;
+        while (wordEnd < clean.length && /[\u4E00-\u9FAF]/.test(clean[wordEnd])) {
+          wordEnd++;
+        }
+        while (wordEnd < clean.length && /[\u3040-\u309F]/.test(clean[wordEnd])) {
+          let isPart = false;
+          for (let pLen = 3; pLen >= 1; pLen--) {
+            if (wordEnd + pLen <= clean.length && PARTICLES.has(clean.slice(wordEnd, wordEnd + pLen))) {
+              isPart = true;
+              break;
+            }
+          }
+          if (isPart) break;
+          if (/[\u4E00-\u9FAF]/.test(clean[wordEnd])) break;
+          wordEnd++;
+        }
+        tokens.push({ text: clean.slice(i, wordEnd), isKanjiWord: true });
+        i = wordEnd;
+        continue;
+      }
+
+      // 3. Match Particle
+      let matchedParticle = null;
+      for (let pLen = 3; pLen >= 1; pLen--) {
+        if (i + pLen <= clean.length && PARTICLES.has(clean.slice(i, i + pLen))) {
+          matchedParticle = clean.slice(i, i + pLen);
+          break;
+        }
+      }
+      if (matchedParticle) {
+        tokens.push({ text: matchedParticle, isParticle: true });
+        i += matchedParticle.length;
+        continue;
+      }
+
+      // 4. Standalone Kana word
+      let kanaEnd = i + 1;
+      while (kanaEnd < clean.length && /[\u3040-\u309F\u30A0-\u30FF]/.test(clean[kanaEnd])) {
+        let isPart = false;
+        for (let pLen = 3; pLen >= 1; pLen--) {
+          if (kanaEnd + pLen <= clean.length && PARTICLES.has(clean.slice(kanaEnd, kanaEnd + pLen))) {
+            isPart = true;
+            break;
+          }
+        }
+        if (isPart || /[\u4E00-\u9FAF]/.test(clean[kanaEnd]) || /[、。！？，．…〜「」『』（）,.!?\s]/.test(clean[kanaEnd])) {
+          break;
+        }
+        kanaEnd++;
+      }
+      tokens.push({ text: clean.slice(i, kanaEnd), isKana: true });
+      i = kanaEnd;
+    }
+
+    return tokens;
+  }
+
   function generateSentenceRomaji(sentenceText, targetWord) {
     if (!sentenceText || !sentenceText.trim()) return '';
     const clean = sentenceText.trim();
-    const targetReading = targetWord ? getWordReading(targetWord.trim()) : null;
-    const targetRomaji = targetReading ? (targetReading.romaji || targetReading.furigana) : '';
-
-    const hira = resolveToHiragana(clean);
     const wk = typeof window !== 'undefined' ? window.wanakana : null;
-    let rawRomaji = wk && wk.toRomaji ? wk.toRomaji(hira) : hira;
+    const tokens = segmentJapaneseSentence(clean);
 
-    if (targetRomaji && rawRomaji.includes(targetRomaji)) {
-      const parts = rawRomaji.split(targetRomaji);
-      return parts.join(`<span style="color:#fda4af; font-weight:bold; background:rgba(253,164,175,0.18); padding:0 3px; border-radius:3px;">${targetRomaji}</span>`);
+    const targetClean = targetWord ? targetWord.trim() : '';
+    const targetHira = targetClean ? resolveToHiragana(targetClean) : '';
+    const targetRomaji = targetClean ? toModifiedHepburnRomaji(targetHira, targetClean) : '';
+
+    const romajiTokens = [];
+
+    for (let idx = 0; idx < tokens.length; idx++) {
+      const tok = tokens[idx];
+      if (tok.isPunct) {
+        if (romajiTokens.length > 0) {
+          const last = romajiTokens[romajiTokens.length - 1];
+          if (/[、,]/.test(tok.text)) romajiTokens[romajiTokens.length - 1] = last + ',';
+          else if (/[。.]/.test(tok.text)) romajiTokens[romajiTokens.length - 1] = last + '.';
+          else if (/[！!]/.test(tok.text)) romajiTokens[romajiTokens.length - 1] = last + '!';
+          else if (/[？?]/.test(tok.text)) romajiTokens[romajiTokens.length - 1] = last + '?';
+          else romajiTokens.push(tok.text);
+        } else {
+          romajiTokens.push(tok.text);
+        }
+        continue;
+      }
+
+      let tokRomaji = '';
+      if (tok.isParticle) {
+        if (tok.text === 'は') tokRomaji = 'wa';
+        else if (tok.text === 'へ') tokRomaji = 'e';
+        else if (tok.text === 'を') tokRomaji = 'o';
+        else tokRomaji = toModifiedHepburnRomaji(tok.text, tok.text);
+      } else {
+        const hira = resolveToHiragana(tok.text);
+        tokRomaji = toModifiedHepburnRomaji(hira, tok.text);
+      }
+
+      // Check target highlight
+      let isTarget = false;
+      if (targetClean) {
+        if (tok.text === targetClean || (targetClean.length >= 2 && tok.text.includes(targetClean)) || (tok.text.length >= 2 && targetClean.includes(tok.text))) {
+          isTarget = true;
+        }
+      }
+
+      if (isTarget) {
+        if (targetRomaji && tokRomaji.includes(targetRomaji) && tokRomaji !== targetRomaji) {
+          const highlighted = tokRomaji.replace(targetRomaji, `<span style="color:#fda4af; font-weight:bold; background:rgba(253,164,175,0.18); padding:0 3px; border-radius:3px;">${targetRomaji}</span>`);
+          romajiTokens.push(highlighted);
+        } else {
+          romajiTokens.push(`<span style="color:#fda4af; font-weight:bold; background:rgba(253,164,175,0.18); padding:0 3px; border-radius:3px;">${tokRomaji}</span>`);
+        }
+      } else {
+        romajiTokens.push(tokRomaji);
+      }
     }
-    return rawRomaji;
+
+    return romajiTokens.join(' ');
   }
 
 
