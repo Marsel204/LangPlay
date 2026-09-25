@@ -13,8 +13,8 @@ assert.strictEqual(
 );
 
 // 2. Check that #lp-active-def is located within .linguaplay-drawer-header next to #lp-active-word
-const headerMatch = contentJs.match(/class="linguaplay-drawer-header"[\s\S]*?<\/div>\s*<\/div>\s*<div id="lp-sentence-wrapper"/);
-assert.ok(headerMatch, 'Drawer header structure found before sentence wrapper');
+const headerMatch = contentJs.match(/class="linguaplay-drawer-header"[\s\S]*?id="lp-dismiss-btn"[\s\S]*?<\/div>\s*<\/div>/);
+assert.ok(headerMatch, 'Drawer header structure found');
 const headerSnippet = headerMatch[0];
 
 assert.ok(

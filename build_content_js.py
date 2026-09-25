@@ -871,6 +871,32 @@ content_code = """/**
     return '';
   }
 
+  // ── Switch Drawer Navigation Tab (Breakdown vs Sensei Chatbot) ──
+  function switchDrawerTab(tab) {
+    const tabBreakdownBtn = document.getElementById('lp-tab-breakdown-btn');
+    const tabChatBtn = document.getElementById('lp-tab-chat-btn');
+    const viewBreakdown = document.getElementById('lp-view-breakdown');
+    const viewChat = document.getElementById('lp-view-chat');
+
+    if (tab === 'chat') {
+      if (viewBreakdown) viewBreakdown.style.display = 'none';
+      if (viewChat) viewChat.style.display = 'block';
+      if (tabChatBtn) tabChatBtn.classList.add('active');
+      if (tabBreakdownBtn) tabBreakdownBtn.classList.remove('active');
+      const chatContextEl = document.getElementById('lp-chat-context-sentence');
+      if (chatContextEl) chatContextEl.textContent = activeLiveSentence || '';
+      const chatInputEl = document.getElementById('lp-chat-input');
+      if (chatInputEl) {
+        setTimeout(() => chatInputEl.focus(), 50);
+      }
+    } else {
+      if (viewBreakdown) viewBreakdown.style.display = 'block';
+      if (viewChat) viewChat.style.display = 'none';
+      if (tabBreakdownBtn) tabBreakdownBtn.classList.add('active');
+      if (tabChatBtn) tabChatBtn.classList.remove('active');
+    }
+  }
+
   // ── Handle Word Click (Non-Interrupting & Side-Panel Integration) ──
   function handleTokenClick(token, sentenceContext) {
     let drawer = document.getElementById('linguaplay-yt-drawer');
@@ -974,6 +1000,14 @@ content_code = """/**
     senseiChatHistory = [];
     lastAiData = null;
 
+    if (typeof switchDrawerTab === 'function') {
+      switchDrawerTab('breakdown');
+    }
+    const chatContextEl = document.getElementById('lp-chat-context-sentence');
+    if (chatContextEl) {
+      chatContextEl.textContent = activeLiveSentence || token.surface || '';
+    }
+
     const local = JDICT[token.baseForm] || JDICT[token.surface];
     if (local) {
       defEl.innerHTML = local;
@@ -1042,6 +1076,11 @@ content_code = """/**
                 </div>
               `;
             }).join('')}
+          </div>
+          <div style="margin-top:10px; display:flex; justify-content:flex-end;">
+            <button id="lp-goto-chat-btn" style="background:rgba(124,58,237,0.22); border:1px solid rgba(167,139,250,0.4); color:#c4b5fd; font-size:11px; font-weight:600; padding:5px 12px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:5px; transition:all 0.2s;">
+              <span>💬 Ask Sensei in Chat</span> <span>→</span>
+            </button>
           </div>
         ` : `
           <div style="font-size:12px; color:#94a3b8; font-style:italic;">No word-by-word gloss available for this sentence.</div>
@@ -1205,55 +1244,69 @@ content_code = """/**
         </div>
       </div>
 
-      <div id="lp-sentence-wrapper" class="linguaplay-card-wrapper" style="display:none; margin-bottom:10px; background:rgba(30,27,75,0.45); border:1px solid rgba(139,92,246,0.3); border-radius:10px; padding:10px 12px;">
-        <div style="font-size:10px; font-weight:bold; color:#a78bfa; text-transform:uppercase; margin-bottom:4px; letter-spacing:0.04em; display:flex; justify-content:space-between; align-items:center;">
-          <span>💬 Context Sentence</span>
-          <span id="lp-sentence-speed" style="font-size:9.5px; color:#34d399; font-weight:600; text-transform:none;"></span>
-        </div>
-        <div id="lp-sentence-jp" style="font-size:14px; color:#f8fafc; font-weight:500; line-height:1.5; margin-bottom:2px; font-family:'Noto Sans JP',sans-serif;"></div>
-        <div id="lp-sentence-romaji" style="font-size:12px; color:#fda4af; font-family:monospace; line-height:1.4; margin-bottom:4px;"></div>
-        <div id="lp-sentence-en" style="font-size:13px; color:#cbd5e1; line-height:1.45; font-style:italic;"></div>
+      <!-- Navigation Tabs: Breakdown vs Sensei Chatbot -->
+      <div class="linguaplay-drawer-tabs">
+        <button id="lp-tab-breakdown-btn" class="linguaplay-tab-btn active">
+          <span>📖</span> <span>Breakdown & Gloss</span>
+        </button>
+        <button id="lp-tab-chat-btn" class="linguaplay-tab-btn">
+          <span>🧑‍🏫</span> <span>Sensei Chat</span>
+        </button>
       </div>
 
-      <button id="lp-quick-anki-btn" class="linguaplay-btn linguaplay-btn-secondary">
-        🗃️ Quick Add to Anki
-      </button>
-
-      <button id="lp-ai-btn" class="linguaplay-btn linguaplay-btn-primary">
-        ✨ Ask Sensei (AI Grammar Tutor)
-      </button>
-
-      <div id="lp-ai-section">
-        <div id="lp-ai-loading" style="display:none; font-size: 12px; color: #a78bfa; text-align: center; padding: 10px 0;">
-          <span style="display:inline-block; animation:spin 1s linear infinite;">⚡</span> Sensei is analyzing…
+      <!-- Tab 1: Breakdown & Sentence View -->
+      <div id="lp-view-breakdown">
+        <div id="lp-sentence-wrapper" class="linguaplay-card-wrapper" style="display:none; margin-bottom:10px; background:rgba(30,27,75,0.45); border:1px solid rgba(139,92,246,0.3); border-radius:10px; padding:10px 12px;">
+          <div style="font-size:10px; font-weight:bold; color:#a78bfa; text-transform:uppercase; margin-bottom:4px; letter-spacing:0.04em; display:flex; justify-content:space-between; align-items:center;">
+            <span>💬 Context Sentence</span>
+            <span id="lp-sentence-speed" style="font-size:9.5px; color:#34d399; font-weight:600; text-transform:none;"></span>
+          </div>
+          <div id="lp-sentence-jp" style="font-size:14px; color:#f8fafc; font-weight:500; line-height:1.5; margin-bottom:2px; font-family:'Noto Sans JP',sans-serif;"></div>
+          <div id="lp-sentence-romaji" style="font-size:12px; color:#fda4af; font-family:monospace; line-height:1.4; margin-bottom:4px;"></div>
+          <div id="lp-sentence-en" style="font-size:13px; color:#cbd5e1; line-height:1.45; font-style:italic;"></div>
         </div>
-        <div id="lp-ai-results" style="margin-top: 10px; display: none;"></div>
-        <button id="lp-ai-anki-btn" class="linguaplay-btn linguaplay-btn-secondary" style="display:none; margin-top: 8px;">
-          🗂️ Save Enriched AI Card to Anki
+
+        <button id="lp-quick-anki-btn" class="linguaplay-btn linguaplay-btn-secondary">
+          🗃️ Quick Add to Anki
         </button>
 
-        <!-- Sensei Pedagogical Interactive Chatbot -->
-        <div id="lp-sensei-chat-box" style="display:none; margin-top:14px; border-top:1px solid rgba(255,255,255,0.1); padding-top:12px;">
-          <div style="font-size:11px; font-weight:bold; color:#a78bfa; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
-            <div style="display:flex; align-items:center; gap:5px;">
-              <span>🧑‍🏫</span> <span>Ask Sensei (AI Japanese Tutor)</span>
-            </div>
-            <span id="lp-sensei-provider-badge" style="font-size:9.5px; color:#cbd5e1; background:rgba(255,255,255,0.08); padding:1px 6px; border-radius:4px; font-weight:normal;"></span>
-          </div>
-          
-          <div class="lp-chat-chips-row" style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px;">
-            <button class="lp-chat-chip" data-prompt="Why is this particle used here?">Why this particle?</button>
-            <button class="lp-chat-chip" data-prompt="Break down the grammar step-by-step.">Grammar breakdown</button>
-            <button class="lp-chat-chip" data-prompt="Give me 2 more natural example sentences with this word.">2 More examples</button>
-            <button class="lp-chat-chip" data-prompt="Explain the nuance and politeness level.">Nuance & Politeness</button>
-          </div>
+        <button id="lp-ai-btn" class="linguaplay-btn linguaplay-btn-primary">
+          ✨ Ask Sensei (AI Grammar Tutor)
+        </button>
 
-          <div id="lp-chat-messages" style="max-height:220px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; margin-bottom:10px; padding-right:4px;"></div>
-
-          <div style="display:flex; gap:6px;">
-            <input type="text" id="lp-chat-input" placeholder="Ask Sensei anything about this sentence..." style="flex:1; background:rgba(15,23,42,0.8); border:1px solid rgba(167,139,250,0.3); border-radius:8px; padding:7px 10px; color:#f8fafc; font-size:12px; outline:none;" />
-            <button id="lp-chat-send-btn" class="linguaplay-btn linguaplay-btn-primary" style="padding:7px 12px; font-size:12px; width:auto; margin:0; cursor:pointer;">Send</button>
+        <div id="lp-ai-section">
+          <div id="lp-ai-loading" style="display:none; font-size: 12px; color: #a78bfa; text-align: center; padding: 10px 0;">
+            <span style="display:inline-block; animation:spin 1s linear infinite;">⚡</span> Sensei is analyzing…
           </div>
+          <div id="lp-ai-results" style="margin-top: 10px; display: none;"></div>
+          <button id="lp-ai-anki-btn" class="linguaplay-btn linguaplay-btn-secondary" style="display:none; margin-top: 8px;">
+            🗂️ Save Enriched AI Card to Anki
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab 2: Dedicated Chatbot View -->
+      <div id="lp-view-chat" style="display:none;">
+        <div class="linguaplay-card-wrapper" style="margin-bottom:10px; background:rgba(30,27,75,0.45); border:1px solid rgba(139,92,246,0.3); border-radius:10px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
+          <div style="flex:1; min-width:0; padding-right:8px;">
+            <div style="font-size:9.5px; color:#a78bfa; font-weight:bold; text-transform:uppercase;">Context Sentence</div>
+            <div id="lp-chat-context-sentence" style="font-size:12.5px; color:#f8fafc; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
+          </div>
+          <span id="lp-sensei-provider-badge" style="font-size:9.5px; color:#6ee7b7; background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:4px; flex-shrink:0;"></span>
+        </div>
+
+        <div class="lp-chat-chips-row" style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px;">
+          <button class="lp-chat-chip" data-prompt="Why is this particle used here?">Why this particle?</button>
+          <button class="lp-chat-chip" data-prompt="Break down the grammar step-by-step.">Grammar breakdown</button>
+          <button class="lp-chat-chip" data-prompt="Give me 2 more natural example sentences with this word.">2 More examples</button>
+          <button class="lp-chat-chip" data-prompt="Explain the nuance and politeness level.">Nuance & Politeness</button>
+        </div>
+
+        <div id="lp-chat-messages" style="max-height:280px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; margin-bottom:10px; padding-right:4px;"></div>
+
+        <div style="display:flex; gap:6px;">
+          <input type="text" id="lp-chat-input" placeholder="Ask Sensei anything about this sentence..." style="flex:1; background:rgba(15,23,42,0.85); border:1px solid rgba(167,139,250,0.3); border-radius:8px; padding:7px 10px; color:#f8fafc; font-size:12px; outline:none;" />
+          <button id="lp-chat-send-btn" class="linguaplay-btn linguaplay-btn-primary" style="padding:7px 12px; font-size:12px; width:auto; margin:0; cursor:pointer;">Send</button>
         </div>
       </div>
     `;
@@ -1368,6 +1421,23 @@ content_code = """/**
 
     document.getElementById('lp-dismiss-btn').addEventListener('click', () => {
       drawer.classList.add('hidden');
+    });
+
+    // Tab Navigation Listeners
+    const tabBreakdownBtn = document.getElementById('lp-tab-breakdown-btn');
+    const tabChatBtn = document.getElementById('lp-tab-chat-btn');
+    if (tabBreakdownBtn) {
+      tabBreakdownBtn.addEventListener('click', () => switchDrawerTab('breakdown'));
+    }
+    if (tabChatBtn) {
+      tabChatBtn.addEventListener('click', () => switchDrawerTab('chat'));
+    }
+
+    // Delegated click for 'Ask Sensei in Chat →' button from breakdown card
+    drawer.addEventListener('click', (e) => {
+      if (e.target && e.target.closest('#lp-goto-chat-btn')) {
+        switchDrawerTab('chat');
+      }
     });
 
     document.getElementById('lp-quick-anki-btn').addEventListener('click', async () => {
