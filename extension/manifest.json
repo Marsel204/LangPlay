@@ -21,6 +21,10 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "options_page": "options.html",
   "content_scripts": [
     {
@@ -72,7 +76,13 @@
         "lib/*",
         "css/*",
         "js/*",
-        "player.html"
+        "player.html",
+        "options.html",
+        "options.css",
+        "options.js",
+        "popup.html",
+        "popup.css",
+        "popup.js"
       ],
       "matches": [
         "*://*.youtube.com/*"

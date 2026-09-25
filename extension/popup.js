@@ -21,7 +21,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 2. Open Options Page
   openOptionsBtn.addEventListener('click', () => {
-    chrome.runtime.openOptionsPage();
+    try {
+      if (chrome.runtime.openOptionsPage) {
+        chrome.runtime.openOptionsPage(() => {
+          if (chrome.runtime.lastError) {
+            chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
+          }
+        });
+      } else {
+        chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
+      }
+    } catch (e) {
+      chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
+    }
   });
 
   // 3. Check Active Tab for YouTube Video ID

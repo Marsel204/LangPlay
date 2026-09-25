@@ -400,7 +400,12 @@ const manifestPath = path.join(__dirname, 'manifest.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 assert.strictEqual(manifest.manifest_version, 3);
 assert.strictEqual(manifest.name, 'LinguaPlay — Japanese AI Immersion Player');
-console.log('✅ Test 8: Manifest V3 Configuration: PASSED');
+assert.ok(manifest.options_ui && manifest.options_ui.page === 'options.html', 'Manifest must declare options_ui.page');
+assert.strictEqual(manifest.options_ui.open_in_tab, true, 'options_ui.open_in_tab must be true');
+const webRes = manifest.web_accessible_resources?.[0]?.resources || [];
+assert.ok(webRes.includes('options.html'), 'web_accessible_resources must include options.html');
+assert.ok(webRes.includes('options.js'), 'web_accessible_resources must include options.js');
+console.log('✅ Test 8: Manifest V3 Configuration & Options UI: PASSED');
 
 // ── Test Suite 5: tuki. - 愛の賞味期限 (Love Expiration Date) Lyrics Accuracy Benchmark ──
 console.log('\n🎵 Running Test Suite 9: tuki. - 愛の賞味期限 (Love Expiration Date) Lyric Accuracy...');
