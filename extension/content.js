@@ -467,10 +467,118 @@
     return /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
   }
 
-  // ── Caption Fetchers ──
+  // ── Multi-Track Japanese Discovery & Prioritization ──
+  function findJapaneseCaptionTrack(tracks) {
+    if (!tracks || !Array.isArray(tracks) || tracks.length === 0) return null;
+
+    function isJapaneseTrack(t) {
+      if (!t) return false;
+      const code = (t.languageCode || t.lang || '').toLowerCase();
+      if (code.startsWith('ja')) return true;
+      const vss = (t.vssId || '').toLowerCase();
+      if (vss === '.ja' || vss === 'a.ja' || vss.endsWith('.ja') || vss.includes('ja')) return true;
+      const name = (
+        (t.name?.runs?.[0]?.text) ||
+        (t.name?.simpleText) ||
+        t.displayName ||
+        t.languageName ||
+        (typeof t.name === 'string' ? t.name : '')
+      ).toLowerCase();
+      return name.includes('japan') || name.includes('jepang') || name.includes('日本語') || name.includes('にほんご');
+    }
+
+    // 1. Priority 1: Human-curated Japanese track (not ASR)
+    const manualJa = tracks.find(t => {
+      if (!isJapaneseTrack(t)) return false;
+      const isAsr = t.kind === 'asr' || (t.vssId && t.vssId.startsWith('a.'));
+      return !isAsr;
+    });
+    if (manualJa) return manualJa;
+
+    // 2. Priority 2: Auto-generated Japanese track (ASR)
+    const asrJa = tracks.find(t => isJapaneseTrack(t));
+    if (asrJa) return asrJa;
+
+    return null;
+  }
+
+  // ── Extract Caption Tracks from Page DOM ──
+  function getOnPageCaptionTracks() {
+    try {
+      const scripts = document.querySelectorAll('script');
+      for (const s of scripts) {
+        const text = s.textContent || '';
+        if (text.includes('captionTracks')) {
+          const m = text.match(/"captionTracks":\s*(\[.*?\])/);
+          if (m) {
+            try {
+              const parsed = JSON.parse(m[1]);
+              if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            } catch (e) {}
+          }
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  // ── Switch YouTube Native Player Track to Japanese ──
+  function switchYouTubePlayerCaptionTrack(targetTrackOrLang) {
+    if (activeVideoEl && activeVideoEl.textTracks) {
+      for (let i = 0; i < activeVideoEl.textTracks.length; i++) {
+        const track = activeVideoEl.textTracks[i];
+        const lang = (track.language || '').toLowerCase();
+        if (lang.startsWith('ja')) {
+          track.mode = 'showing';
+        } else if (track.mode === 'showing') {
+          track.mode = 'hidden';
+        }
+      }
+    }
+
+    try {
+      const targetLang = typeof targetTrackOrLang === 'string' ? targetTrackOrLang : (targetTrackOrLang?.languageCode || 'ja');
+      const vssId = targetTrackOrLang?.vssId || '';
+      const script = document.createElement('script');
+      script.textContent = `
+        (function() {
+          try {
+            const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+            if (!player) return;
+            if (typeof player.loadModule === 'function') player.loadModule('captions');
+            const tracklist = (typeof player.getOption === 'function') ? player.getOption('captions', 'tracklist') : null;
+            if (Array.isArray(tracklist) && tracklist.length > 0) {
+              const targetVss = ${JSON.stringify(vssId)};
+              const targetCode = ${JSON.stringify(targetLang)};
+              let matched = null;
+              if (targetVss) matched = tracklist.find(t => t.vssId === targetVss);
+              if (!matched) matched = tracklist.find(t => t.languageCode && t.languageCode.toLowerCase().startsWith(targetCode));
+              if (!matched) {
+                matched = tracklist.find(t => {
+                  const n = (t.displayName || t.languageName || '').toLowerCase();
+                  return n.includes('japan') || n.includes('jepang') || n.includes('日本語');
+                });
+              }
+              if (matched && typeof player.setOption === 'function') {
+                player.setOption('captions', 'track', matched);
+                return;
+              }
+            }
+            if (typeof player.setOption === 'function') {
+              player.setOption('captions', 'track', { languageCode: ${JSON.stringify(targetLang)} });
+            }
+          } catch (e) {}
+        })();
+      `;
+      (document.head || document.documentElement).appendChild(script);
+      script.remove();
+    } catch (e) {}
+  }
+
+  // ── Caption Fetchers with Auto-Discovery & Auto-Switch ──
   async function fetchYouTubeCaptions(videoId) {
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/captions?v=${videoId}`, { signal: AbortSignal.timeout(2000) });
+      const res = await fetch(`http://127.0.0.1:8000/api/captions?v=${videoId}`, { signal: AbortSignal.timeout(1500) });
       if (res.ok) {
         const vtt = await res.text();
         const cues = parseVTT(vtt);
@@ -479,6 +587,27 @@
       }
     } catch (e) { /* ignore */ }
 
+    // 1. Check on-page script data first (fastest zero-latency path)
+    const onPageTracks = getOnPageCaptionTracks();
+    if (onPageTracks) {
+      const jaTrack = findJapaneseCaptionTrack(onPageTracks);
+      if (jaTrack && jaTrack.baseUrl) {
+        try {
+          const sep = jaTrack.baseUrl.includes('?') ? '&' : '?';
+          const vttRes = await fetch(`${jaTrack.baseUrl}${sep}fmt=vtt`);
+          if (vttRes.ok) {
+            const vtt = await vttRes.text();
+            const cues = parseVTT(vtt);
+            if (cues.length > 0) {
+              switchYouTubePlayerCaptionTrack(jaTrack);
+              return cues;
+            }
+          }
+        } catch (e) { /* ignore */ }
+      }
+    }
+
+    // 2. Fallback to fetching YouTube page HTML with hl=ja
     try {
       const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=ja`);
       if (pageRes.ok) {
@@ -486,14 +615,17 @@
         const m = html.match(/"captionTracks":\s*(\[.*?\])/);
         if (m) {
           const tracks = JSON.parse(m[1]);
-          const jaTrack = tracks.find(t => t.languageCode && t.languageCode.toLowerCase().startsWith('ja'));
+          const jaTrack = findJapaneseCaptionTrack(tracks);
           if (jaTrack && jaTrack.baseUrl) {
             const sep = jaTrack.baseUrl.includes('?') ? '&' : '?';
             const vttRes = await fetch(`${jaTrack.baseUrl}${sep}fmt=vtt`);
             if (vttRes.ok) {
               const vtt = await vttRes.text();
               const cues = parseVTT(vtt);
-              if (cues.length > 0) return cues;
+              if (cues.length > 0) {
+                switchYouTubePlayerCaptionTrack(jaTrack);
+                return cues;
+              }
             }
           }
         }

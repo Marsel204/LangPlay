@@ -261,6 +261,83 @@ assert.strictEqual(hasJapaneseCharacters('日本語'), true);
 assert.strictEqual(hasJapaneseCharacters('アニメ anime 123'), true);
 console.log('✅ Test 6b: Japanese Language Detection (Dormant Filter): PASSED');
 
+// ── Test Suite 3b: Multi-Track Discovery & Priority Selection ──
+function findJapaneseCaptionTrack(tracks) {
+  if (!tracks || !Array.isArray(tracks) || tracks.length === 0) return null;
+
+  function isJapaneseTrack(t) {
+    if (!t) return false;
+    const code = (t.languageCode || t.lang || '').toLowerCase();
+    if (code.startsWith('ja')) return true;
+    const vss = (t.vssId || '').toLowerCase();
+    if (vss === '.ja' || vss === 'a.ja' || vss.endsWith('.ja') || vss.includes('ja')) return true;
+    const name = (
+      (t.name?.runs?.[0]?.text) ||
+      (t.name?.simpleText) ||
+      t.displayName ||
+      t.languageName ||
+      (typeof t.name === 'string' ? t.name : '')
+    ).toLowerCase();
+    return name.includes('japan') || name.includes('jepang') || name.includes('日本語') || name.includes('にほんご');
+  }
+
+  // 1. Priority 1: Human-curated Japanese track (not ASR)
+  const manualJa = tracks.find(t => {
+    if (!isJapaneseTrack(t)) return false;
+    const isAsr = t.kind === 'asr' || (t.vssId && t.vssId.startsWith('a.'));
+    return !isAsr;
+  });
+  if (manualJa) return manualJa;
+
+  // 2. Priority 2: Auto-generated Japanese track (ASR)
+  const asrJa = tracks.find(t => isJapaneseTrack(t));
+  if (asrJa) return asrJa;
+
+  return null;
+}
+
+// Case 1: Video with English default, Indonesian, Korean, Japanese manual (User screenshot scenario)
+const multiLangTracks = [
+  { languageCode: 'en', vssId: '.en', name: { runs: [{ text: 'Inggris' }] }, isDefault: true },
+  { languageCode: 'id', vssId: '.id', name: { runs: [{ text: 'Indonesia' }] } },
+  { languageCode: 'ko', vssId: '.ko', name: { runs: [{ text: 'Korea' }] } },
+  { languageCode: 'ja', vssId: '.ja', name: { runs: [{ text: 'Jepang' }] }, baseUrl: 'https://example.com/timedtext?lang=ja' }
+];
+const selectedTrack = findJapaneseCaptionTrack(multiLangTracks);
+assert(selectedTrack !== null, 'Must find Japanese track among multi-language tracks');
+assert.strictEqual(selectedTrack.languageCode, 'ja');
+assert.strictEqual(selectedTrack.vssId, '.ja');
+console.log('✅ Test 6c: Multi-Track Discovery (Auto-picks Japanese over English default): PASSED');
+
+// Case 2: Video with English default and Japanese Auto-generated (ASR)
+const asrTracks = [
+  { languageCode: 'en', vssId: '.en', name: { runs: [{ text: 'Inggris' }] } },
+  { languageCode: 'ja', vssId: 'a.ja', kind: 'asr', name: { runs: [{ text: 'Jepang (dibuat otomatis)' }] }, baseUrl: 'https://example.com/timedtext?lang=ja&kind=asr' }
+];
+const selectedAsr = findJapaneseCaptionTrack(asrTracks);
+assert(selectedAsr !== null, 'Must find Japanese ASR track');
+assert.strictEqual(selectedAsr.vssId, 'a.ja');
+console.log('✅ Test 6d: ASR Track Fallback Discovery: PASSED');
+
+// Case 3: Priority: Both manual and ASR present -> must choose manual
+const mixedTracks = [
+  { languageCode: 'ja', vssId: 'a.ja', kind: 'asr', name: { runs: [{ text: 'Japanese (auto-generated)' }] } },
+  { languageCode: 'ja', vssId: '.ja', name: { runs: [{ text: 'Japanese' }] }, baseUrl: 'https://example.com/timedtext?lang=ja' }
+];
+const priorityTrack = findJapaneseCaptionTrack(mixedTracks);
+assert.strictEqual(priorityTrack.vssId, '.ja', 'Must prioritize human-curated Japanese track over ASR');
+console.log('✅ Test 6e: Human-Curated Japanese Priority: PASSED');
+
+// Case 4: Non-Japanese Video (English, Indonesian, Spanish only) -> Must return null (Dormant Mode)
+const nonJpTracks = [
+  { languageCode: 'en', vssId: '.en', name: { runs: [{ text: 'English' }] } },
+  { languageCode: 'id', vssId: '.id', name: { runs: [{ text: 'Indonesian' }] } },
+  { languageCode: 'es', vssId: '.es', name: { runs: [{ text: 'Spanish' }] } }
+];
+const dormantResult = findJapaneseCaptionTrack(nonJpTracks);
+assert.strictEqual(dormantResult, null, 'Must return null for non-Japanese tracks to keep LinguaPlay dormant');
+console.log('✅ Test 6f: Non-Japanese Dormant Rejection: PASSED');
+
 function parseVTT(raw) {
   if (!raw) return [];
   const lines = raw.replace(/\r\n/g, '\n').split('\n');
