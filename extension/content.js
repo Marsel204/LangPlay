@@ -477,9 +477,30 @@
     });
   }
 
-  // ── Subtitle Parser (VTT / SRT) ──
+  // ── Subtitle Parser (VTT / SRT / XML TimedText) ──
   function parseVTT(raw) {
     if (!raw) return [];
+    if (raw.includes('<timedtext') || raw.includes('<p t=')) {
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(raw, 'text/xml');
+        const pTags = doc.querySelectorAll('p');
+        const cues = [];
+        pTags.forEach(p => {
+          const t = parseFloat(p.getAttribute('t') || '0');
+          const d = parseFloat(p.getAttribute('d') || '0');
+          const text = (p.textContent || '').replace(/<[^>]+>/g, '').trim();
+          if (text) {
+            cues.push({
+              start: t / 1000,
+              end: (t + d) / 1000,
+              text: text
+            });
+          }
+        });
+        if (cues.length > 0) return cues.sort((a, b) => a.start - b.start);
+      } catch (e) {}
+    }
     const lines = raw.replace(/\r\n/g, '\n').split('\n');
     const cues = [];
     const re = /(\d{1,2}:)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{1,2}:)?(\d{2}):(\d{2})[.,](\d{3})/;
@@ -543,7 +564,7 @@
       if (!t) return false;
       const code = (t.languageCode || t.lang || '').toLowerCase();
       if (code.startsWith('ja')) return true;
-      const vss = (t.vssId || '').toLowerCase();
+      const vss = (t.vssId || t.vss_id || '').toLowerCase();
       if (vss === '.ja' || vss === 'a.ja' || vss.endsWith('.ja') || vss.includes('ja')) return true;
       const name = (
         (t.name?.runs?.[0]?.text) ||
@@ -558,7 +579,7 @@
     // 1. Priority 1: Human-curated Japanese track (not ASR)
     const manualJa = tracks.find(t => {
       if (!isJapaneseTrack(t)) return false;
-      const isAsr = t.kind === 'asr' || (t.vssId && t.vssId.startsWith('a.'));
+      const isAsr = t.kind === 'asr' || (t.vssId && t.vssId.startsWith('a.')) || (t.vss_id && t.vss_id.startsWith('a.'));
       return !isAsr;
     });
     if (manualJa) return manualJa;
@@ -606,77 +627,106 @@
 
     try {
       const targetLang = typeof targetTrackOrLang === 'string' ? targetTrackOrLang : (targetTrackOrLang?.languageCode || 'ja');
-      const vssId = targetTrackOrLang?.vssId || '';
-      const script = document.createElement('script');
-      script.textContent = `
-        (function() {
-          try {
-            const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-            if (!player) return;
-            if (typeof player.loadModule === 'function') player.loadModule('captions');
-            const tracklist = (typeof player.getOption === 'function') ? player.getOption('captions', 'tracklist') : null;
-            if (Array.isArray(tracklist) && tracklist.length > 0) {
-              const targetVss = ${JSON.stringify(vssId)};
-              const targetCode = ${JSON.stringify(targetLang)};
-              let matched = null;
-              if (targetVss) matched = tracklist.find(t => t.vssId === targetVss);
-              if (!matched) matched = tracklist.find(t => t.languageCode && t.languageCode.toLowerCase().startsWith('ja') && t.kind !== 'asr');
-              if (!matched) matched = tracklist.find(t => t.languageCode && t.languageCode.toLowerCase().startsWith('ja'));
-              if (!matched) {
-                matched = tracklist.find(t => {
-                  const n = (t.displayName || t.languageName || (t.name?.runs?.[0]?.text) || (typeof t.name === 'string' ? t.name : '') || '').toLowerCase();
-                  return n.includes('japan') || n.includes('jepang') || n.includes('日本語') || n.includes('にほんご');
-                });
-              }
-              if (matched && typeof player.setOption === 'function') {
-                player.setOption('captions', 'track', matched);
-                return;
-              }
-            }
-            if (typeof player.setOption === 'function') {
-              player.setOption('captions', 'track', { languageCode: 'ja' });
-            }
-          } catch (e) {}
-        })();
-      `;
-      (document.head || document.documentElement).appendChild(script);
-      script.remove();
+      const vssId = targetTrackOrLang?.vssId || targetTrackOrLang?.vss_id || '';
+      window.dispatchEvent(new CustomEvent('LINGUAPLAY_REQUEST_TRACK_SWITCH', {
+        detail: { languageCode: targetLang, vssId: vssId }
+      }));
     } catch (e) {}
   }
 
   // ── In-Memory Player Track Discovery Bridge ──
   function inspectAndSwitchPlayerTracks() {
     try {
-      const script = document.createElement('script');
-      script.textContent = `
-        (function() {
-          try {
-            const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-            if (!player) return;
-            if (typeof player.loadModule === 'function') player.loadModule('captions');
-            const tracklist = (typeof player.getOption === 'function') ? player.getOption('captions', 'tracklist') : null;
-            if (Array.isArray(tracklist) && tracklist.length > 0) {
-              function isJp(t) {
-                if (!t) return false;
-                const code = (t.languageCode || t.lang || '').toLowerCase();
-                if (code.startsWith('ja')) return true;
-                const vss = (t.vssId || '').toLowerCase();
-                if (vss === '.ja' || vss === 'a.ja' || vss.endsWith('.ja') || vss.includes('ja')) return true;
-                const name = (t.displayName || t.languageName || (t.name?.runs?.[0]?.text) || (typeof t.name === 'string' ? t.name : '') || '').toLowerCase();
-                return name.includes('japan') || name.includes('jepang') || name.includes('日本語') || name.includes('にほんご');
-              }
-              const manualJa = tracklist.find(t => isJp(t) && t.kind !== 'asr' && !(t.vssId && t.vssId.startsWith('a.')));
-              const target = manualJa || tracklist.find(t => isJp(t));
-              if (target && typeof player.setOption === 'function') {
-                player.setOption('captions', 'track', target);
-              }
-            }
-          } catch (e) {}
-        })();
-      `;
-      (document.head || document.documentElement).appendChild(script);
-      script.remove();
+      window.dispatchEvent(new CustomEvent('LINGUAPLAY_REQUEST_TRACK_SWITCH', {
+        detail: { languageCode: 'ja' }
+      }));
     } catch (e) {}
+  }
+
+  // ── Innertube Android VR Direct Caption Extractor (Zero PO-Token Required) ──
+  async function fetchInnertubeCaptions(videoId) {
+    try {
+      let visitorData = '';
+      try {
+        if (typeof window.ytcfg?.get === 'function') {
+          visitorData = window.ytcfg.get('VISITOR_DATA') || '';
+        }
+      } catch (e) {}
+
+      if (!visitorData) {
+        const scripts = document.querySelectorAll('script');
+        for (const s of scripts) {
+          const txt = s.textContent || '';
+          const m = txt.match(/"VISITOR_DATA":\s*"([^"]+)"/) || txt.match(/"visitorData":\s*"([^"]+)"/);
+          if (m) {
+            visitorData = m[1];
+            break;
+          }
+        }
+      }
+
+      const headers = {
+        'Content-Type': 'application/json',
+        'User-Agent': 'com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
+        'X-YouTube-Client-Name': '28',
+        'X-YouTube-Client-Version': '1.65.10',
+        'Origin': 'https://www.youtube.com'
+      };
+      if (visitorData) headers['X-Goog-Visitor-Id'] = visitorData;
+
+      const payload = {
+        context: {
+          client: {
+            clientName: 'ANDROID_VR',
+            clientVersion: '1.65.10',
+            deviceMake: 'Oculus',
+            deviceModel: 'Quest 3',
+            androidSdkVersion: 32,
+            osName: 'Android',
+            osVersion: '12L',
+            hl: 'en',
+            timeZone: 'UTC',
+            utcOffsetMinutes: 0
+          }
+        },
+        videoId: videoId,
+        playbackContext: {
+          contentPlaybackContext: {
+            html5Preference: 'HTML5_PREF_WANTS',
+            signatureTimestamp: 20717
+          }
+        },
+        contentCheckOk: true,
+        racyCheckOk: true
+      };
+
+      const res = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+        if (Array.isArray(tracks) && tracks.length > 0) {
+          const jaTrack = findJapaneseCaptionTrack(tracks);
+          if (jaTrack && jaTrack.baseUrl) {
+            switchYouTubePlayerCaptionTrack(jaTrack);
+            ensureYouTubeCCEnabled();
+            const subRes = await fetch(jaTrack.baseUrl);
+            if (subRes.ok) {
+              const text = await subRes.text();
+              const cues = parseVTT(text);
+              if (cues.length > 0) return cues;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[LinguaPlay] Innertube caption fetch error:', e);
+    }
+    return [];
   }
 
   // ── Caption Fetchers with Auto-Discovery & Auto-Switch ──
@@ -694,7 +744,13 @@
     // 1. Probe player in-memory tracklist directly
     inspectAndSwitchPlayerTracks();
 
-    // 2. Check on-page script data first (fastest zero-latency path)
+    // 2. Direct Android VR Innertube Fetch (Bypasses PO-token and exp=xpe)
+    const innertubeCues = await fetchInnertubeCaptions(videoId);
+    if (innertubeCues && innertubeCues.length > 0) {
+      return innertubeCues;
+    }
+
+    // 3. Check on-page script data first (fastest zero-latency path)
     const onPageTracks = getOnPageCaptionTracks();
     if (onPageTracks) {
       const jaTrack = findJapaneseCaptionTrack(onPageTracks);
@@ -715,7 +771,7 @@
       }
     }
 
-    // 3. Fallback to fetching YouTube page HTML with hl=ja
+    // 4. Fallback to fetching YouTube page HTML with hl=ja
     try {
       const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=ja`);
       if (pageRes.ok) {
