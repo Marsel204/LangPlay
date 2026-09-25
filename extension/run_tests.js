@@ -658,6 +658,65 @@ assert(senseiPrompt.includes('僕を走らせる魔法だ'));
 assert(senseiPrompt.includes('mahou'));
 console.log('✅ Test 11f: Sensei System Prompt Assembly: PASSED');
 
-console.log(`\n🎉 ALL 11 TEST SUITES PASSED CLEANLY WITH ZERO REGRESSIONS!\n`);
+// ── Test Suite 12: Yomitan Deinflection Engine & Romaji Splitting Prevention ──
+console.log('\n🗾 Running Test Suite 12: Yomitan Deinflection Engine & Romaji Splitting Prevention...');
+
+const YomitanDeinflector = require('./lib/yomitan-deinflector.js');
+const deinflector = new YomitanDeinflector();
+
+// 1. Verify deinflections of key benchmark forms
+const todokanuResults = deinflector.deinflect('届かぬ').map(r => r.term);
+assert(todokanuResults.includes('届く'), 'FAIL: 届かぬ must deinflect to 届く');
+console.log('✅ Test 12a: Deinflect "届かぬ" -> 届く: PASSED');
+
+const ikanakattaResults = deinflector.deinflect('行かなかった').map(r => r.term);
+assert(ikanakattaResults.includes('行く'), 'FAIL: 行かなかった must deinflect to 行く');
+console.log('✅ Test 12b: Deinflect "行かなかった" -> 行く: PASSED');
+
+const oishikattaResults = deinflector.deinflect('美味しかった').map(r => r.term);
+assert(oishikattaResults.includes('美味しい'), 'FAIL: 美味しかった must deinflect to 美味しい');
+console.log('✅ Test 12c: Deinflect "美味しかった" -> 美味しい: PASSED');
+
+const dattaResults = deinflector.deinflect('だった').map(r => r.term);
+assert(dattaResults.includes('だ'), 'FAIL: だった must deinflect to だ');
+console.log('✅ Test 12d: Deinflect "だった" -> だ: PASSED');
+
+// 2. Verify content.js integration and sentence romaji output
+const contentJsCode = fs.readFileSync(path.join(__dirname, 'content.js'), 'utf8');
+assert.ok(
+  contentJsCode.includes('YomitanDeinflector') || contentJsCode.includes('deinflect'),
+  'FAIL: content.js must integrate Yomitan deinflection engine!'
+);
+
+const sandboxCode = contentJsCode.replace('(function () {', 'global.testContentCode = function() {').replace(/\}\)\(\);?\s*$/, '}; global.testContentCode();');
+global.window = { wanakana: realWanakana, addEventListener: () => {}, location: { search: '', href: '' } };
+global.document = { addEventListener: () => {}, querySelector: () => null, getElementById: () => null };
+global.chrome = { storage: { local: { get: () => {} } } };
+
+eval(sandboxCode.replace('function generateSentenceRomaji', 'global.genSentRomaji = function generateSentenceRomaji'));
+const genRomaji = global.genSentRomaji;
+
+const r1 = genRomaji('世界はとても綺麗だったな', '世界');
+assert.strictEqual(r1.includes('da ttana'), false, 'FAIL: だったな must not produce "da ttana"');
+assert.ok(r1.includes('datta na') || r1.includes('dattana'), `FAIL: Expected "datta na", got: ${r1}`);
+console.log('✅ Test 12e: Sentence Romaji ("世界はとても綺麗だったな") ->', r1);
+
+const r2 = genRomaji('僕には届かぬ存在で', '僕');
+assert.strictEqual(r2.includes('todo ka nu'), false, 'FAIL: 届かぬ must not produce "todo ka nu"');
+assert.ok(r2.includes('todokanu'), `FAIL: Expected "todokanu", got: ${r2}`);
+console.log('✅ Test 12f: Sentence Romaji ("僕には届かぬ存在で") ->', r2);
+
+const r3 = genRomaji('美味しかった', '');
+assert.strictEqual(r3.includes('bimi shika tta'), false, 'FAIL: 美味しかった must not produce "bimi shika tta"');
+assert.ok(r3.includes('oishikatta'), `FAIL: Expected "oishikatta", got: ${r3}`);
+console.log('✅ Test 12g: Sentence Romaji ("美味しかった") ->', r3);
+
+const r4 = genRomaji('行かなかった', '');
+assert.strictEqual(r4.includes('i ka na ka tta'), false, 'FAIL: 行かなかった must not produce "i ka na ka tta"');
+assert.ok(r4.includes('ikanakatta'), `FAIL: Expected "ikanakatta", got: ${r4}`);
+console.log('✅ Test 12h: Sentence Romaji ("行かなかった") ->', r4);
+
+console.log(`\n🎉 ALL 12 TEST SUITES PASSED CLEANLY WITH ZERO REGRESSIONS!\n`);
+process.exit(0);
 
 
