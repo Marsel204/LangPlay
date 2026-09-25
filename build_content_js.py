@@ -913,7 +913,13 @@ content_code = """/**
 
     wordEl.textContent = token.surface;
     romajiEl.textContent = displayReading;
-    posEl.textContent = `Base form: ${token.baseForm}`;
+    if (token.baseForm && token.baseForm !== token.surface) {
+      posEl.textContent = `(Base: ${token.baseForm})`;
+      posEl.style.display = 'inline';
+    } else {
+      posEl.textContent = '';
+      posEl.style.display = 'none';
+    }
     activeLiveSentence = sentenceContext || token.surface;
 
     // Instant Sentence Context & Romaji Rendering
@@ -1182,12 +1188,18 @@ content_code = """/**
     drawer.className = 'hidden';
     drawer.innerHTML = `
       <div class="linguaplay-drawer-header">
-        <div>
-          <span id="lp-active-romaji" style="font-size: 13px; color: #fda4af; font-family: monospace; font-weight: 500;"></span>
-          <h3 id="lp-active-word" style="font-size: 26px; font-weight: bold; color: white; margin: 3px 0 1px;"></h3>
-          <span id="lp-active-pos" style="font-size: 11px; color: #94a3b8;"></span>
+        <div style="flex:1; min-width:0; padding-right:12px;">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:2px;">
+            <span id="lp-active-romaji" style="font-size: 13px; color: #fda4af; font-family: monospace; font-weight: 500;"></span>
+            <span id="lp-active-pos" style="font-size: 11px; color: #94a3b8;"></span>
+          </div>
+          <div style="display:flex; align-items:baseline; flex-wrap:wrap; gap:8px;">
+            <h3 id="lp-active-word" style="font-size: 26px; font-weight: bold; color: white; margin: 0; line-height: 1.2;"></h3>
+            <span id="lp-def-separator" style="color: #a78bfa; font-size: 16px; font-weight: 600;">—</span>
+            <span id="lp-active-def" style="font-size: 14px; color: #e2e8f0; line-height: 1.4; font-weight: 500;"></span>
+          </div>
         </div>
-        <div style="display:flex; gap:6px; align-items:center;">
+        <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
           <button id="lp-drawer-settings-btn" title="Open Extension Settings" style="background:rgba(255,255,255,0.08); border:none; color:#cbd5e1; font-size:12px; cursor:pointer; padding:5px 8px; border-radius:6px; transition:0.2s;">⚙️ Settings</button>
           <button id="lp-dismiss-btn" style="background:rgba(255,255,255,0.08); border:none; color:#cbd5e1; font-size:12px; cursor:pointer; padding:5px 10px; border-radius:6px; transition:0.2s;">✕ Close</button>
         </div>
@@ -1201,11 +1213,6 @@ content_code = """/**
         <div id="lp-sentence-jp" style="font-size:14px; color:#f8fafc; font-weight:500; line-height:1.5; margin-bottom:2px; font-family:'Noto Sans JP',sans-serif;"></div>
         <div id="lp-sentence-romaji" style="font-size:12px; color:#fda4af; font-family:monospace; line-height:1.4; margin-bottom:4px;"></div>
         <div id="lp-sentence-en" style="font-size:13px; color:#cbd5e1; line-height:1.45; font-style:italic;"></div>
-      </div>
-
-      <div class="linguaplay-card-wrapper">
-        <div style="font-size: 10px; font-weight: bold; color: #a78bfa; text-transform: uppercase; margin-bottom: 4px; letter-spacing:0.04em;">📚 Dictionary Definition</div>
-        <div id="lp-active-def" style="font-size: 13.5px; color: #e2e8f0; line-height: 1.5;"></div>
       </div>
 
       <button id="lp-quick-anki-btn" class="linguaplay-btn linguaplay-btn-secondary">
