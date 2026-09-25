@@ -472,3 +472,72 @@
   font-size: 12px;
 }
 
+/* ── Sensei Chatbot Markdown Tables & Rich Formatting ── */
+.lp-chat-table-wrapper {
+  overflow-x: auto;
+  margin: 8px 0;
+  border-radius: 8px;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  background: rgba(15, 23, 42, 0.75);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  -webkit-overflow-scrolling: touch;
+}
+
+.lp-chat-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.lp-chat-table thead {
+  background: rgba(124, 58, 237, 0.25);
+  border-bottom: 1px solid rgba(139, 92, 246, 0.35);
+}
+
+.lp-chat-table th {
+  padding: 6px 10px;
+  color: #c4b5fd;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.lp-chat-table tbody tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  transition: background 0.15s ease;
+}
+
+.lp-chat-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.lp-chat-table tbody tr:hover {
+  background: rgba(139, 92, 246, 0.12);
+}
+
+.lp-chat-table td {
+  padding: 6px 10px;
+  color: #f1f5f9;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
+.lp-chat-inline-code {
+  background: rgba(0, 0, 0, 0.35);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-family: monospace;
+  color: #fda4af;
+  font-size: 0.92em;
+}
+
+.lp-chat-bullet {
+  margin: 3px 0;
+  padding-left: 2px;
+  line-height: 1.4;
+}
+
+

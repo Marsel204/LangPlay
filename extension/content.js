@@ -1928,6 +1928,99 @@ Respond with ONLY valid JSON:
       throw new Error(`Unsupported AI provider: ${provider}`);
     }
 
+    function formatSenseiMarkdown(rawText) {
+      if (!rawText) return '';
+
+      let text = rawText
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+      function formatInline(str) {
+        return str
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.*?)\*/g, '<em>$1</em>')
+          .replace(/`([^`]+)`/g, '<code class="lp-chat-inline-code">$1</code>');
+      }
+
+      function isTableDelimiter(rowStr) {
+        let clean = rowStr.trim();
+        if (clean.startsWith('|')) clean = clean.substring(1);
+        if (clean.endsWith('|')) clean = clean.substring(0, clean.length - 1);
+        const parts = clean.split('|');
+        if (parts.length === 0) return false;
+        return parts.every(p => {
+          const t = p.trim();
+          return t.length >= 2 && /^:?-+:?$/.test(t);
+        });
+      }
+
+      function splitTableRow(rowStr) {
+        let clean = rowStr.trim();
+        if (clean.startsWith('|')) clean = clean.substring(1);
+        if (clean.endsWith('|')) clean = clean.substring(0, clean.length - 1);
+        return clean.split('|').map(c => c.trim());
+      }
+
+      const lines = text.split('\n');
+      const output = [];
+      let i = 0;
+
+      while (i < lines.length) {
+        const line = lines[i];
+        const trimmed = line.trim();
+
+        if (trimmed.includes('|') && i + 1 < lines.length && isTableDelimiter(lines[i + 1])) {
+          const headerCells = splitTableRow(trimmed);
+          const alignDefs = splitTableRow(lines[i + 1]).map(c => {
+            if (c.startsWith(':') && c.endsWith(':')) return 'center';
+            if (c.endsWith(':')) return 'right';
+            return 'left';
+          });
+
+          i += 2; // Skip header and delimiter
+
+          const rows = [];
+          while (i < lines.length && lines[i].trim().includes('|') && !isTableDelimiter(lines[i])) {
+            rows.push(splitTableRow(lines[i]));
+            i++;
+          }
+
+          let tableHtml = '<div class="lp-chat-table-wrapper"><table class="lp-chat-table"><thead><tr>';
+          headerCells.forEach((h, colIdx) => {
+            const align = alignDefs[colIdx] || 'left';
+            tableHtml += `<th style="text-align:${align};">${formatInline(h)}</th>`;
+          });
+          tableHtml += '</tr></thead><tbody>';
+
+          rows.forEach(row => {
+            tableHtml += '<tr>';
+            headerCells.forEach((_, colIdx) => {
+              const cell = row[colIdx] || '';
+              const align = alignDefs[colIdx] || 'left';
+              tableHtml += `<td style="text-align:${align};">${formatInline(cell)}</td>`;
+            });
+            tableHtml += '</tr>';
+          });
+          tableHtml += '</tbody></table></div>';
+
+          output.push(tableHtml);
+          continue;
+        }
+
+        if (/^[-*][ \t]+/.test(trimmed)) {
+          output.push(`<div class="lp-chat-bullet">• ${formatInline(trimmed.replace(/^[-*][ \t]+/, ''))}</div>`);
+          i++;
+          continue;
+        }
+
+        output.push(formatInline(line));
+        i++;
+      }
+
+      return output.join('<br>').replace(/(<\/div>)<br>/g, '$1').replace(/<br>(<div)/g, '$1');
+    }
+
     function appendChatMessage(role, text) {
       const container = document.getElementById('lp-chat-messages');
       if (!container) return null;
@@ -1936,13 +2029,7 @@ Respond with ONLY valid JSON:
       if (role === 'user') {
         msgEl.textContent = text;
       } else {
-        let formatted = (text || '')
-          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-          .replace(/\*(.*?)\*/g, '<em>$1</em>')
-          .replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,0.35); padding:1px 4px; border-radius:4px; font-family:monospace; color:#fda4af;">$1</code>')
-          .replace(/\n/g, '<br>');
-        msgEl.innerHTML = formatted;
+        msgEl.innerHTML = formatSenseiMarkdown(text);
       }
       container.appendChild(msgEl);
       container.scrollTop = container.scrollHeight;
