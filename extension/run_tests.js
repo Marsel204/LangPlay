@@ -17,13 +17,8 @@ const realWanakana = require(wanakanaPath);
 
 const dictPath = path.join(__dirname, 'js', 'kanji-dict.js');
 const kanjiDictCode = fs.readFileSync(dictPath, 'utf8')
-  .replace('export const SPECIAL_WORDS', 'const SPECIAL_WORDS')
-  .replace('export const KANJI_DB', 'const KANJI_DB')
-  .replace('export function matchVerbInflectionAt', 'function matchVerbInflectionAt')
-  .replace('export function resolveToHiragana', 'function resolveToHiragana')
-  .replace('export function toModifiedHepburnRomaji', 'function toModifiedHepburnRomaji')
-  .replace('export function getWordReading', 'function getWordReading')
-  .replace('export function generateSentenceRomaji', 'function generateSentenceRomaji');
+  .replace(/export const /g, 'const ')
+  .replace(/export function /g, 'function ');
 
 eval(kanjiDictCode);
 
@@ -544,18 +539,26 @@ console.log('✅ Test 10c: Enriched Anki Payload with Sentence & Translation: PA
 // ── Test Suite 11: Sentence Romaji, Multi-Provider LLM & Sensei Chat Engine ──
 console.log('\n🌟 Running Test Suite 11: Sentence Romaji, Multi-Provider LLM & Sensei Chat Engine...');
 
-// 1. Validate Sentence Romaji Generation and Target Highlighting
+// 1. Validate Sentence Romaji Generation and Natural Word Spacing
+const userSent0 = '君が僕に見せてくれた';
+const sentRomaji0 = generateSentenceRomaji(userSent0, '君', realWanakana);
+assert(sentRomaji0.includes('<span style="color:#fda4af; font-weight:bold; background:rgba(253,164,175,0.18); padding:0 3px; border-radius:3px;">kimi</span> ga boku ni misetekureta'), 'Sentence Romaji must space words and particles with highlighted target "kimi"');
+console.log('✅ Test 11a: Context Spaced Sentence Romaji ("君が僕に見せてくれた"):', sentRomaji0);
+
 const userSent1 = '僕を走らせる魔法だ';
 const sentRomaji1 = generateSentenceRomaji(userSent1, '魔法', realWanakana);
-assert(sentRomaji1.includes('mahou'), 'Sentence Romaji must include target word romaji "mahou"');
-assert(sentRomaji1.includes('boku'), 'Sentence Romaji must include "boku"');
-assert(sentRomaji1.includes('<span'), 'Sentence Romaji must highlight the target word');
-console.log('✅ Test 11a: Context Sentence Romaji Formatting ("僕を走らせる魔法だ"):', sentRomaji1);
+assert(sentRomaji1.includes('boku o hashiraseru <span style="color:#fda4af; font-weight:bold; background:rgba(253,164,175,0.18); padding:0 3px; border-radius:3px;">mahou</span> da'), 'Sentence Romaji must space particles and verbs correctly');
+console.log('✅ Test 11b: Context Spaced Sentence Romaji ("僕を走らせる魔法だ"):', sentRomaji1);
 
 const userSent2 = '自己嫌悪に落ちてく';
 const sentRomaji2 = generateSentenceRomaji(userSent2, '自己嫌悪', realWanakana);
-assert(sentRomaji2.includes("jikoken'o") || sentRomaji2.includes("jiko"), 'Sentence Romaji must contain jikoken\'o');
-console.log('✅ Test 11b: Context Sentence Romaji Formatting ("自己嫌悪に落ちてく"):', sentRomaji2);
+assert(sentRomaji2.includes("<span style=\"color:#fda4af; font-weight:bold; background:rgba(253,164,175,0.18); padding:0 3px; border-radius:3px;\">jikoken'o</span> ni ochiteku"), 'Sentence Romaji must space compound nouns and conjugated verb chains');
+console.log('✅ Test 11c: Context Spaced Sentence Romaji ("自己嫌悪に落ちてく"):', sentRomaji2);
+
+const userSent3 = 'また君に恋を知る';
+const sentRomaji3 = generateSentenceRomaji(userSent3, '恋', realWanakana);
+assert(sentRomaji3.includes('mata kimi ni <span style="color:#fda4af; font-weight:bold; background:rgba(253,164,175,0.18); padding:0 3px; border-radius:3px;">koi</span> o shiru'), 'Sentence Romaji must space adverbs and particles');
+console.log('✅ Test 11d: Context Spaced Sentence Romaji ("また君に恋を知る"):', sentRomaji3);
 
 // 2. Multi-Provider LLM Payload Construction Verification
 function buildLlmRequestPayload(provider, cfg, messages, isJson = true) {
