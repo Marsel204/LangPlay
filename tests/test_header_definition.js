@@ -2,7 +2,9 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const contentPath = path.join(__dirname, '..', 'extension', 'content.js');
+const contentPath = fs.existsSync(path.join(__dirname, '..', 'extension', 'content.js'))
+  ? path.join(__dirname, '..', 'extension', 'content.js')
+  : path.join(__dirname, '..', 'content.js');
 const contentJs = fs.readFileSync(contentPath, 'utf8');
 
 // 1. Check that the separate "📚 Dictionary Definition" card is removed from the drawer template
