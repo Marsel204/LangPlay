@@ -3,7 +3,9 @@ const path = require('path');
 const assert = require('assert');
 
 // 1. Check manifest.json permissions
-const manifestPath = path.join(__dirname, '..', 'extension', 'manifest.json');
+const manifestPath = fs.existsSync(path.join(__dirname, '..', 'extension', 'manifest.json'))
+  ? path.join(__dirname, '..', 'extension', 'manifest.json')
+  : path.join(__dirname, '..', 'manifest.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
 // Test A: Manifest MUST declare contextMenus permission
@@ -13,7 +15,9 @@ assert.ok(
 );
 
 // 2. Evaluate background.js in an environment where contextMenus might be uninitialized
-const bgPath = path.join(__dirname, '..', 'extension', 'background.js');
+const bgPath = fs.existsSync(path.join(__dirname, '..', 'extension', 'background.js'))
+  ? path.join(__dirname, '..', 'extension', 'background.js')
+  : path.join(__dirname, '..', 'background.js');
 const bgCode = fs.readFileSync(bgPath, 'utf8');
 
 const mockChrome = {

@@ -1,13 +1,18 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const wanakana = require('../extension/lib/wanakana.min.js');
+const wanakanaPath = fs.existsSync(path.join(__dirname, '..', 'extension', 'lib', 'wanakana.min.js'))
+  ? path.join(__dirname, '..', 'extension', 'lib', 'wanakana.min.js')
+  : path.join(__dirname, '..', 'lib', 'wanakana.min.js');
+const wanakana = require(wanakanaPath);
 
 global.window = { wanakana, addEventListener: () => {}, location: { search: '', href: '' } };
 global.document = { addEventListener: () => {}, querySelector: () => null, getElementById: () => null };
 global.chrome = { storage: { local: { get: () => {} } } };
 
-const contentPath = path.join(__dirname, '..', 'extension', 'content.js');
+const contentPath = fs.existsSync(path.join(__dirname, '..', 'extension', 'content.js'))
+  ? path.join(__dirname, '..', 'extension', 'content.js')
+  : path.join(__dirname, '..', 'content.js');
 const contentJs = fs.readFileSync(contentPath, 'utf8');
 
 // 1. Verify deinflector integration or definition

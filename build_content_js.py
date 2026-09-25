@@ -1,9 +1,13 @@
-import json, re
+import json, re, os
 
-with open('extension/js/kanji-dict.js', 'r', encoding='utf-8') as f:
+dict_file = 'extension/js/kanji-dict.js' if os.path.exists('extension/js/kanji-dict.js') else 'js/kanji-dict.js'
+rules_file = 'extension/lib/deinflect-rules.json' if os.path.exists('extension/lib/deinflect-rules.json') else 'lib/deinflect-rules.json'
+out_file = 'extension/content.js' if os.path.exists('extension/manifest.json') else 'content.js'
+
+with open(dict_file, 'r', encoding='utf-8') as f:
     dict_content = f.read()
 
-with open('extension/lib/deinflect-rules.json', 'r', encoding='utf-8') as f:
+with open(rules_file, 'r', encoding='utf-8') as f:
     deinflect_rules_json = f.read()
 
 m_spec = re.search(r'export const SPECIAL_WORDS = ({.*?});', dict_content, re.DOTALL)
@@ -2322,7 +2326,7 @@ Respond with ONLY valid JSON:
 })();
 """
 
-with open('extension/content.js', 'w', encoding='utf-8') as f:
+with open(out_file, 'w', encoding='utf-8') as f:
     f.write(content_code)
 
-print('Successfully restored extension/content.js to 2:45 AM state!')
+print(f'Successfully built {out_file}!')
