@@ -27,28 +27,67 @@
       <div class="form-group">
         <label for="ai-provider">Default AI Provider</label>
         <select id="ai-provider">
-          <option value="antigravity" selected>Local Antigravity CLI / Server (http://127.0.0.1:8000)</option>
           <option value="gemini">Google Gemini API (Direct 2.5 Flash)</option>
-          <option value="openrouter">OpenRouter (DeepSeek V4 Flash)</option>
+          <option value="deepseek">DeepSeek API (Direct V3 / R1)</option>
+          <option value="openrouter">OpenRouter (DeepSeek / Claude / GPT-4o)</option>
+          <option value="opencode">OpenCode / Custom OpenAI Endpoint (Ollama, LM Studio)</option>
+          <option value="antigravity" selected>Local Antigravity CLI / Server (http://127.0.0.1:8000)</option>
         </select>
       </div>
 
-      <div class="form-group">
+      <!-- Google Gemini -->
+      <div class="form-group" id="group-gemini">
         <label for="gemini-key">Google Gemini API Key</label>
         <div style="display: flex; gap: 8px;">
           <input type="password" id="gemini-key" placeholder="AIzaSy..." style="flex: 1;">
           <button id="test-gemini-btn" class="btn-secondary" type="button">Test Gemini</button>
         </div>
-        <p id="gemini-status-text" class="help-text">Obtain a free Gemini API key from Google AI Studio (aistudio.google.com) for direct serverless AI.</p>
+        <p id="gemini-status-text" class="help-text">Obtain a free Gemini API key from Google AI Studio (aistudio.google.com).</p>
       </div>
 
-      <div class="form-group">
+      <!-- DeepSeek -->
+      <div class="form-group" id="group-deepseek">
+        <label for="deepseek-key">DeepSeek API Key</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="password" id="deepseek-key" placeholder="sk-..." style="flex: 1;">
+          <button id="test-deepseek-btn" class="btn-secondary" type="button">Test DeepSeek</button>
+        </div>
+        <p id="deepseek-status-text" class="help-text">From platform.deepseek.com for ultra-fast linguistic and grammar analysis.</p>
+      </div>
+
+      <!-- OpenRouter -->
+      <div class="form-group" id="group-openrouter">
         <label for="openrouter-key">OpenRouter API Key</label>
-        <input type="password" id="openrouter-key" placeholder="sk-or-...">
-        <p class="help-text">From openrouter.ai/keys (for DeepSeek/Claude streaming breakdowns).</p>
+        <div style="display: flex; gap: 8px; margin-bottom: 6px;">
+          <input type="password" id="openrouter-key" placeholder="sk-or-..." style="flex: 1;">
+          <button id="test-openrouter-btn" class="btn-secondary" type="button">Test OpenRouter</button>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label for="openrouter-model" style="font-size: 11px; color: #94a3b8; width: 60px;">Model:</label>
+          <input type="text" id="openrouter-model" placeholder="deepseek/deepseek-chat" value="deepseek/deepseek-chat" style="flex: 1; font-size: 12px; padding: 6px 10px;">
+        </div>
+        <p id="openrouter-status-text" class="help-text">From openrouter.ai/keys (e.g. deepseek/deepseek-chat, google/gemini-2.5-flash).</p>
       </div>
 
-      <div class="form-group">
+      <!-- OpenCode / Custom OpenAI Endpoint -->
+      <div class="form-group" id="group-opencode">
+        <label for="opencode-url">OpenCode / Custom OpenAI Endpoint Base URL</label>
+        <div style="display: flex; gap: 8px; margin-bottom: 6px;">
+          <input type="text" id="opencode-url" placeholder="http://127.0.0.1:11434/v1" value="http://127.0.0.1:11434/v1" style="flex: 1;">
+          <button id="test-opencode-btn" class="btn-secondary" type="button">Test Endpoint</button>
+        </div>
+        <div style="display: flex; gap: 8px; margin-bottom: 6px;">
+          <input type="password" id="opencode-key" placeholder="Optional API Key (or leave blank for Ollama / LM Studio)" style="flex: 1;">
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label for="opencode-model" style="font-size: 11px; color: #94a3b8; width: 60px;">Model:</label>
+          <input type="text" id="opencode-model" placeholder="deepseek-chat" value="deepseek-chat" style="flex: 1; font-size: 12px; padding: 6px 10px;">
+        </div>
+        <p id="opencode-status-text" class="help-text">Compatible with Ollama, LM Studio, LocalAI, vLLM, OpenCode, and any OpenAI API compatible server.</p>
+      </div>
+
+      <!-- Local Server.py / Antigravity CLI -->
+      <div class="form-group" id="group-server">
         <label for="server-url">Local Server URL (Antigravity CLI)</label>
         <div style="display: flex; gap: 8px;">
           <input type="text" id="server-url" placeholder="http://127.0.0.1:8000" value="http://127.0.0.1:8000" style="flex: 1;">
