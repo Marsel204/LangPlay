@@ -1198,6 +1198,7 @@ content_code = """/**
         <button class="linguaplay-bar-btn" id="linguaplay-repeat-btn" title="Repeat Cue (Shortcut: R)">🔁</button>
         <button class="linguaplay-bar-btn" id="linguaplay-upload-sub-btn" title="Upload Japanese .srt/.vtt subtitle file">📁</button>
         <button class="linguaplay-bar-btn" id="linguaplay-open-app-btn" title="Open in Full LinguaPlay Player Tab" style="background: rgba(124,58,237,0.4); border-color:#a78bfa; color:#fff;">🚀</button>
+        <button class="linguaplay-bar-btn" id="linguaplay-open-settings-btn" title="Open Extension Settings" style="background: rgba(124,58,237,0.25); border-color:rgba(167,139,250,0.5); color:#fff;">⚙️</button>
         <span id="linguaplay-sub-status" style="font-size: 10px; color: #6ee7b7; margin-left: 2px;"></span>
         <button class="linguaplay-bar-btn linguaplay-collapse-btn" id="linguaplay-collapse-btn" title="Collapse Bar">✕</button>
       </div>
@@ -1215,7 +1216,10 @@ content_code = """/**
           <h3 id="lp-active-word" style="font-size: 26px; font-weight: bold; color: white; margin: 3px 0 1px;"></h3>
           <span id="lp-active-pos" style="font-size: 11px; color: #94a3b8;"></span>
         </div>
-        <button id="lp-dismiss-btn" style="background:rgba(255,255,255,0.08); border:none; color:#cbd5e1; font-size:12px; cursor:pointer; padding:5px 10px; border-radius:6px; transition:0.2s;">✕ Close</button>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <button id="lp-drawer-settings-btn" title="Open Extension Settings" style="background:rgba(255,255,255,0.08); border:none; color:#cbd5e1; font-size:12px; cursor:pointer; padding:5px 8px; border-radius:6px; transition:0.2s;">⚙️ Settings</button>
+          <button id="lp-dismiss-btn" style="background:rgba(255,255,255,0.08); border:none; color:#cbd5e1; font-size:12px; cursor:pointer; padding:5px 10px; border-radius:6px; transition:0.2s;">✕ Close</button>
+        </div>
       </div>
 
       <div id="lp-sentence-wrapper" class="linguaplay-card-wrapper" style="display:none; margin-bottom:10px; background:rgba(30,27,75,0.45); border:1px solid rgba(139,92,246,0.3); border-radius:10px; padding:10px 12px;">
@@ -1334,6 +1338,26 @@ content_code = """/**
       fileInput.click();
     });
 
+    function openExtensionSettings() {
+      try {
+        chrome.runtime.sendMessage({ action: 'OPEN_OPTIONS_PAGE' }, (resp) => {
+          if (chrome.runtime.lastError || !resp || !resp.success) {
+            window.open(chrome.runtime.getURL('options.html'), '_blank');
+          }
+        });
+      } catch (err) {
+        window.open(chrome.runtime.getURL('options.html'), '_blank');
+      }
+    }
+
+    const barSettingsBtn = document.getElementById('linguaplay-open-settings-btn');
+    if (barSettingsBtn) {
+      barSettingsBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        openExtensionSettings();
+      });
+    }
+
     document.getElementById('linguaplay-open-app-btn').addEventListener('click', () => {
       const urlParams = new URLSearchParams(window.location.search);
       const vid = urlParams.get('v') || currentVideoId;
@@ -1345,6 +1369,14 @@ content_code = """/**
     });
 
     // 7. Drawer Event Listeners
+    const drawerSettingsBtn = document.getElementById('lp-drawer-settings-btn');
+    if (drawerSettingsBtn) {
+      drawerSettingsBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        openExtensionSettings();
+      });
+    }
+
     document.getElementById('lp-dismiss-btn').addEventListener('click', () => {
       drawer.classList.add('hidden');
     });
@@ -1815,7 +1847,7 @@ Respond with ONLY valid JSON:
           if (optBtn) {
             optBtn.addEventListener('click', (e) => {
               e.preventDefault();
-              chrome.runtime.sendMessage({ action: 'OPEN_OPTIONS_PAGE' });
+              openExtensionSettings();
             });
           }
         }
