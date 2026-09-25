@@ -25,7 +25,18 @@
   "content_scripts": [
     {
       "matches": [
-        "*://*.youtube.com/watch*"
+        "*://*.youtube.com/*"
+      ],
+      "js": [
+        "js/youtube-bridge.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.youtube.com/watch*",
+        "*://*.youtube.com/*"
       ],
       "js": [
         "lib/wanakana.min.js",
@@ -60,6 +71,7 @@
         "icons/*",
         "lib/*",
         "css/*",
+        "js/*",
         "player.html"
       ],
       "matches": [
