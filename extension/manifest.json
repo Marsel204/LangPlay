@@ -58,12 +58,14 @@
     "activeTab",
     "scripting",
     "downloads",
-    "tabs"
+    "tabs",
+    "contextMenus"
   ],
   "host_permissions": [
     "https://*.youtube.com/*",
     "https://generativelanguage.googleapis.com/*",
     "https://openrouter.ai/*",
+    "https://api.deepseek.com/*",
     "https://translate.googleapis.com/*",
     "http://127.0.0.1:8765/*",
     "http://127.0.0.1:8000/*",

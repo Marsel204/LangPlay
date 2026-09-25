@@ -6,21 +6,37 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log('🚀 LinguaPlay Extension installed.');
 
   // Create context menu for analyzing selected Japanese text
-  chrome.contextMenus.create({
-    id: 'linguaplay-analyze-selection',
-    title: 'Analyze "%s" in LinguaPlay',
-    contexts: ['selection']
-  });
-});
-
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === 'linguaplay-analyze-selection' && info.selectionText) {
-    const word = encodeURIComponent(info.selectionText.trim());
-    chrome.tabs.create({
-      url: chrome.runtime.getURL(`player.html?word=${word}`)
-    });
+  try {
+    if (typeof chrome !== 'undefined' && chrome.contextMenus && chrome.contextMenus.create) {
+      chrome.contextMenus.create({
+        id: 'linguaplay-analyze-selection',
+        title: 'Analyze "%s" in LinguaPlay',
+        contexts: ['selection']
+      }, () => {
+        if (chrome.runtime.lastError) {
+          // Ignore duplicate item error on reload
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('[LinguaPlay Background] Failed to create context menu:', e);
   }
 });
+
+try {
+  if (typeof chrome !== 'undefined' && chrome.contextMenus && chrome.contextMenus.onClicked) {
+    chrome.contextMenus.onClicked.addListener((info, tab) => {
+      if (info.menuItemId === 'linguaplay-analyze-selection' && info.selectionText) {
+        const word = encodeURIComponent(info.selectionText.trim());
+        chrome.tabs.create({
+          url: chrome.runtime.getURL(`player.html?word=${word}`)
+        });
+      }
+    });
+  }
+} catch (e) {
+  console.warn('[LinguaPlay Background] Failed to register contextMenus onClicked listener:', e);
+}
 
 // Innertube Android VR Caption Extraction Bridge in Background
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
