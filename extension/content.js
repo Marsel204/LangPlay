@@ -1518,12 +1518,12 @@
     function openExtensionSettings() {
       try {
         chrome.runtime.sendMessage({ action: 'OPEN_OPTIONS_PAGE' }, (resp) => {
-          if (chrome.runtime.lastError || !resp || !resp.success) {
-            window.open(chrome.runtime.getURL('options.html'), '_blank');
+          if (chrome.runtime.lastError) {
+            console.warn('[LinguaPlay] Error opening options page:', chrome.runtime.lastError);
           }
         });
       } catch (err) {
-        window.open(chrome.runtime.getURL('options.html'), '_blank');
+        console.warn('[LinguaPlay] Failed to send OPEN_OPTIONS_PAGE message:', err);
       }
     }
 
