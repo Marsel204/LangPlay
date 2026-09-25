@@ -25,6 +25,82 @@ content_code = """/**
   const KANJI_DB = """ + kanji_db_code + """;
 
   /**
+   * Matches verb/adjective inflections and Onbin shifts (Godan, Ichidan, Kuru, Suru).
+   */
+  function matchVerbInflectionAt(text, startIndex, kanjiDb) {
+    const kanjiChar = text[startIndex];
+    const restText = text.slice(startIndex + 1);
+    const kanjiDbEntry = kanjiDb[kanjiChar];
+    if (!kanjiDbEntry) return null;
+    const [ons, kuns] = kanjiDbEntry;
+    if (!kuns || kuns.length === 0) return null;
+
+    // Special irregular verbs check
+    if (kanjiChar === '来') {
+      if (restText.startsWith('る')) return 'く';
+      if (restText.startsWith('た') || restText.startsWith('て') || restText.startsWith('ます') || restText.startsWith('ま')) return 'き';
+      if (restText.startsWith('ない') || restText.startsWith('ず') || restText.startsWith('よう') || restText.startsWith('られ')) return 'こ';
+      if (restText.startsWith('れば')) return 'く';
+      return 'き';
+    }
+    if (kanjiChar === '行') {
+      if (restText.startsWith('った') || restText.startsWith('って')) return 'い';
+      if (restText.startsWith('く') || restText.startsWith('かない') || restText.startsWith('きます') || restText.startsWith('けば') || restText.startsWith('こう') || restText.startsWith('き')) return 'い';
+      return 'い';
+    }
+
+    // Iterate over dotted kunyomi entries (e.g. 'か.く', 'お.ちる', 'た.べる', 'うつく.しい')
+    for (const rawKun of kuns) {
+      if (!rawKun.includes('.')) continue;
+      const [stem, okuri] = rawKun.split('.');
+      
+      // Direct match (e.g. okuri === 'く' and restText starts with 'く')
+      if (restText.startsWith(okuri)) {
+        return stem;
+      }
+
+      const lastOkuri = okuri[okuri.length - 1];
+      const okuriPrefix = okuri.slice(0, -1);
+
+      if (okuriPrefix.length > 0 && !restText.startsWith(okuriPrefix)) {
+        continue;
+      }
+
+      const suffixToMatch = okuriPrefix.length > 0 ? restText.slice(okuriPrefix.length) : restText;
+
+      if (lastOkuri === 'く') {
+        if (/^(いて|いた|かない|きます|けば|こう|き|こ)/.test(suffixToMatch)) return stem;
+      } else if (lastOkuri === 'ぐ') {
+        if (/^(いで|いだ|がない|ぎます|げば|ごう|ぎ|ご)/.test(suffixToMatch)) return stem;
+      } else if (lastOkuri === 'す') {
+        if (/^(して|した|さない|します|せば|そう|し|せ)/.test(suffixToMatch)) return stem;
+      } else if (lastOkuri === 'つ') {
+        if (/^(って|った|たない|ちます|てば|とう|ち|て)/.test(suffixToMatch)) return stem;
+      } else if (lastOkuri === 'ぬ') {
+        if (/^(んで|んだ|なない|にます|ねば|のう|に|ね)/.test(suffixToMatch)) return stem;
+      } else if (lastOkuri === 'ぶ') {
+        if (/^(んで|んだ|ばない|びます|べば|ぼう|び|べ)/.test(suffixToMatch)) return stem;
+      } else if (lastOkuri === 'む') {
+        if (/^(んで|んだ|まない|みます|めば|もう|み|め)/.test(suffixToMatch)) return stem;
+      } else if (lastOkuri === 'う') {
+        if (/^(って|った|わない|います|えば|おう|い|え)/.test(suffixToMatch)) return stem;
+      } else if (lastOkuri === 'る') {
+        if (/^(って|った|らない|ります|れば|ろう|り|れ)/.test(suffixToMatch)) return stem;
+        if (/^(て|た|ない|ます|れば|よう|られ|させ)/.test(suffixToMatch)) return stem;
+      } else if (lastOkuri === 'い') {
+        if (/^(かった|くて|くない|くなかった|く|ければ|そう)/.test(suffixToMatch)) return stem;
+      }
+    }
+
+    // Fallback to first dotted kun'yomi stem if okurigana is present
+    for (const rawKun of kuns) {
+      if (!rawKun.includes('.')) continue;
+      return rawKun.split('.')[0];
+    }
+    return (kuns && kuns.length > 0) ? kuns[0].split('.')[0] : (ons && ons.length > 0 ? ons[0] : kanjiChar);
+  }
+
+  /**
    * Resolves any Japanese word or phrase into pure Hiragana reading.
    * Uses Kun'yomi for standalone kanji & okurigana verb stems, and On'yomi for multi-kanji Jukugo compounds.
    */
@@ -34,7 +110,7 @@ content_code = """/**
     if (SPECIAL_WORDS[w]) return SPECIAL_WORDS[w];
 
     // 1. Single standalone Kanji: Use Kun'yomi or fallback to On'yomi
-    if (w.length === 1 && w >= '\\u4e00' && w <= '\\u9faf') {
+    if (w.length === 1 && w.charCodeAt(0) >= 0x4E00 && w.charCodeAt(0) <= 0x9FAF) {
       const info = KANJI_DB[w];
       if (info) {
         const [ons, kuns] = info;
@@ -51,7 +127,23 @@ content_code = """/**
     let i = 0;
     while (i < w.length) {
       const ch = w[i];
-      if (ch >= '\\u4e00' && ch <= '\\u9faf') {
+      const code = ch.charCodeAt(0);
+      if (code >= 0x4E00 && code <= 0x9FAF) {
+        // Check multi-character substring in SPECIAL_WORDS first (sliding window)
+        let matchedSpecial = null;
+        for (let len = Math.min(6, w.length - i); len >= 1; len--) {
+          const sub = w.slice(i, i + len);
+          if (SPECIAL_WORDS[sub]) {
+            matchedSpecial = { len, val: SPECIAL_WORDS[sub] };
+            break;
+          }
+        }
+        if (matchedSpecial) {
+          res += matchedSpecial.val;
+          i += matchedSpecial.len;
+          continue;
+        }
+
         const info = KANJI_DB[ch];
         if (!info) {
           res += ch;
@@ -61,39 +153,20 @@ content_code = """/**
         const [ons, kuns] = info;
 
         // Lookahead: is following character Hiragana (okurigana)?
-        if (i + 1 < w.length && (w[i + 1] >= '\\u3040' && w[i + 1] <= '\\u309f')) {
-          let matchedKun = null;
-          if (kuns && kuns.length > 0) {
-            for (let k = 0; k < kuns.length; k++) {
-              const rawKun = kuns[k];
-              if (rawKun.includes('.')) {
-                const parts = rawKun.split('.');
-                const stem = parts[0];
-                const okuri = parts[1];
-                const rest = w.slice(i + 1);
-                if (rest.startsWith(okuri) || rest[0] === okuri[0]) {
-                  matchedKun = stem;
-                  break;
-                }
-              } else {
-                matchedKun = rawKun;
-                break;
-              }
-            }
-          }
-          if (matchedKun) {
-            res += matchedKun;
-          } else if (kuns && kuns.length > 0) {
-            res += kuns[0].split('.')[0];
-          } else if (ons && ons.length > 0) {
-            res += ons[0];
-          }
+        const nextCode = i + 1 < w.length ? w.charCodeAt(i + 1) : 0;
+        const isNextHiragana = nextCode >= 0x3040 && nextCode <= 0x309F;
+
+        if (isNextHiragana) {
+          const matchedStem = matchVerbInflectionAt(w, i, KANJI_DB);
+          res += matchedStem || (kuns && kuns.length > 0 ? kuns[0].split('.')[0] : (ons && ons[0]) || ch);
         } else {
           // Part of Jukugo (multi-kanji compound) -> use On'yomi
           if (ons && ons.length > 0) {
             res += ons[0];
           } else if (kuns && kuns.length > 0) {
             res += kuns[0].split('.')[0];
+          } else {
+            res += ch;
           }
         }
       } else {
@@ -106,7 +179,8 @@ content_code = """/**
     let sanitized = '';
     for (let j = 0; j < res.length; j++) {
       const c = res[j];
-      if (c >= '\\u4e00' && c <= '\\u9faf') {
+      const cCode = c.charCodeAt(0);
+      if (cCode >= 0x4E00 && cCode <= 0x9FAF) {
         const fallback = KANJI_DB[c];
         sanitized += (fallback && fallback[1] && fallback[1][0]?.split('.')[0]) || (fallback && fallback[0] && fallback[0][0]) || '';
       } else {
@@ -117,13 +191,32 @@ content_code = """/**
     return sanitized;
   }
 
+  /**
+   * Converts Hiragana to Modified Hepburn Romaji with particle & sokuon handling.
+   */
+  function toModifiedHepburnRomaji(hira, originalWord) {
+    if (!hira) return '';
+    const w = (originalWord || '').trim();
+    if (w === 'は') return 'wa';
+    if (w === 'へ') return 'e';
+    if (w === 'を') return 'o';
+    if (w === 'こんにちは') return 'konnichiwa';
+    if (w === 'こんばんは') return 'konbanwa';
+
+    const wk = window.wanakana;
+    if (wk && wk.toRomaji) {
+      return wk.toRomaji(hira);
+    }
+    return hira;
+  }
+
   function getWordReading(word) {
     if (!word || !word.trim()) return { furigana: '', romaji: '' };
     const hira = resolveToHiragana(word);
-    const wk = window.wanakana;
-    const romaji = wk && wk.toRomaji ? wk.toRomaji(hira) : hira;
+    const romaji = toModifiedHepburnRomaji(hira, word);
     return { furigana: hira, romaji };
   }
+
 
   // ── Offline JDICT Dictionary Subset (<10ms instant lookup) ──
   const JDICT = {
