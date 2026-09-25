@@ -721,6 +721,8 @@
   let currentVideoId = null;
   let lastAiData = null;
   let senseiChatHistory = [];
+  let drawerContextSentence = '';
+  let drawerActiveWord = '';
   let activeLiveSentence = '';
   let isPanelCollapsed = true;
 
@@ -1192,7 +1194,7 @@
         if (sentJpEl && sentJpEl.innerHTML) {
           chatContextEl.innerHTML = sentJpEl.innerHTML;
         } else {
-          chatContextEl.textContent = activeLiveSentence || '';
+          chatContextEl.textContent = drawerContextSentence || activeLiveSentence || '';
         }
       }
       if (chatRomajiEl && sentRomajiEl) {
@@ -1273,11 +1275,12 @@
       posEl.textContent = '';
       posEl.style.display = 'none';
     }
-    activeLiveSentence = sentenceContext || token.surface;
+    drawerActiveWord = token.surface || '';
+    drawerContextSentence = (sentenceContext || token.surface || '').trim();
 
     // Instant Sentence Context & Romaji Rendering
     if (sentenceWrap && sentJpEl && sentEnEl) {
-      const activeText = (activeLiveSentence || '').trim();
+      const activeText = drawerContextSentence;
       if (activeText) {
         sentenceWrap.style.display = 'block';
         if (chatSentenceWrap) chatSentenceWrap.style.display = 'block';
@@ -1314,7 +1317,7 @@
           if (sentSpeedEl) sentSpeedEl.textContent = 'Translating...';
           const targetSentence = activeText;
           fetchSentenceTranslation(targetSentence).then(trans => {
-            if (activeLiveSentence.trim() === targetSentence) {
+            if (drawerContextSentence.trim() === targetSentence) {
               if (trans) {
                 sentEnEl.textContent = trans;
                 if (chatEnEl) chatEnEl.textContent = trans;
@@ -1786,7 +1789,7 @@
       const word = document.getElementById('lp-active-word').textContent;
       const romaji = document.getElementById('lp-active-romaji').textContent;
       const def = document.getElementById('lp-active-def').innerHTML;
-      const sentence = activeLiveSentence || '';
+      const sentence = drawerContextSentence || document.getElementById('lp-sentence-jp')?.textContent || activeLiveSentence || '';
       const sentEn = document.getElementById('lp-sentence-en')?.textContent || '';
       const cleanSentEn = (sentEn && !sentEn.includes('Translating') && !sentEn.includes('unavailable')) ? sentEn : '';
 
@@ -2158,7 +2161,7 @@ Respond with ONLY valid JSON:
       if (!questionText || !questionText.trim()) return;
       const word = document.getElementById('lp-active-word')?.textContent || '';
       const romaji = document.getElementById('lp-active-romaji')?.textContent || '';
-      const sentence = activeLiveSentence || '';
+      const sentence = drawerContextSentence || document.getElementById('lp-chat-context-sentence')?.textContent || document.getElementById('lp-sentence-jp')?.textContent || activeLiveSentence || '';
 
       appendChatMessage('user', questionText);
       senseiChatHistory.push({ role: 'user', content: questionText });
@@ -2236,7 +2239,7 @@ Respond with ONLY valid JSON:
     document.getElementById('lp-ai-btn').addEventListener('click', async () => {
       const word = document.getElementById('lp-active-word').textContent;
       const romaji = document.getElementById('lp-active-romaji').textContent;
-      const sentence = activeLiveSentence || '';
+      const sentence = drawerContextSentence || document.getElementById('lp-sentence-jp')?.textContent || activeLiveSentence || '';
       const loading = document.getElementById('lp-ai-loading');
       const results = document.getElementById('lp-ai-results');
       const ankiBtn = document.getElementById('lp-ai-anki-btn');
@@ -2387,7 +2390,7 @@ Respond with ONLY valid JSON:
     document.getElementById('lp-ai-anki-btn').addEventListener('click', () => {
       if (!lastAiData) return;
       const word = document.getElementById('lp-active-word').textContent;
-      const sentence = activeLiveSentence || '';
+      const sentence = drawerContextSentence || document.getElementById('lp-sentence-jp')?.textContent || activeLiveSentence || '';
       const target = lastAiData.target_word || {};
       const meaning = target.meaning || lastAiData.contextual_meaning || lastAiData.meaning || '';
       const sentenceFit = lastAiData.sentence_fit || {};
@@ -2462,6 +2465,8 @@ Respond with ONLY valid JSON:
       currentSubIndex = -1;
       subtitleTimeline = [];
       activeLiveSentence = '';
+      drawerContextSentence = '';
+      drawerActiveWord = '';
 
       injectUI();
 

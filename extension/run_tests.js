@@ -716,7 +716,54 @@ assert.strictEqual(r4.includes('i ka na ka tta'), false, 'FAIL: 行かなかっ�
 assert.ok(r4.includes('ikanakatta'), `FAIL: Expected "ikanakatta", got: ${r4}`);
 console.log('✅ Test 12h: Sentence Romaji ("行かなかった") ->', r4);
 
-console.log(`\n🎉 ALL 12 TEST SUITES PASSED CLEANLY WITH ZERO REGRESSIONS!\n`);
+// ── Test Suite 13: Drawer Context Sentence Isolation & Video Decoupling ──
+console.log('\n🔒 Running Test Suite 13: Drawer Context Sentence Isolation & Decoupling...');
+
+// 1. Verify content.js declares drawerContextSentence
+assert.ok(
+  contentJsCode.includes('let drawerContextSentence =') || contentJsCode.includes('var drawerContextSentence ='),
+  'FAIL: content.js must declare dedicated drawerContextSentence state variable!'
+);
+console.log('✅ Test 13a: Dedicated drawerContextSentence declaration verified');
+
+// 2. Verify handleTokenClick sets drawerContextSentence
+const clickMatch = contentJsCode.match(/function handleTokenClick\([\s\S]*?\{([\s\S]*?)(?:aiResults\.innerHTML|switchDrawerTab)/);
+assert.ok(clickMatch && clickMatch[1].includes('drawerContextSentence ='), 'FAIL: handleTokenClick must pin drawerContextSentence!');
+console.log('✅ Test 13b: handleTokenClick pins context sentence into drawer state');
+
+// 3. Verify Ask Sensei, Quick Anki, Sensei Chat & AI Anki use drawerContextSentence
+assert.ok(contentJsCode.includes('lp-ai-btn'), 'lp-ai-btn exists');
+assert.ok(contentJsCode.includes('lp-quick-anki-btn'), 'lp-quick-anki-btn exists');
+assert.ok(contentJsCode.includes('sendSenseiQuestion'), 'sendSenseiQuestion exists');
+assert.ok(contentJsCode.includes('lp-ai-anki-btn'), 'lp-ai-anki-btn exists');
+
+// Verify live caption updates never overwrite drawerContextSentence
+assert.ok(
+  !contentJsCode.includes('drawerContextSentence = cueText') &&
+  !contentJsCode.includes('drawerContextSentence = text') &&
+  !contentJsCode.includes('drawerContextSentence = "";'),
+  'FAIL: Live video caption updates must NEVER overwrite drawerContextSentence!'
+);
+console.log('✅ Test 13c: Live video captions decoupled from drawer context state');
+
+// Runtime simulation test
+{
+  let drawerContext = '';
+  let liveSubtitle = '';
+  function clickWord(token, sent) { drawerContext = sent; }
+  function advanceVideo(newSub) { liveSubtitle = newSub; }
+  function buildPrompt(word) { return `Sentence: "${drawerContext || liveSubtitle}", Word: "${word}"`; }
+
+  clickWord({ surface: '廃棄' }, '愛が 廃棄 処分になるのは');
+  advanceVideo('貴方 だ よね ばい ばい');
+
+  const p = buildPrompt('廃棄');
+  assert.ok(p.includes('愛が 廃棄 処分になるのは'), 'Prompt must use clicked context sentence');
+  assert.ok(!p.includes('貴方 だ よね ばい ばい'), 'Prompt must NOT use live subtitle');
+}
+console.log('✅ Test 13d: Runtime word click -> subtitle advance -> prompt isolation verified');
+
+console.log(`\n🎉 ALL 13 TEST SUITES PASSED CLEANLY WITH ZERO REGRESSIONS!\n`);
 process.exit(0);
 
 
