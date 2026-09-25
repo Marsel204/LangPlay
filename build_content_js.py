@@ -92,12 +92,7 @@ content_code = """/**
       }
     }
 
-    // Fallback to first dotted kun'yomi stem if okurigana is present
-    for (const rawKun of kuns) {
-      if (!rawKun.includes('.')) continue;
-      return rawKun.split('.')[0];
-    }
-    return (kuns && kuns.length > 0) ? kuns[0].split('.')[0] : (ons && ons.length > 0 ? ons[0] : kanjiChar);
+    return null;
   }
 
   /**
@@ -109,8 +104,11 @@ content_code = """/**
     const w = word.trim();
     if (SPECIAL_WORDS[w]) return SPECIAL_WORDS[w];
 
+    const isKanji = (c) => c >= 0x4E00 && c <= 0x9FAF;
+    const isKatakana = (c) => c >= 0x30A1 && c <= 0x30F6;
+
     // 1. Single standalone Kanji: Use Kun'yomi or fallback to On'yomi
-    if (w.length === 1 && w.charCodeAt(0) >= 0x4E00 && w.charCodeAt(0) <= 0x9FAF) {
+    if (w.length === 1 && isKanji(w.charCodeAt(0))) {
       const info = KANJI_DB[w];
       if (info) {
         const [ons, kuns] = info;
@@ -128,22 +126,28 @@ content_code = """/**
     while (i < w.length) {
       const ch = w[i];
       const code = ch.charCodeAt(0);
-      if (code >= 0x4E00 && code <= 0x9FAF) {
-        // Check multi-character substring in SPECIAL_WORDS first (sliding window)
-        let matchedSpecial = null;
-        for (let len = Math.min(6, w.length - i); len >= 1; len--) {
-          const sub = w.slice(i, i + len);
-          if (SPECIAL_WORDS[sub]) {
-            matchedSpecial = { len, val: SPECIAL_WORDS[sub] };
-            break;
-          }
-        }
-        if (matchedSpecial) {
-          res += matchedSpecial.val;
-          i += matchedSpecial.len;
-          continue;
-        }
 
+      // Check substring in SPECIAL_WORDS first (sliding window)
+      let matchedSpecial = null;
+      const prevIsKanji = i > 0 && isKanji(w.charCodeAt(i - 1));
+      const nextIsKanji = i + 1 < w.length && isKanji(w.charCodeAt(i + 1));
+      const isPartOfJukugo = prevIsKanji || nextIsKanji;
+
+      for (let len = Math.min(6, w.length - i); len >= 1; len--) {
+        if (len === 1 && isPartOfJukugo) continue;
+        const sub = w.slice(i, i + len);
+        if (SPECIAL_WORDS[sub]) {
+          matchedSpecial = { len, val: SPECIAL_WORDS[sub] };
+          break;
+        }
+      }
+      if (matchedSpecial) {
+        res += matchedSpecial.val;
+        i += matchedSpecial.len;
+        continue;
+      }
+
+      if (isKanji(code)) {
         const info = KANJI_DB[ch];
         if (!info) {
           res += ch;
@@ -169,6 +173,8 @@ content_code = """/**
             res += ch;
           }
         }
+      } else if (isKatakana(code)) {
+        res += String.fromCharCode(code - 0x60);
       } else {
         res += ch;
       }
@@ -180,9 +186,11 @@ content_code = """/**
     for (let j = 0; j < res.length; j++) {
       const c = res[j];
       const cCode = c.charCodeAt(0);
-      if (cCode >= 0x4E00 && cCode <= 0x9FAF) {
+      if (isKanji(cCode)) {
         const fallback = KANJI_DB[c];
         sanitized += (fallback && fallback[1] && fallback[1][0]?.split('.')[0]) || (fallback && fallback[0] && fallback[0][0]) || '';
+      } else if (isKatakana(cCode)) {
+        sanitized += String.fromCharCode(cCode - 0x60);
       } else {
         sanitized += c;
       }

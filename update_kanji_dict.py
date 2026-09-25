@@ -127,7 +127,67 @@ expanded_special_words = {
     "失恋": "しつれん",
     "恋愛": "れんあい",
     "恋文": "こいぶみ",
-    "恋しい": "こいしい"
+    "恋しい": "こいしい",
+    "安心": "あんしん",
+    "貴方": "あなた",
+    "一発": "いっぱつ",
+    "二発": "にはつ",
+    "三発": "さんぱつ",
+    "傍": "そば",
+    "傍に": "そばに",
+    "傍にいる": "そばにいる",
+    "傍に居る": "そばにいる",
+    "金木犀": "きんもくせい",
+    "後味": "あとあじ",
+    "値引き": "ねびき",
+    "お腹": "おなか",
+    "凄く": "すごく",
+    "凄い": "すごい",
+    "凄": "すご",
+    "気付く": "きづく",
+    "気付いて": "きづいて",
+    "気付いた": "きづいた",
+    "気付": "きづ",
+    "勿体ない": "もったいない",
+    "勿体": "もったい",
+    "賞味期限": "しょうみきげん",
+    "消費期限": "しょうひきげん",
+    "期限切れ": "きげんぎれ",
+    "賞味期限切れ": "しょうみきげんぎれ",
+    "消費期限切れ": "しょうひきげんぎれ",
+    "廃棄処分": "はいきしょぶん",
+    "処分": "しょぶん",
+    "冷蔵庫": "れいぞうこ",
+    "壊れる": "こわれる",
+    "壊れ": "こわれ",
+    "壊れちゃいそう": "こわれちゃいそう",
+    "触って": "さわって",
+    "触る": "さわる",
+    "惰性": "だせい",
+    "季節": "きせつ",
+    "生き物": "いきもの",
+    "熟れる": "うれる",
+    "吸わないで": "すわないで",
+    "殴って": "なぐって",
+    "殴る": "なぐる",
+    "後で": "あとで",
+    "一人で": "ひとりで",
+    "目の前": "めのまえ",
+    "中": "なか",
+    "外": "そと",
+    "上": "うえ",
+    "下": "した",
+    "右": "みぎ",
+    "左": "ひだり",
+    "匂い": "におい",
+    "匂う": "におう",
+    "匂": "にお",
+    "居て": "いて",
+    "居る": "いる",
+    "居た": "いた",
+    "居ない": "いない",
+    "居るの": "いるの",
+    "傍に居て": "そばにいて"
 }
 
 new_engine_code = '''
@@ -199,13 +259,7 @@ export function matchVerbInflectionAt(text, startIndex, kanjiDb) {
     }
   }
 
-  // Fallback to first dotted kun'yomi stem if okurigana is present
-  for (const rawKun of kuns) {
-    if (rawKun.includes('.')) {
-      return rawKun.split('.')[0];
-    }
-  }
-  return (kuns && kuns.length > 0) ? kuns[0].split('.')[0] : (ons && ons.length > 0 ? ons[0] : kanjiChar);
+  return null;
 }
 
 /**
@@ -217,8 +271,11 @@ export function resolveToHiragana(word) {
   const w = word.trim();
   if (SPECIAL_WORDS[w]) return SPECIAL_WORDS[w];
 
+  const isKanji = (c) => c >= 0x4E00 && c <= 0x9FAF;
+  const isKatakana = (c) => c >= 0x30A1 && c <= 0x30F6;
+
   // 1. Single standalone Kanji: Use Kun'yomi (natural reading / verb stem) or fallback to On'yomi
-  if (w.length === 1 && w.charCodeAt(0) >= 0x4E00 && w.charCodeAt(0) <= 0x9FAF) {
+  if (w.length === 1 && isKanji(w.charCodeAt(0))) {
     const info = KANJI_DB[w];
     if (info) {
       const [ons, kuns] = info;
@@ -236,22 +293,28 @@ export function resolveToHiragana(word) {
   while (i < w.length) {
     const ch = w[i];
     const code = ch.charCodeAt(0);
-    if (code >= 0x4E00 && code <= 0x9FAF) {
-      // Check multi-character substring in SPECIAL_WORDS first (sliding window)
-      let matchedSpecial = null;
-      for (let len = Math.min(6, w.length - i); len >= 1; len--) {
-        const sub = w.slice(i, i + len);
-        if (SPECIAL_WORDS[sub]) {
-          matchedSpecial = { len, val: SPECIAL_WORDS[sub] };
-          break;
-        }
-      }
-      if (matchedSpecial) {
-        res += matchedSpecial.val;
-        i += matchedSpecial.len;
-        continue;
-      }
 
+    // Check substring in SPECIAL_WORDS first (sliding window)
+    let matchedSpecial = null;
+    const prevIsKanji = i > 0 && isKanji(w.charCodeAt(i - 1));
+    const nextIsKanji = i + 1 < w.length && isKanji(w.charCodeAt(i + 1));
+    const isPartOfJukugo = prevIsKanji || nextIsKanji;
+
+    for (let len = Math.min(6, w.length - i); len >= 1; len--) {
+      if (len === 1 && isPartOfJukugo) continue;
+      const sub = w.slice(i, i + len);
+      if (SPECIAL_WORDS[sub]) {
+        matchedSpecial = { len, val: SPECIAL_WORDS[sub] };
+        break;
+      }
+    }
+    if (matchedSpecial) {
+      res += matchedSpecial.val;
+      i += matchedSpecial.len;
+      continue;
+    }
+
+    if (isKanji(code)) {
       const info = KANJI_DB[ch];
       if (!info) {
         res += ch;
@@ -277,6 +340,8 @@ export function resolveToHiragana(word) {
           res += ch;
         }
       }
+    } else if (isKatakana(code)) {
+      res += String.fromCharCode(code - 0x60);
     } else {
       res += ch;
     }
@@ -288,9 +353,11 @@ export function resolveToHiragana(word) {
   for (let j = 0; j < res.length; j++) {
     const c = res[j];
     const cCode = c.charCodeAt(0);
-    if (cCode >= 0x4E00 && cCode <= 0x9FAF) {
+    if (isKanji(cCode)) {
       const fallback = KANJI_DB[c];
       sanitized += (fallback && fallback[1] && fallback[1][0]?.split('.')[0]) || (fallback && fallback[0] && fallback[0][0]) || '';
+    } else if (isKatakana(cCode)) {
+      sanitized += String.fromCharCode(cCode - 0x60);
     } else {
       sanitized += c;
     }

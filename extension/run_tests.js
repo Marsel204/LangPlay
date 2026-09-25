@@ -376,5 +376,60 @@ assert.strictEqual(manifest.manifest_version, 3);
 assert.strictEqual(manifest.name, 'LinguaPlay — Japanese AI Immersion Player');
 console.log('✅ Test 8: Manifest V3 Configuration: PASSED');
 
+// ── Test Suite 5: tuki. - 愛の賞味期限 (Love Expiration Date) Lyrics Accuracy Benchmark ──
+console.log('\n🎵 Running Test Suite 9: tuki. - 愛の賞味期限 (Love Expiration Date) Lyric Accuracy...');
 
-console.log(`\n🎉 ALL 8 TEST SUITES (${TEST_PHRASES.length} PHRASES) PASSED CLEANLY WITH ZERO KANJI ERRORS!\n`);
+const LYRICS_TEST_CASES = [
+  { word: '安心', expectedHira: 'あんしん', expectedRomaji: 'anshin' },
+  { word: '貴方', expectedHira: 'あなた', expectedRomaji: 'anata' },
+  { word: '一発', expectedHira: 'いっぱつ', expectedRomaji: 'ippatsu' },
+  { word: '二発', expectedHira: 'にはつ', expectedRomaji: 'nihatsu' },
+  { word: '傍', expectedHira: 'そば', expectedRomaji: 'soba' },
+  { word: '傍に', expectedHira: 'そばに', expectedRomaji: 'sobani' },
+  { word: '金木犀', expectedHira: 'きんもくせい', expectedRomaji: 'kinmokusei' },
+  { word: '後味', expectedHira: 'あとあじ', expectedRomaji: 'atoaji' },
+  { word: '値引き', expectedHira: 'ねびき', expectedRomaji: 'nebiki' },
+  { word: 'お腹', expectedHira: 'おなか', expectedRomaji: 'onaka' },
+  { word: '凄く', expectedHira: 'すごく', expectedRomaji: 'sugoku' },
+  { word: '凄い', expectedHira: 'すごい', expectedRomaji: 'sugoi' },
+  { word: '気付く', expectedHira: 'きづく', expectedRomaji: 'kizuku' },
+  { word: '気付いて', expectedHira: 'きづいて', expectedRomaji: 'kizuite' },
+  { word: '勿体ない', expectedHira: 'もったいない', expectedRomaji: 'mottainai' },
+  { word: '賞味期限切れ', expectedHira: 'しょうみきげんぎれ', expectedRomaji: 'shoumikigengire' },
+  { word: '消費期限切れ', expectedHira: 'しょうひきげんぎれ', expectedRomaji: 'shouhikigengire' },
+  { word: '冷蔵庫', expectedHira: 'れいぞうこ', expectedRomaji: 'reizouko' },
+  { word: '廃棄処分', expectedHira: 'はいきしょぶん', expectedRomaji: 'haikishobun' },
+  { word: '処分', expectedHira: 'しょぶん', expectedRomaji: 'shobun' },
+  { word: '壊れ', expectedHira: 'こわれ', expectedRomaji: 'koware' },
+  { word: '触って', expectedHira: 'さわって', expectedRomaji: 'sawatte' },
+  { word: '安心したいから', expectedHira: 'あんしんしたいから' },
+  { word: '貴方の愛の賞味期限切れ', expectedHira: 'あなたのあいのしょうみきげんぎれ' },
+  { word: '一発殴ってよ', expectedHira: 'いっぱつなぐってよ' },
+  { word: '冷蔵庫の中の生き物', expectedHira: 'れいぞうこのなかのいきもの' },
+  { word: '傍にいて', expectedHira: 'そばにいて' },
+  { word: '金木犀の匂い', expectedHira: 'きんもくせいのにおい' },
+  { word: '勿体ないから', expectedHira: 'もったいないから' },
+  { word: '賞味期限切れの愛を', expectedHira: 'しょうみきげんぎれのあいを' },
+  { word: '後味の悪いキスをして', expectedHira: 'あとあじのわるいきすをして' },
+  { word: '値引きされた私の心を', expectedHira: 'ねびきされたわたしのこころを' },
+  { word: 'お腹が痛くなるくらい', expectedHira: 'おなかがいたくなるくらい' },
+  { word: '凄く凄く愛していた', expectedHira: 'すごくすごくあいしていた' },
+  { word: '早く気付いてよ', expectedHira: 'はやくきづいてよ' },
+  { word: '惰性で生きてる生き物', expectedHira: 'だせいでいきてるいきもの' },
+  { word: '熟れることのない果実', expectedHira: 'うれることのないかじつ' },
+  { word: '吸わないで', expectedHira: 'すわないで' }
+];
+
+let lyricFailures = 0;
+for (const tc of LYRICS_TEST_CASES) {
+  const reading = getWordReading(tc.word, realWanakana);
+  if (reading.furigana !== tc.expectedHira) {
+    console.error(`❌ [FAIL] "${tc.word}" furigana: got "${reading.furigana}", expected "${tc.expectedHira}"`);
+    lyricFailures++;
+  }
+}
+
+assert.strictEqual(lyricFailures, 0, `Failed ${lyricFailures} lyric test cases in Test Suite 9!`);
+console.log(`✅ Test 9: All ${LYRICS_TEST_CASES.length} tuki. lyric test cases PASSED matching Genius Romanizations!`);
+
+console.log(`\n🎉 ALL 9 TEST SUITES PASSED CLEANLY WITH ZERO KANJI ERRORS!\n`);
