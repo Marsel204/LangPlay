@@ -1,0 +1,48 @@
+flowchart TD
+    subgraph VideoIngest ["1. Subtitle Ingestion & Cue Tracking"]
+        A([YouTube Video Playback]) --> B[/Extract Subtitle Cues WebVTT / TimedText/]
+        B --> C[Active Cue Timestamp Matcher]
+    end
+
+    subgraph MorphologyPipeline ["2. Multi-Tiered Morphological Engine"]
+        C --> D[Sliding-Window Trie 6..1 chars]
+        D --> E{Match in SPECIAL_WORDS?}
+        E -->|Yes: Jukujikun| F[(Jukujikun Lexicon\n眼鏡 -> megane\n自己嫌悪 -> jikoken'o)]
+        E -->|No| G[Word Segmenter\nIntl.Segmenter / Kuromoji]
+        
+        G --> H{Kanji + Okurigana?}
+        H -->|Yes: Verb/Adj Inflection| I[Katsuyou De-inflector\nmatchVerbInflectionAt\n書いて -> kaite\n行った -> itta]
+        H -->|No: Jukugo Compound| J[On'yomi Classifier\n見学 -> kengaku]
+        H -->|Standalone Kanji| K[Kun'yomi Fallback\n見 -> mi]
+        
+        F --> L[Zero-Kanji Sanitizer Guard]
+        I --> L
+        J --> L
+        K --> L
+    end
+
+    subgraph PhoneticEngine ["3. Modified Hepburn Phonetics"]
+        L --> M[/100% Pure Hiragana Stream/]
+        M --> N[Hepburn Romanizer\ntoModifiedHepburnRomaji]
+        N --> O{Syntactic Overrides}
+        O -->|Particles| P[は -> wa\nへ -> e\nを -> o]
+        O -->|Moraic Sound| Q[ん before vowels -> n'\njikoken'o]
+        O -->|Sokuon Sound| R[っ assimilation -> matchi]
+    end
+
+    subgraph DualTranslation ["4. Dual-Track Translation Engine"]
+        P & Q & R --> S[/Resolved Token Stream/]
+        
+        S --> T[Track A: Instant Offline Gloss\nJDICT <10ms In-Memory]
+        S --> U[Track B: Context-Aware Immersion]
+        
+        U --> V{Server.py :8000 Online?}
+        V -->|Yes| W[Antigravity CLI / Gemini API\nContextual Sentence Fit]
+        V -->|No / Standalone| X[Google Translate API Fallback]
+    end
+
+    subgraph PresentationSRS ["5. UI Presentation & Spaced Repetition"]
+        T & W & X --> Y[Synced Ruby Furigana Overlay\non-video captions]
+        T & W & X --> Z[Horizontal Gloss Cards\nNative YouTube Drawer]
+        Z --> AA[(AnkiConnect :8765\n1-Click Flashcard Sync)]
+    end

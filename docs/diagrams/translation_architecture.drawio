@@ -1,0 +1,126 @@
+<mxfile host="app.diagrams.net" agent="Antigravity AI" version="24.0.0">
+  <diagram id="lingua-play-pipeline" name="LinguaPlay Translation Architecture">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Swimlanes / Subgraphs -->
+        <mxCell id="stage1" value="1. Subtitle Ingestion &amp; Cue Tracking" style="swimlane;whiteSpace=wrap;html=1;fillColor=#e1f5fe;strokeColor=#0288d1;fontStyle=1;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="240" height="360" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeA" value="YouTube Video Playback" style="ellipse;whiteSpace=wrap;html=1;fillColor=#b3e5fc;strokeColor=#0288d1;" vertex="1" parent="stage1">
+          <mxGeometry x="30" y="40" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeB" value="Extract Subtitle Cues&#xa;(WebVTT / TimedText)" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#ffffff;strokeColor=#0288d1;" vertex="1" parent="stage1">
+          <mxGeometry x="20" y="130" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeC" value="Active Cue Matcher&#xa;(Synced with Video Time)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#0288d1;" vertex="1" parent="stage1">
+          <mxGeometry x="30" y="240" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="edge1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="stage1" source="nodeA" target="nodeB">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="stage1" source="nodeB" target="nodeC">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Morphology Stage -->
+        <mxCell id="stage2" value="2. Multi-Tiered Morphological Engine" style="swimlane;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#388e3c;fontStyle=1;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="320" y="40" width="340" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeD" value="Sliding-Window Trie&#xa;(6..1 Chars Lookahead)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#388e3c;" vertex="1" parent="stage2">
+          <mxGeometry x="30" y="40" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeE" value="Match in&#xa;SPECIAL_WORDS?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#388e3c;" vertex="1" parent="stage2">
+          <mxGeometry x="35" y="120" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeF" value="Jukujikun Lexicon&#xa;(眼鏡 -> megane&#xa;自己嫌悪 -> jikoken&#39;o)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#fff3e0;strokeColor=#e65100;" vertex="1" parent="stage2">
+          <mxGeometry x="190" y="220" width="130" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeG" value="Morphological Katsuyou De-inflector&#xa;matchVerbInflectionAt&#xa;(書いて -> kaite, 行った -> itta)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#388e3c;" vertex="1" parent="stage2">
+          <mxGeometry x="20" y="230" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeH" value="Kun/On Disambiguator &amp; Zero-Kanji Guard&#xa;(3,800+ KANJI_DB)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#388e3c;fontStyle=1;" vertex="1" parent="stage2">
+          <mxGeometry x="30" y="370" width="280" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="edge3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="stage2" source="nodeD" target="nodeE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge4" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="stage2" source="nodeE" target="nodeF">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge5" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="stage2" source="nodeE" target="nodeG">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="stage2" source="nodeG" target="nodeH">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="stage2" source="nodeF" target="nodeH">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Phonetics & Romanization -->
+        <mxCell id="stage3" value="3. Modified Hepburn Romanization" style="swimlane;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#fbc02d;fontStyle=1;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="40" width="300" height="360" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeI" value="Pure Hiragana Stream&#xa;(Zero-Kanji Guarantee)" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#ffffff;strokeColor=#fbc02d;" vertex="1" parent="stage3">
+          <mxGeometry x="40" y="40" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeJ" value="toModifiedHepburnRomaji&#xa;Particle Overrides (は->wa, へ->e, を->o)&#xa;Moraic ん Isolation (jikoken&#39;o)&#xa;Sokuon Assimilation (matchi)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#fbc02d;" vertex="1" parent="stage3">
+          <mxGeometry x="20" y="150" width="260" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeK" value="Resolved Phonetic Tokens&#xa;{ furigana, romaji }" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff59d;strokeColor=#fbc02d;fontStyle=1;" vertex="1" parent="stage3">
+          <mxGeometry x="40" y="280" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="edge8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="stage3" source="nodeI" target="nodeJ">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="stage3" source="nodeJ" target="nodeK">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Translation & Presentation -->
+        <mxCell id="stage4" value="4. Dual-Track Translation &amp; SRS UI" style="swimlane;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#8e24aa;fontStyle=1;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="40" width="320" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeL" value="Track A: Instant Offline Gloss&#xa;(JDICT &lt;10ms In-Memory)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#8e24aa;" vertex="1" parent="stage4">
+          <mxGeometry x="30" y="40" width="260" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeM" value="Track B: Antigravity / Gemini AI&#xa;(Server.py Contextual Translation)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#8e24aa;" vertex="1" parent="stage4">
+          <mxGeometry x="30" y="130" width="260" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeN" value="On-Video Ruby Furigana Overlay&#xa;&amp; Native YouTube Sidebar Drawer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#8e24aa;fontStyle=1;" vertex="1" parent="stage4">
+          <mxGeometry x="30" y="250" width="260" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="nodeO" value="AnkiConnect Integration&#xa;(:8765 1-Click Flashcard Export)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#ede7f6;strokeColor=#5e35b1;" vertex="1" parent="stage4">
+          <mxGeometry x="60" y="370" width="200" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="edge10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="stage4" source="nodeL" target="nodeN">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="stage4" source="nodeM" target="nodeN">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge12" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="stage4" source="nodeN" target="nodeO">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Inter-stage connectors -->
+        <mxCell id="crossEdge1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=2;strokeColor=#0288d1;" edge="1" parent="1" source="nodeC" target="nodeD">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="crossEdge2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=2;strokeColor=#388e3c;" edge="1" parent="1" source="nodeH" target="nodeI">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="crossEdge3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=2;strokeColor=#fbc02d;" edge="1" parent="1" source="nodeK" target="nodeL">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="crossEdge4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=2;strokeColor=#fbc02d;" edge="1" parent="1" source="nodeK" target="nodeM">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
