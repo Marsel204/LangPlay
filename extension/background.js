@@ -83,21 +83,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'OPEN_OPTIONS_PAGE') {
-    try {
-      if (chrome.runtime.openOptionsPage) {
-        chrome.runtime.openOptionsPage(() => {
-          if (chrome.runtime.lastError) {
-            chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
-          }
-        });
-      } else {
-        chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
-      }
-    } catch (e) {
-      chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
+    const optionsUrl = chrome.runtime.getURL('options.html');
+    if (chrome.tabs && chrome.tabs.create) {
+      chrome.tabs.create({ url: optionsUrl, active: true }, (tab) => {
+        sendResponse({ success: true, tabId: tab ? tab.id : null });
+      });
+      return true;
+    }
+    if (chrome.runtime.openOptionsPage) {
+      chrome.runtime.openOptionsPage();
     }
     sendResponse({ success: true });
-    return true;
+    return false;
   }
 });
 
