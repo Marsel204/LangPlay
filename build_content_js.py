@@ -675,6 +675,36 @@ content_code = """/**
     });
   }
 
+  // ── High-Speed Instant Sentence Translation Cache & Fetcher (Client-Side) ──
+  const sentenceTranslationCache = new Map();
+
+  async function fetchSentenceTranslation(sentence) {
+    if (!sentence || !sentence.trim()) return '';
+    const clean = sentence.trim();
+    if (sentenceTranslationCache.has(clean)) {
+      return sentenceTranslationCache.get(clean);
+    }
+    try {
+      const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=en&dt=t&q=${encodeURIComponent(clean)}`, {
+        signal: AbortSignal.timeout(4000)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        let translation = '';
+        if (data && data[0] && Array.isArray(data[0])) {
+          translation = data[0].map(segment => segment[0]).filter(Boolean).join('');
+        }
+        if (translation) {
+          sentenceTranslationCache.set(clean, translation);
+          return translation;
+        }
+      }
+    } catch (e) {
+      console.warn('[LinguaPlay] Sentence translation fetch error:', e);
+    }
+    return '';
+  }
+
   // ── Handle Word Click (Non-Interrupting & Side-Panel Integration) ──
   function handleTokenClick(token, sentenceContext) {
     let drawer = document.getElementById('linguaplay-yt-drawer');
@@ -701,6 +731,11 @@ content_code = """/**
     const aiLoading = document.getElementById('lp-ai-loading');
     const aiAnkiBtn = document.getElementById('lp-ai-anki-btn');
 
+    const sentenceWrap = document.getElementById('lp-sentence-wrapper');
+    const sentJpEl = document.getElementById('lp-sentence-jp');
+    const sentEnEl = document.getElementById('lp-sentence-en');
+    const sentSpeedEl = document.getElementById('lp-sentence-speed');
+
     const readingData = getWordReading(token.surface);
     const displayReading = readingData.romaji && readingData.furigana !== readingData.romaji
       ? `${readingData.furigana} (${readingData.romaji})`
@@ -710,6 +745,42 @@ content_code = """/**
     romajiEl.textContent = displayReading;
     posEl.textContent = `Base form: ${token.baseForm}`;
     activeLiveSentence = sentenceContext || token.surface;
+
+    // Instant Sentence Context Rendering
+    if (sentenceWrap && sentJpEl && sentEnEl) {
+      const activeText = (activeLiveSentence || '').trim();
+      if (activeText) {
+        sentenceWrap.style.display = 'block';
+        if (token.surface && activeText.includes(token.surface)) {
+          const parts = activeText.split(token.surface);
+          sentJpEl.innerHTML = parts.join(`<span style="color:#a78bfa; font-weight:bold; background:rgba(167,139,250,0.2); padding:1px 4px; border-radius:4px;">${token.surface}</span>`);
+        } else {
+          sentJpEl.textContent = activeText;
+        }
+
+        if (sentenceTranslationCache.has(activeText)) {
+          sentEnEl.textContent = sentenceTranslationCache.get(activeText);
+          if (sentSpeedEl) sentSpeedEl.textContent = '0ms (Cached)';
+        } else {
+          sentEnEl.innerHTML = '<span style="opacity:0.6; font-size:12px;">⚡ Translating sentence...</span>';
+          if (sentSpeedEl) sentSpeedEl.textContent = 'Translating...';
+          const targetSentence = activeText;
+          fetchSentenceTranslation(targetSentence).then(trans => {
+            if (activeLiveSentence.trim() === targetSentence) {
+              if (trans) {
+                sentEnEl.textContent = trans;
+                if (sentSpeedEl) sentSpeedEl.textContent = 'Instant';
+              } else {
+                sentEnEl.textContent = 'Sentence translation unavailable';
+                if (sentSpeedEl) sentSpeedEl.textContent = '';
+              }
+            }
+          });
+        }
+      } else {
+        sentenceWrap.style.display = 'none';
+      }
+    }
 
     aiResults.innerHTML = '';
     aiResults.style.display = 'none';
@@ -725,7 +796,11 @@ content_code = """/**
       fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=en&dt=t&q=${encodeURIComponent(token.baseForm)}`)
         .then(r => r.json())
         .then(d => {
-          defEl.textContent = d[0]?.[0]?.[0] || 'No definition found';
+          let trans = '';
+          if (d && d[0] && Array.isArray(d[0])) {
+            trans = d[0].map(s => s[0]).filter(Boolean).join('');
+          }
+          defEl.textContent = trans || 'No definition found';
         })
         .catch(() => {
           defEl.textContent = 'Click Ask Antigravity AI below for deep analysis.';
@@ -963,6 +1038,15 @@ content_code = """/**
         <button id="lp-dismiss-btn" style="background:rgba(255,255,255,0.08); border:none; color:#cbd5e1; font-size:12px; cursor:pointer; padding:5px 10px; border-radius:6px; transition:0.2s;">✕ Close</button>
       </div>
 
+      <div id="lp-sentence-wrapper" class="linguaplay-card-wrapper" style="display:none; margin-bottom:10px; background:rgba(30,27,75,0.45); border:1px solid rgba(139,92,246,0.3); border-radius:10px; padding:10px 12px;">
+        <div style="font-size:10px; font-weight:bold; color:#a78bfa; text-transform:uppercase; margin-bottom:4px; letter-spacing:0.04em; display:flex; justify-content:space-between; align-items:center;">
+          <span>💬 Context Sentence</span>
+          <span id="lp-sentence-speed" style="font-size:9.5px; color:#34d399; font-weight:600; text-transform:none;"></span>
+        </div>
+        <div id="lp-sentence-jp" style="font-size:14px; color:#f8fafc; font-weight:500; line-height:1.5; margin-bottom:4px; font-family:'Noto Sans JP',sans-serif;"></div>
+        <div id="lp-sentence-en" style="font-size:13px; color:#cbd5e1; line-height:1.45; font-style:italic;"></div>
+      </div>
+
       <div class="linguaplay-card-wrapper">
         <div style="font-size: 10px; font-weight: bold; color: #a78bfa; text-transform: uppercase; margin-bottom: 4px; letter-spacing:0.04em;">📚 Dictionary Definition</div>
         <div id="lp-active-def" style="font-size: 13.5px; color: #e2e8f0; line-height: 1.5;"></div>
@@ -1065,12 +1149,31 @@ content_code = """/**
       const romaji = document.getElementById('lp-active-romaji').textContent;
       const def = document.getElementById('lp-active-def').innerHTML;
       const sentence = activeLiveSentence || '';
+      const sentEn = document.getElementById('lp-sentence-en')?.textContent || '';
+      const cleanSentEn = (sentEn && !sentEn.includes('Translating') && !sentEn.includes('unavailable')) ? sentEn : '';
 
       chrome.storage.local.get(['linguaplay_cards'], (res) => {
         const cards = res.linguaplay_cards || [];
-        cards.push({ word, reading: word, meaning: def, sentence, date: new Date().toISOString() });
+        cards.push({
+          word,
+          reading: word,
+          romaji,
+          meaning: def,
+          sentence,
+          sentence_en: cleanSentEn,
+          date: new Date().toISOString()
+        });
         chrome.storage.local.set({ linguaplay_cards: cards });
       });
+
+      let backHtml = `<div><strong>Meaning:</strong> ${def}</div>`;
+      if (sentence) {
+        const boldSentence = word && sentence.includes(word) ? sentence.split(word).join(`<b>${word}</b>`) : sentence;
+        backHtml += `<br><div><strong>Sentence:</strong> ${boldSentence}</div>`;
+        if (cleanSentEn) {
+          backHtml += `<div style="color:#94a3b8; font-size:0.9em; margin-top:3px; font-style:italic;">${cleanSentEn}</div>`;
+        }
+      }
 
       fetch('http://127.0.0.1:8765', {
         method: 'POST',
@@ -1084,7 +1187,7 @@ content_code = """/**
               modelName: 'Basic',
               fields: {
                 Front: `${word} <span style="font-size:0.8em;color:#94a3b8;">${romaji}</span>`,
-                Back: `<div><strong>Meaning:</strong> ${def}</div><br><div><strong>Sentence:</strong> ${sentence.replace(word, '<b>' + word + '</b>')}</div>`
+                Back: backHtml
               },
               tags: ['linguaplay', 'youtube']
             }
@@ -1097,70 +1200,13 @@ content_code = """/**
       setTimeout(() => { btn.textContent = '🗃️ Quick Add to Anki'; }, 2000);
     });
 
-    document.getElementById('lp-ai-btn').addEventListener('click', async () => {
-      const word = document.getElementById('lp-active-word').textContent;
-      const romaji = document.getElementById('lp-active-romaji').textContent;
-      const sentence = activeLiveSentence || '';
+    async function runGeminiDirect(word, romaji, sentence, geminiKey) {
       const loading = document.getElementById('lp-ai-loading');
       const results = document.getElementById('lp-ai-results');
       const ankiBtn = document.getElementById('lp-ai-anki-btn');
 
-      loading.style.display = 'block';
-      results.style.display = 'none';
-      ankiBtn.style.display = 'none';
-
-      chrome.storage.local.get(['linguaplay_gemini_key', 'linguaplay_ai_provider', 'linguaplay_server_url'], async (cfg) => {
-        const provider = cfg.linguaplay_ai_provider || 'antigravity';
-        const serverUrl = cfg.linguaplay_server_url || 'http://127.0.0.1:8000';
-        const geminiKey = cfg.linguaplay_gemini_key || '';
-
-        // 1. Antigravity CLI Provider
-        if (provider === 'antigravity') {
-          try {
-            const res = await fetch(`${serverUrl}/api/ai/analyze`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                word,
-                reading: romaji,
-                sentence,
-                provider: 'antigravity'
-              }),
-              signal: AbortSignal.timeout(25000)
-            });
-
-            if (!res.ok) throw new Error(`Server returned ${res.status}`);
-            const raw = await res.json();
-            const aiData = raw.data || raw;
-            lastAiData = aiData;
-
-            loading.style.display = 'none';
-            results.style.display = 'block';
-            ankiBtn.style.display = 'block';
-
-            results.innerHTML = renderPedagogicalBreakdown(aiData, '🤖 ANTIGRAVITY CLI BREAKDOWN');
-            return;
-          } catch (err) {
-            if (geminiKey) {
-              console.warn('[LinguaPlay] Local server offline, trying Gemini fallback...', err);
-            } else {
-              loading.style.display = 'none';
-              results.style.display = 'block';
-              results.innerHTML = `
-                <div style="font-size: 11px; color: #fca5a5; line-height: 1.45; padding: 4px 0;">
-                  <strong>Antigravity CLI:</strong> Could not connect to local server at <code>${serverUrl}</code>.<br>
-                  Run <code>python3 Server.py</code> or configure a free Gemini API key in extension options.
-                </div>
-              `;
-              return;
-            }
-          }
-        }
-
-        // 2. Direct Gemini API Fallback
-        if (geminiKey) {
-          try {
-            const prompt = `You are an expert Japanese immersion tutor.
+      try {
+        const prompt = `You are an expert Japanese immersion tutor.
 Focus strictly on HOW THE TARGET WORD FITS INTO THIS SPECIFIC CONTEXT SENTENCE.
 Do NOT give generic dictionary essays or unrelated examples.
 
@@ -1200,30 +1246,134 @@ Respond with ONLY valid JSON:
     }
   ]
 }`;
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey.trim()}`;
-            const res = await fetch(url, {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json' }
+          })
+        });
+
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        const json = JSON.parse(text.replace(/```json|```/g, '').trim());
+        lastAiData = json;
+
+        loading.style.display = 'none';
+        results.style.display = 'block';
+        ankiBtn.style.display = 'block';
+
+        results.innerHTML = renderPedagogicalBreakdown(json, '✨ GEMINI FLASH AI BREAKDOWN');
+      } catch (err) {
+        loading.style.display = 'none';
+        results.style.display = 'block';
+        results.innerHTML = `<div style="font-size: 11px; color: #fca5a5;">AI analysis error: ${err.message}</div>`;
+      }
+    }
+
+    document.getElementById('lp-ai-btn').addEventListener('click', async () => {
+      const word = document.getElementById('lp-active-word').textContent;
+      const romaji = document.getElementById('lp-active-romaji').textContent;
+      const sentence = activeLiveSentence || '';
+      const loading = document.getElementById('lp-ai-loading');
+      const results = document.getElementById('lp-ai-results');
+      const ankiBtn = document.getElementById('lp-ai-anki-btn');
+
+      loading.style.display = 'block';
+      results.style.display = 'none';
+      ankiBtn.style.display = 'none';
+
+      chrome.storage.local.get(['linguaplay_gemini_key', 'linguaplay_ai_provider', 'linguaplay_server_url'], async (cfg) => {
+        const provider = cfg.linguaplay_ai_provider || 'antigravity';
+        const serverUrl = cfg.linguaplay_server_url || 'http://127.0.0.1:8000';
+        const geminiKey = (cfg.linguaplay_gemini_key || '').trim();
+
+        // Direct Gemini Flash Path
+        if (provider === 'gemini' && geminiKey) {
+          await runGeminiDirect(word, romaji, sentence, geminiKey);
+          return;
+        }
+
+        // Antigravity CLI Local Server Path
+        if (provider === 'antigravity') {
+          try {
+            const res = await fetch(`${serverUrl}/api/ai/analyze`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { responseMimeType: 'application/json' }
-              })
+                word,
+                reading: romaji,
+                sentence,
+                provider: 'antigravity'
+              }),
+              signal: AbortSignal.timeout(3000)
             });
 
-            const data = await res.json();
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            const json = JSON.parse(text.replace(/```json|```/g, '').trim());
-            lastAiData = json;
+            if (!res.ok) throw new Error(`Server returned ${res.status}`);
+            const raw = await res.json();
+            const aiData = raw.data || raw;
+            lastAiData = aiData;
 
             loading.style.display = 'none';
             results.style.display = 'block';
             ankiBtn.style.display = 'block';
 
-            results.innerHTML = renderPedagogicalBreakdown(json, '✨ GEMINI AI BREAKDOWN');
+            results.innerHTML = renderPedagogicalBreakdown(aiData, '🤖 ANTIGRAVITY CLI BREAKDOWN');
+            return;
           } catch (err) {
-            loading.style.display = 'none';
-            results.style.display = 'block';
-            results.innerHTML = `<div style="font-size: 11px; color: #fca5a5;">AI analysis error: ${err.message}</div>`;
+            if (geminiKey) {
+              console.warn('[LinguaPlay] Local server offline, trying Gemini fallback...', err);
+              await runGeminiDirect(word, romaji, sentence, geminiKey);
+              return;
+            } else {
+              loading.style.display = 'none';
+              results.style.display = 'block';
+              results.innerHTML = `
+                <div style="background: rgba(124, 58, 237, 0.12); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: #e2e8f0; line-height: 1.5;">
+                  <div style="font-weight: 600; color: #a78bfa; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                    <span>⚡</span> Instant Sentence Translation is Active Above!
+                  </div>
+                  <p style="margin: 0 0 6px; color: #cbd5e1; font-size: 11.5px;">
+                    To unlock deep AI grammatical nuance and morphological breakdown:
+                  </p>
+                  <ul style="margin: 0 0 8px 16px; padding: 0; font-size: 11px; color: #94a3b8;">
+                    <li><strong>Option A:</strong> Add a free Google Gemini API key in <a href="#" id="lp-go-options-btn" style="color: #6ee7b7; text-decoration: underline;">Extension Settings</a> (100% serverless).</li>
+                    <li><strong>Option B:</strong> Start the local CLI server with <code>python3 Server.py</code>.</li>
+                  </ul>
+                </div>
+              `;
+              const optBtn = document.getElementById('lp-go-options-btn');
+              if (optBtn) {
+                optBtn.addEventListener('click', (e) => {
+                  e.preventDefault();
+                  chrome.runtime.sendMessage({ action: 'OPEN_OPTIONS_PAGE' });
+                });
+              }
+              return;
+            }
+          }
+        }
+
+        // Fallback to Gemini if requested or no local server
+        if (geminiKey) {
+          await runGeminiDirect(word, romaji, sentence, geminiKey);
+        } else {
+          loading.style.display = 'none';
+          results.style.display = 'block';
+          results.innerHTML = `
+            <div style="background: rgba(124, 58, 237, 0.12); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: #e2e8f0; line-height: 1.5;">
+              <div style="font-weight: 600; color: #a78bfa; margin-bottom: 4px;">⚡ Instant Translation Active Above</div>
+              <div style="color:#cbd5e1; font-size:11.5px;">Please add your free Gemini API key in <a href="#" id="lp-go-options-btn2" style="color: #6ee7b7; text-decoration: underline;">Extension Settings</a> to enable deep AI nuance.</div>
+            </div>
+          `;
+          const optBtn2 = document.getElementById('lp-go-options-btn2');
+          if (optBtn2) {
+            optBtn2.addEventListener('click', (e) => {
+              e.preventDefault();
+              chrome.runtime.sendMessage({ action: 'OPEN_OPTIONS_PAGE' });
+            });
           }
         }
       });
