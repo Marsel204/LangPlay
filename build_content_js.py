@@ -92,12 +92,7 @@ content_code = """/**
       }
     }
 
-    // Fallback to first dotted kun'yomi stem if okurigana is present
-    for (const rawKun of kuns) {
-      if (!rawKun.includes('.')) continue;
-      return rawKun.split('.')[0];
-    }
-    return (kuns && kuns.length > 0) ? kuns[0].split('.')[0] : (ons && ons.length > 0 ? ons[0] : kanjiChar);
+    return null;
   }
 
   /**
@@ -109,8 +104,11 @@ content_code = """/**
     const w = word.trim();
     if (SPECIAL_WORDS[w]) return SPECIAL_WORDS[w];
 
+    const isKanji = (c) => c >= 0x4E00 && c <= 0x9FAF;
+    const isKatakana = (c) => c >= 0x30A1 && c <= 0x30F6;
+
     // 1. Single standalone Kanji: Use Kun'yomi or fallback to On'yomi
-    if (w.length === 1 && w.charCodeAt(0) >= 0x4E00 && w.charCodeAt(0) <= 0x9FAF) {
+    if (w.length === 1 && isKanji(w.charCodeAt(0))) {
       const info = KANJI_DB[w];
       if (info) {
         const [ons, kuns] = info;
@@ -128,22 +126,28 @@ content_code = """/**
     while (i < w.length) {
       const ch = w[i];
       const code = ch.charCodeAt(0);
-      if (code >= 0x4E00 && code <= 0x9FAF) {
-        // Check multi-character substring in SPECIAL_WORDS first (sliding window)
-        let matchedSpecial = null;
-        for (let len = Math.min(6, w.length - i); len >= 1; len--) {
-          const sub = w.slice(i, i + len);
-          if (SPECIAL_WORDS[sub]) {
-            matchedSpecial = { len, val: SPECIAL_WORDS[sub] };
-            break;
-          }
-        }
-        if (matchedSpecial) {
-          res += matchedSpecial.val;
-          i += matchedSpecial.len;
-          continue;
-        }
 
+      // Check substring in SPECIAL_WORDS first (sliding window)
+      let matchedSpecial = null;
+      const prevIsKanji = i > 0 && isKanji(w.charCodeAt(i - 1));
+      const nextIsKanji = i + 1 < w.length && isKanji(w.charCodeAt(i + 1));
+      const isPartOfJukugo = prevIsKanji || nextIsKanji;
+
+      for (let len = Math.min(6, w.length - i); len >= 1; len--) {
+        if (len === 1 && isPartOfJukugo) continue;
+        const sub = w.slice(i, i + len);
+        if (SPECIAL_WORDS[sub]) {
+          matchedSpecial = { len, val: SPECIAL_WORDS[sub] };
+          break;
+        }
+      }
+      if (matchedSpecial) {
+        res += matchedSpecial.val;
+        i += matchedSpecial.len;
+        continue;
+      }
+
+      if (isKanji(code)) {
         const info = KANJI_DB[ch];
         if (!info) {
           res += ch;
@@ -169,6 +173,8 @@ content_code = """/**
             res += ch;
           }
         }
+      } else if (isKatakana(code)) {
+        res += String.fromCharCode(code - 0x60);
       } else {
         res += ch;
       }
@@ -180,9 +186,11 @@ content_code = """/**
     for (let j = 0; j < res.length; j++) {
       const c = res[j];
       const cCode = c.charCodeAt(0);
-      if (cCode >= 0x4E00 && cCode <= 0x9FAF) {
+      if (isKanji(cCode)) {
         const fallback = KANJI_DB[c];
         sanitized += (fallback && fallback[1] && fallback[1][0]?.split('.')[0]) || (fallback && fallback[0] && fallback[0][0]) || '';
+      } else if (isKatakana(cCode)) {
+        sanitized += String.fromCharCode(cCode - 0x60);
       } else {
         sanitized += c;
       }
@@ -347,17 +355,193 @@ content_code = """/**
     return cues.sort((a, b) => a.start - b.start);
   }
 
-  // ── Caption Fetchers ──
+  // ── Language Detection Helper ──
+  function hasJapaneseCharacters(text) {
+    if (!text || typeof text !== 'string') return false;
+    return /[\\u3040-\\u309F\\u30A0-\\u30FF\\u4E00-\\u9FAF]/.test(text);
+  }
+
+  // ── Multi-Track Japanese Discovery & Prioritization ──
+  function findJapaneseCaptionTrack(tracks) {
+    if (!tracks || !Array.isArray(tracks) || tracks.length === 0) return null;
+
+    function isJapaneseTrack(t) {
+      if (!t) return false;
+      const code = (t.languageCode || t.lang || '').toLowerCase();
+      if (code.startsWith('ja')) return true;
+      const vss = (t.vssId || '').toLowerCase();
+      if (vss === '.ja' || vss === 'a.ja' || vss.endsWith('.ja') || vss.includes('ja')) return true;
+      const name = (
+        (t.name?.runs?.[0]?.text) ||
+        (t.name?.simpleText) ||
+        t.displayName ||
+        t.languageName ||
+        (typeof t.name === 'string' ? t.name : '')
+      ).toLowerCase();
+      return name.includes('japan') || name.includes('jepang') || name.includes('日本語') || name.includes('にほんご');
+    }
+
+    // 1. Priority 1: Human-curated Japanese track (not ASR)
+    const manualJa = tracks.find(t => {
+      if (!isJapaneseTrack(t)) return false;
+      const isAsr = t.kind === 'asr' || (t.vssId && t.vssId.startsWith('a.'));
+      return !isAsr;
+    });
+    if (manualJa) return manualJa;
+
+    // 2. Priority 2: Auto-generated Japanese track (ASR)
+    const asrJa = tracks.find(t => isJapaneseTrack(t));
+    if (asrJa) return asrJa;
+
+    return null;
+  }
+
+  // ── Extract Caption Tracks from Page DOM ──
+  function getOnPageCaptionTracks() {
+    try {
+      const scripts = document.querySelectorAll('script');
+      for (const s of scripts) {
+        const text = s.textContent || '';
+        if (text.includes('captionTracks')) {
+          const m = text.match(/"captionTracks":\\s*(\\[.*?\\])/);
+          if (m) {
+            try {
+              const parsed = JSON.parse(m[1]);
+              if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            } catch (e) {}
+          }
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  // ── Switch YouTube Native Player Track to Japanese ──
+  function switchYouTubePlayerCaptionTrack(targetTrackOrLang) {
+    if (activeVideoEl && activeVideoEl.textTracks) {
+      for (let i = 0; i < activeVideoEl.textTracks.length; i++) {
+        const track = activeVideoEl.textTracks[i];
+        const lang = (track.language || '').toLowerCase();
+        if (lang.startsWith('ja')) {
+          track.mode = 'showing';
+        } else if (track.mode === 'showing') {
+          track.mode = 'hidden';
+        }
+      }
+    }
+
+    try {
+      const targetLang = typeof targetTrackOrLang === 'string' ? targetTrackOrLang : (targetTrackOrLang?.languageCode || 'ja');
+      const vssId = targetTrackOrLang?.vssId || '';
+      const script = document.createElement('script');
+      script.textContent = `
+        (function() {
+          try {
+            const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+            if (!player) return;
+            if (typeof player.loadModule === 'function') player.loadModule('captions');
+            const tracklist = (typeof player.getOption === 'function') ? player.getOption('captions', 'tracklist') : null;
+            if (Array.isArray(tracklist) && tracklist.length > 0) {
+              const targetVss = ${JSON.stringify(vssId)};
+              const targetCode = ${JSON.stringify(targetLang)};
+              let matched = null;
+              if (targetVss) matched = tracklist.find(t => t.vssId === targetVss);
+              if (!matched) matched = tracklist.find(t => t.languageCode && t.languageCode.toLowerCase().startsWith('ja') && t.kind !== 'asr');
+              if (!matched) matched = tracklist.find(t => t.languageCode && t.languageCode.toLowerCase().startsWith('ja'));
+              if (!matched) {
+                matched = tracklist.find(t => {
+                  const n = (t.displayName || t.languageName || (t.name?.runs?.[0]?.text) || (typeof t.name === 'string' ? t.name : '') || '').toLowerCase();
+                  return n.includes('japan') || n.includes('jepang') || n.includes('日本語') || n.includes('にほんご');
+                });
+              }
+              if (matched && typeof player.setOption === 'function') {
+                player.setOption('captions', 'track', matched);
+                return;
+              }
+            }
+            if (typeof player.setOption === 'function') {
+              player.setOption('captions', 'track', { languageCode: 'ja' });
+            }
+          } catch (e) {}
+        })();
+      `;
+      (document.head || document.documentElement).appendChild(script);
+      script.remove();
+    } catch (e) {}
+  }
+
+  // ── In-Memory Player Track Discovery Bridge ──
+  function inspectAndSwitchPlayerTracks() {
+    try {
+      const script = document.createElement('script');
+      script.textContent = `
+        (function() {
+          try {
+            const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+            if (!player) return;
+            if (typeof player.loadModule === 'function') player.loadModule('captions');
+            const tracklist = (typeof player.getOption === 'function') ? player.getOption('captions', 'tracklist') : null;
+            if (Array.isArray(tracklist) && tracklist.length > 0) {
+              function isJp(t) {
+                if (!t) return false;
+                const code = (t.languageCode || t.lang || '').toLowerCase();
+                if (code.startsWith('ja')) return true;
+                const vss = (t.vssId || '').toLowerCase();
+                if (vss === '.ja' || vss === 'a.ja' || vss.endsWith('.ja') || vss.includes('ja')) return true;
+                const name = (t.displayName || t.languageName || (t.name?.runs?.[0]?.text) || (typeof t.name === 'string' ? t.name : '') || '').toLowerCase();
+                return name.includes('japan') || name.includes('jepang') || name.includes('日本語') || name.includes('にほんご');
+              }
+              const manualJa = tracklist.find(t => isJp(t) && t.kind !== 'asr' && !(t.vssId && t.vssId.startsWith('a.')));
+              const target = manualJa || tracklist.find(t => isJp(t));
+              if (target && typeof player.setOption === 'function') {
+                player.setOption('captions', 'track', target);
+              }
+            }
+          } catch (e) {}
+        })();
+      `;
+      (document.head || document.documentElement).appendChild(script);
+      script.remove();
+    } catch (e) {}
+  }
+
+  // ── Caption Fetchers with Auto-Discovery & Auto-Switch ──
   async function fetchYouTubeCaptions(videoId) {
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/captions?v=${videoId}`, { signal: AbortSignal.timeout(2000) });
+      const res = await fetch(`http://127.0.0.1:8000/api/captions?v=${videoId}`, { signal: AbortSignal.timeout(1500) });
       if (res.ok) {
         const vtt = await res.text();
         const cues = parseVTT(vtt);
-        if (cues.length > 0) return cues;
+        const hasJp = cues.some(c => hasJapaneseCharacters(c.text));
+        if (cues.length > 0 && hasJp) return cues;
       }
     } catch (e) { /* ignore */ }
 
+    // 1. Probe player in-memory tracklist directly
+    inspectAndSwitchPlayerTracks();
+
+    // 2. Check on-page script data first (fastest zero-latency path)
+    const onPageTracks = getOnPageCaptionTracks();
+    if (onPageTracks) {
+      const jaTrack = findJapaneseCaptionTrack(onPageTracks);
+      if (jaTrack) {
+        switchYouTubePlayerCaptionTrack(jaTrack);
+        ensureYouTubeCCEnabled();
+      }
+      if (jaTrack && jaTrack.baseUrl) {
+        try {
+          const sep = jaTrack.baseUrl.includes('?') ? '&' : '?';
+          const vttRes = await fetch(`${jaTrack.baseUrl}${sep}fmt=vtt`);
+          if (vttRes.ok) {
+            const vtt = await vttRes.text();
+            const cues = parseVTT(vtt);
+            if (cues.length > 0) return cues;
+          }
+        } catch (e) { /* ignore */ }
+      }
+    }
+
+    // 3. Fallback to fetching YouTube page HTML with hl=ja
     try {
       const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=ja`);
       if (pageRes.ok) {
@@ -365,7 +549,11 @@ content_code = """/**
         const m = html.match(/"captionTracks":\\s*(\\[.*?\\])/);
         if (m) {
           const tracks = JSON.parse(m[1]);
-          const jaTrack = tracks.find(t => t.languageCode?.startsWith('ja')) || tracks[0];
+          const jaTrack = findJapaneseCaptionTrack(tracks);
+          if (jaTrack) {
+            switchYouTubePlayerCaptionTrack(jaTrack);
+            ensureYouTubeCCEnabled();
+          }
           if (jaTrack && jaTrack.baseUrl) {
             const sep = jaTrack.baseUrl.includes('?') ? '&' : '?';
             const vttRes = await fetch(`${jaTrack.baseUrl}${sep}fmt=vtt`);
@@ -385,12 +573,19 @@ content_code = """/**
   // ── Render Tokens into Subtitle Overlay ──
   function renderSentenceTokens(sentenceText) {
     const container = document.getElementById('linguaplay-yt-tokens');
+    const overlay = document.getElementById('linguaplay-yt-tokens-overlay');
+    const player = document.querySelector('#movie_player') || document.querySelector('.html5-video-player');
     if (!container) return;
 
-    if (!sentenceText || !sentenceText.trim()) {
+    if (!sentenceText || !sentenceText.trim() || !hasJapaneseCharacters(sentenceText)) {
       container.innerHTML = '';
+      if (overlay) overlay.classList.remove('active');
+      if (player) player.classList.remove('linguaplay-has-japanese');
       return;
     }
+
+    if (overlay) overlay.classList.add('active');
+    if (player) player.classList.add('linguaplay-has-japanese');
 
     const tokens = tokenize(sentenceText);
     container.innerHTML = '';
@@ -578,9 +773,17 @@ content_code = """/**
         if (segs.length > 0) {
           const text = Array.from(segs).map(s => s.textContent || '').join(' ').trim();
           if (text && text !== activeLiveSentence && subtitleTimeline.length === 0) {
-            activeLiveSentence = text;
-            renderSentenceTokens(text);
+            if (hasJapaneseCharacters(text)) {
+              activeLiveSentence = text;
+              renderSentenceTokens(text);
+            } else {
+              activeLiveSentence = '';
+              renderSentenceTokens('');
+            }
           }
+        } else if (activeLiveSentence && subtitleTimeline.length === 0) {
+          activeLiveSentence = '';
+          renderSentenceTokens('');
         }
       }
     });
@@ -592,11 +795,19 @@ content_code = """/**
       for (let i = 0; i < activeVideoEl.textTracks.length; i++) {
         const track = activeVideoEl.textTracks[i];
         track.oncuechange = () => {
-          if (subtitleTimeline.length === 0 && track.activeCues && track.activeCues.length > 0) {
-            const cueText = track.activeCues[0].text;
-            if (cueText) {
-              activeLiveSentence = cueText;
-              renderSentenceTokens(cueText);
+          if (subtitleTimeline.length === 0) {
+            if (track.activeCues && track.activeCues.length > 0) {
+              const cueText = track.activeCues[0].text;
+              if (cueText && hasJapaneseCharacters(cueText)) {
+                activeLiveSentence = cueText;
+                renderSentenceTokens(cueText);
+              } else {
+                activeLiveSentence = '';
+                renderSentenceTokens('');
+              }
+            } else if (activeLiveSentence) {
+              activeLiveSentence = '';
+              renderSentenceTokens('');
             }
           }
         };
@@ -640,6 +851,7 @@ content_code = """/**
           subtitleTimeline = cues;
           const statusBadge = document.getElementById('linguaplay-sub-status');
           if (statusBadge) statusBadge.textContent = `Subs (${cues.length})`;
+          ensureYouTubeCCEnabled();
           alert(`Loaded ${cues.length} subtitle cues from ${file.name}!`);
         }
       };
@@ -1052,13 +1264,19 @@ Respond with ONLY valid JSON:
         setupLiveCaptionHooking();
       }
 
-      ensureYouTubeCCEnabled();
+      inspectAndSwitchPlayerTracks();
 
       const cues = await fetchYouTubeCaptions(vid);
       if (cues && cues.length > 0) {
         subtitleTimeline = cues;
         const statusBadge = document.getElementById('linguaplay-sub-status');
         if (statusBadge) statusBadge.textContent = `Auto Sub (${cues.length})`;
+        ensureYouTubeCCEnabled();
+      } else {
+        subtitleTimeline = [];
+        const statusBadge = document.getElementById('linguaplay-sub-status');
+        if (statusBadge) statusBadge.textContent = '';
+        renderSentenceTokens('');
       }
     }
   }

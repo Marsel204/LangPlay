@@ -9,10 +9,14 @@ const fs = require('fs');
 
 console.log('🧪 Running LinguaPlay Exhaustive Test Suite...\n');
 
-// ── Test Suite 1: Load and Test Kanji Engine from kanji-dict.js and content.js ──
-const realWanakana = require('./lib/wanakana.min.js');
+const path = require('path');
 
-const kanjiDictCode = fs.readFileSync('extension/js/kanji-dict.js', 'utf8')
+// ── Test Suite 1: Load and Test Kanji Engine from kanji-dict.js and content.js ──
+const wanakanaPath = path.join(__dirname, 'lib', 'wanakana.min.js');
+const realWanakana = require(wanakanaPath);
+
+const dictPath = path.join(__dirname, 'js', 'kanji-dict.js');
+const kanjiDictCode = fs.readFileSync(dictPath, 'utf8')
   .replace('export const SPECIAL_WORDS', 'const SPECIAL_WORDS')
   .replace('export const KANJI_DB', 'const KANJI_DB')
   .replace('export function matchVerbInflectionAt', 'function matchVerbInflectionAt')
@@ -21,6 +25,7 @@ const kanjiDictCode = fs.readFileSync('extension/js/kanji-dict.js', 'utf8')
   .replace('export function getWordReading', 'function getWordReading');
 
 eval(kanjiDictCode);
+
 
 // ── 100+ Comprehensive Test Sentences and Words ──
 const TEST_PHRASES = [
@@ -196,18 +201,172 @@ assert.strictEqual(iken.romaji, 'iken');
 console.log('✅ Test 5d: Compound "意見" ->', iken);
 
 
+// ── Specific Validation for 恋 (koi) & Romance Vocabulary (User Screenshot Fix) ──
+const koi = getWordReading('恋', realWanakana);
+assert.strictEqual(koi.furigana, 'こい');
+assert.strictEqual(koi.romaji, 'koi');
+console.log('✅ Test 5n: Standalone "恋" ->', koi);
+
+const koibito = getWordReading('恋人', realWanakana);
+assert.strictEqual(koibito.furigana, 'こいびと');
+assert.strictEqual(koibito.romaji, 'koibito');
+console.log('✅ Test 5o: Compound "恋人" ->', koibito);
+
+const koigokoro = getWordReading('恋心', realWanakana);
+assert.strictEqual(koigokoro.furigana, 'こいごころ');
+assert.strictEqual(koigokoro.romaji, 'koigokoro');
+console.log('✅ Test 5p: Compound "恋心" ->', koigokoro);
+
+const hatsukoi = getWordReading('初恋', realWanakana);
+assert.strictEqual(hatsukoi.furigana, 'はつこい');
+assert.strictEqual(hatsukoi.romaji, 'hatsukoi');
+console.log('✅ Test 5q: Compound "初恋" ->', hatsukoi);
+
+const shitsuren = getWordReading('失恋', realWanakana);
+assert.strictEqual(shitsuren.furigana, 'しつれん');
+assert.strictEqual(shitsuren.romaji, 'shitsuren');
+console.log('✅ Test 5r: Compound "失恋" ->', shitsuren);
+
+const mataKimiNiKoiWoShiru = resolveToHiragana('また君に恋を知る');
+assert.strictEqual(mataKimiNiKoiWoShiru, 'またきみにこいをしる');
+console.log('✅ Test 5s: Sentence "また君に恋を知る" ->', mataKimiNiKoiWoShiru);
+
+
 // ── Test Suite 2: CSS Layout & Sidebar Validation ──
-const contentCss = fs.readFileSync('extension/content.css', 'utf8');
+const cssPath = path.join(__dirname, 'content.css');
+const contentCss = fs.readFileSync(cssPath, 'utf8');
 assert(contentCss.includes('#linguaplay-yt-drawer'), 'CSS must define #linguaplay-yt-drawer');
 assert(contentCss.includes('floating-fallback'), 'CSS must support floating fallback mode');
 assert(contentCss.includes('#linguaplay-toggle-trigger'), 'Must include retractable widget toggle');
 assert(contentCss.includes('#linguaplay-yt-tokens-overlay'), 'Must include bottom tokens overlay');
+assert(contentCss.includes('.linguaplay-has-japanese .ytp-caption-window-container'), 'CSS must scope caption hiding to .linguaplay-has-japanese');
+assert(contentCss.includes('#linguaplay-yt-tokens-overlay.active'), 'CSS must support .active toggle for tokens overlay');
 assert(contentCss.includes('.linguaplay-gloss-container'), 'CSS must define .linguaplay-gloss-container');
 assert(contentCss.includes('.linguaplay-gloss-card'), 'CSS must define .linguaplay-gloss-card');
 assert(contentCss.includes('.linguaplay-shimmer'), 'CSS must define .linguaplay-shimmer');
-console.log('✅ Test 6: CSS Native Sidebar, Gloss Cards & Shimmer Structure: PASSED');
+console.log('✅ Test 6: CSS Native Sidebar, Gloss Cards & Dormant Mode Scoping: PASSED');
 
-// ── Test Suite 3: Subtitle Parsers (VTT & SRT) ──
+// ── Test Suite 3: Subtitle Parsers & Language Filtering (Dormant Mode) ──
+function hasJapaneseCharacters(text) {
+  if (!text || typeof text !== 'string') return false;
+  return /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
+}
+
+assert.strictEqual(hasJapaneseCharacters('Hello World! This is an English video.'), false);
+assert.strictEqual(hasJapaneseCharacters('1234567890 !@#$%^&*()'), false);
+assert.strictEqual(hasJapaneseCharacters('Ini adalah subtitle bahasa Indonesia'), false);
+assert.strictEqual(hasJapaneseCharacters('また君に恋を知る'), true);
+assert.strictEqual(hasJapaneseCharacters('自己嫌悪に落ちてく'), true);
+assert.strictEqual(hasJapaneseCharacters('日本語'), true);
+assert.strictEqual(hasJapaneseCharacters('アニメ anime 123'), true);
+console.log('✅ Test 6b: Japanese Language Detection (Dormant Filter): PASSED');
+
+// ── Test Suite 3b: Multi-Track Discovery & Priority Selection ──
+function findJapaneseCaptionTrack(tracks) {
+  if (!tracks || !Array.isArray(tracks) || tracks.length === 0) return null;
+
+  function isJapaneseTrack(t) {
+    if (!t) return false;
+    const code = (t.languageCode || t.lang || '').toLowerCase();
+    if (code.startsWith('ja')) return true;
+    const vss = (t.vssId || '').toLowerCase();
+    if (vss === '.ja' || vss === 'a.ja' || vss.endsWith('.ja') || vss.includes('ja')) return true;
+    const name = (
+      (t.name?.runs?.[0]?.text) ||
+      (t.name?.simpleText) ||
+      t.displayName ||
+      t.languageName ||
+      (typeof t.name === 'string' ? t.name : '')
+    ).toLowerCase();
+    return name.includes('japan') || name.includes('jepang') || name.includes('日本語') || name.includes('にほんご');
+  }
+
+  // 1. Priority 1: Human-curated Japanese track (not ASR)
+  const manualJa = tracks.find(t => {
+    if (!isJapaneseTrack(t)) return false;
+    const isAsr = t.kind === 'asr' || (t.vssId && t.vssId.startsWith('a.'));
+    return !isAsr;
+  });
+  if (manualJa) return manualJa;
+
+  // 2. Priority 2: Auto-generated Japanese track (ASR)
+  const asrJa = tracks.find(t => isJapaneseTrack(t));
+  if (asrJa) return asrJa;
+
+  return null;
+}
+
+// Case 1: Video with English default, Indonesian, Korean, Japanese manual (User screenshot scenario)
+const multiLangTracks = [
+  { languageCode: 'en', vssId: '.en', name: { runs: [{ text: 'Inggris' }] }, isDefault: true },
+  { languageCode: 'id', vssId: '.id', name: { runs: [{ text: 'Indonesia' }] } },
+  { languageCode: 'ko', vssId: '.ko', name: { runs: [{ text: 'Korea' }] } },
+  { languageCode: 'ja', vssId: '.ja', name: { runs: [{ text: 'Jepang' }] }, baseUrl: 'https://example.com/timedtext?lang=ja' }
+];
+const selectedTrack = findJapaneseCaptionTrack(multiLangTracks);
+assert(selectedTrack !== null, 'Must find Japanese track among multi-language tracks');
+assert.strictEqual(selectedTrack.languageCode, 'ja');
+assert.strictEqual(selectedTrack.vssId, '.ja');
+console.log('✅ Test 6c: Multi-Track Discovery (Auto-picks Japanese over English default): PASSED');
+
+// Case 2: Video with English default and Japanese Auto-generated (ASR)
+const asrTracks = [
+  { languageCode: 'en', vssId: '.en', name: { runs: [{ text: 'Inggris' }] } },
+  { languageCode: 'ja', vssId: 'a.ja', kind: 'asr', name: { runs: [{ text: 'Jepang (dibuat otomatis)' }] }, baseUrl: 'https://example.com/timedtext?lang=ja&kind=asr' }
+];
+const selectedAsr = findJapaneseCaptionTrack(asrTracks);
+assert(selectedAsr !== null, 'Must find Japanese ASR track');
+assert.strictEqual(selectedAsr.vssId, 'a.ja');
+console.log('✅ Test 6d: ASR Track Fallback Discovery: PASSED');
+
+// Case 3: Priority: Both manual and ASR present -> must choose manual
+const mixedTracks = [
+  { languageCode: 'ja', vssId: 'a.ja', kind: 'asr', name: { runs: [{ text: 'Japanese (auto-generated)' }] } },
+  { languageCode: 'ja', vssId: '.ja', name: { runs: [{ text: 'Japanese' }] }, baseUrl: 'https://example.com/timedtext?lang=ja' }
+];
+const priorityTrack = findJapaneseCaptionTrack(mixedTracks);
+assert.strictEqual(priorityTrack.vssId, '.ja', 'Must prioritize human-curated Japanese track over ASR');
+console.log('✅ Test 6e: Human-Curated Japanese Priority: PASSED');
+
+// Case 4: Non-Japanese Video (English, Indonesian, Spanish only) -> Must return null (Dormant Mode)
+const nonJpTracks = [
+  { languageCode: 'en', vssId: '.en', name: { runs: [{ text: 'English' }] } },
+  { languageCode: 'id', vssId: '.id', name: { runs: [{ text: 'Indonesian' }] } },
+  { languageCode: 'es', vssId: '.es', name: { runs: [{ text: 'Spanish' }] } }
+];
+const dormantResult = findJapaneseCaptionTrack(nonJpTracks);
+assert.strictEqual(dormantResult, null, 'Must return null for non-Japanese tracks to keep LinguaPlay dormant');
+console.log('✅ Test 6f: Non-Japanese Dormant Rejection: PASSED');
+
+// Case 5: Real-World Benchmark Video 1 (nmeccuUXs4Q - tuki. 愛の賞味期限)
+const video1Tracks = [
+  { languageCode: 'en', vssId: '.en', name: { simpleText: '英語' } },
+  { languageCode: 'ko', vssId: '.ko', name: { simpleText: '韓国語' } },
+  { languageCode: 'ja', vssId: '.ja', name: { simpleText: '日本語' } },
+  { languageCode: 'ja', vssId: 'a.ja', kind: 'asr', name: { simpleText: '日本語 (自動生成)' } }
+];
+const video1Ja = findJapaneseCaptionTrack(video1Tracks);
+assert(video1Ja !== null, 'Must discover Japanese track on nmeccuUXs4Q');
+assert.strictEqual(video1Ja.vssId, '.ja', 'Must pick human-curated Japanese (.ja) on nmeccuUXs4Q');
+assert.strictEqual(video1Ja.languageCode, 'ja');
+console.log('✅ Test 6g: Real-World Benchmark Video 1 (nmeccuUXs4Q) Auto-Discovery: PASSED');
+
+// Case 6: Real-World Benchmark Video 2 (1dxlWm7HeRY)
+const video2Tracks = [
+  { languageCode: 'id', vssId: '.id', name: { simpleText: 'インドネシア語' } },
+  { languageCode: 'th', vssId: '.th', name: { simpleText: 'タイ語' } },
+  { languageCode: 'en', vssId: '.en', name: { simpleText: '英語' } },
+  { languageCode: 'ko', vssId: '.ko', name: { simpleText: '韓国語' } },
+  { languageCode: 'zh-Hant', vssId: '.zh-Hant', name: { simpleText: '中国語 (繁体字)' } },
+  { languageCode: 'ja', vssId: '.ja', name: { simpleText: '日本語' } },
+  { languageCode: 'ja', vssId: 'a.ja', kind: 'asr', name: { simpleText: '日本語 (自動生成)' } }
+];
+const video2Ja = findJapaneseCaptionTrack(video2Tracks);
+assert(video2Ja !== null, 'Must discover Japanese track on 1dxlWm7HeRY');
+assert.strictEqual(video2Ja.vssId, '.ja', 'Must pick human-curated Japanese (.ja) on 1dxlWm7HeRY over Indonesian default');
+assert.strictEqual(video2Ja.languageCode, 'ja');
+console.log('✅ Test 6h: Real-World Benchmark Video 2 (1dxlWm7HeRY) Auto-Discovery: PASSED');
+
 function parseVTT(raw) {
   if (!raw) return [];
   const lines = raw.replace(/\r\n/g, '\n').split('\n');
@@ -240,9 +399,66 @@ assert.strictEqual(vttCues[0].text, '自己嫌悪に落ちてく');
 console.log('✅ Test 7: Subtitle Parsing & Sync: PASSED');
 
 // ── Test Suite 4: Manifest V3 Compatibility ──
-const manifest = JSON.parse(fs.readFileSync('extension/manifest.json', 'utf8'));
+const manifestPath = path.join(__dirname, 'manifest.json');
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 assert.strictEqual(manifest.manifest_version, 3);
 assert.strictEqual(manifest.name, 'LinguaPlay — Japanese AI Immersion Player');
 console.log('✅ Test 8: Manifest V3 Configuration: PASSED');
 
-console.log(`\n🎉 ALL 8 TEST SUITES (${TEST_PHRASES.length} PHRASES) PASSED CLEANLY WITH ZERO KANJI ERRORS!\n`);
+// ── Test Suite 5: tuki. - 愛の賞味期限 (Love Expiration Date) Lyrics Accuracy Benchmark ──
+console.log('\n🎵 Running Test Suite 9: tuki. - 愛の賞味期限 (Love Expiration Date) Lyric Accuracy...');
+
+const LYRICS_TEST_CASES = [
+  { word: '安心', expectedHira: 'あんしん', expectedRomaji: 'anshin' },
+  { word: '貴方', expectedHira: 'あなた', expectedRomaji: 'anata' },
+  { word: '一発', expectedHira: 'いっぱつ', expectedRomaji: 'ippatsu' },
+  { word: '二発', expectedHira: 'にはつ', expectedRomaji: 'nihatsu' },
+  { word: '傍', expectedHira: 'そば', expectedRomaji: 'soba' },
+  { word: '傍に', expectedHira: 'そばに', expectedRomaji: 'sobani' },
+  { word: '金木犀', expectedHira: 'きんもくせい', expectedRomaji: 'kinmokusei' },
+  { word: '後味', expectedHira: 'あとあじ', expectedRomaji: 'atoaji' },
+  { word: '値引き', expectedHira: 'ねびき', expectedRomaji: 'nebiki' },
+  { word: 'お腹', expectedHira: 'おなか', expectedRomaji: 'onaka' },
+  { word: '凄く', expectedHira: 'すごく', expectedRomaji: 'sugoku' },
+  { word: '凄い', expectedHira: 'すごい', expectedRomaji: 'sugoi' },
+  { word: '気付く', expectedHira: 'きづく', expectedRomaji: 'kizuku' },
+  { word: '気付いて', expectedHira: 'きづいて', expectedRomaji: 'kizuite' },
+  { word: '勿体ない', expectedHira: 'もったいない', expectedRomaji: 'mottainai' },
+  { word: '賞味期限切れ', expectedHira: 'しょうみきげんぎれ', expectedRomaji: 'shoumikigengire' },
+  { word: '消費期限切れ', expectedHira: 'しょうひきげんぎれ', expectedRomaji: 'shouhikigengire' },
+  { word: '冷蔵庫', expectedHira: 'れいぞうこ', expectedRomaji: 'reizouko' },
+  { word: '廃棄処分', expectedHira: 'はいきしょぶん', expectedRomaji: 'haikishobun' },
+  { word: '処分', expectedHira: 'しょぶん', expectedRomaji: 'shobun' },
+  { word: '壊れ', expectedHira: 'こわれ', expectedRomaji: 'koware' },
+  { word: '触って', expectedHira: 'さわって', expectedRomaji: 'sawatte' },
+  { word: '安心したいから', expectedHira: 'あんしんしたいから' },
+  { word: '貴方の愛の賞味期限切れ', expectedHira: 'あなたのあいのしょうみきげんぎれ' },
+  { word: '一発殴ってよ', expectedHira: 'いっぱつなぐってよ' },
+  { word: '冷蔵庫の中の生き物', expectedHira: 'れいぞうこのなかのいきもの' },
+  { word: '傍にいて', expectedHira: 'そばにいて' },
+  { word: '金木犀の匂い', expectedHira: 'きんもくせいのにおい' },
+  { word: '勿体ないから', expectedHira: 'もったいないから' },
+  { word: '賞味期限切れの愛を', expectedHira: 'しょうみきげんぎれのあいを' },
+  { word: '後味の悪いキスをして', expectedHira: 'あとあじのわるいきすをして' },
+  { word: '値引きされた私の心を', expectedHira: 'ねびきされたわたしのこころを' },
+  { word: 'お腹が痛くなるくらい', expectedHira: 'おなかがいたくなるくらい' },
+  { word: '凄く凄く愛していた', expectedHira: 'すごくすごくあいしていた' },
+  { word: '早く気付いてよ', expectedHira: 'はやくきづいてよ' },
+  { word: '惰性で生きてる生き物', expectedHira: 'だせいでいきてるいきもの' },
+  { word: '熟れることのない果実', expectedHira: 'うれることのないかじつ' },
+  { word: '吸わないで', expectedHira: 'すわないで' }
+];
+
+let lyricFailures = 0;
+for (const tc of LYRICS_TEST_CASES) {
+  const reading = getWordReading(tc.word, realWanakana);
+  if (reading.furigana !== tc.expectedHira) {
+    console.error(`❌ [FAIL] "${tc.word}" furigana: got "${reading.furigana}", expected "${tc.expectedHira}"`);
+    lyricFailures++;
+  }
+}
+
+assert.strictEqual(lyricFailures, 0, `Failed ${lyricFailures} lyric test cases in Test Suite 9!`);
+console.log(`✅ Test 9: All ${LYRICS_TEST_CASES.length} tuki. lyric test cases PASSED matching Genius Romanizations!`);
+
+console.log(`\n🎉 ALL 9 TEST SUITES PASSED CLEANLY WITH ZERO KANJI ERRORS!\n`);
