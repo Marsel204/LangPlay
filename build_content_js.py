@@ -225,6 +225,23 @@ content_code = """/**
     return { furigana: hira, romaji };
   }
 
+  function generateSentenceRomaji(sentenceText, targetWord) {
+    if (!sentenceText || !sentenceText.trim()) return '';
+    const clean = sentenceText.trim();
+    const targetReading = targetWord ? getWordReading(targetWord.trim()) : null;
+    const targetRomaji = targetReading ? (targetReading.romaji || targetReading.furigana) : '';
+
+    const hira = resolveToHiragana(clean);
+    const wk = typeof window !== 'undefined' ? window.wanakana : null;
+    let rawRomaji = wk && wk.toRomaji ? wk.toRomaji(hira) : hira;
+
+    if (targetRomaji && rawRomaji.includes(targetRomaji)) {
+      const parts = rawRomaji.split(targetRomaji);
+      return parts.join(`<span style="color:#fda4af; font-weight:bold; background:rgba(253,164,175,0.18); padding:0 3px; border-radius:3px;">${targetRomaji}</span>`);
+    }
+    return rawRomaji;
+  }
+
 
   // ── Offline JDICT Dictionary Subset (<10ms instant lookup) ──
   const JDICT = {
@@ -260,6 +277,7 @@ content_code = """/**
   let readingMode = 'furigana';
   let currentVideoId = null;
   let lastAiData = null;
+  let senseiChatHistory = [];
   let activeLiveSentence = '';
   let isPanelCollapsed = true;
 
@@ -730,9 +748,13 @@ content_code = """/**
     const aiResults = document.getElementById('lp-ai-results');
     const aiLoading = document.getElementById('lp-ai-loading');
     const aiAnkiBtn = document.getElementById('lp-ai-anki-btn');
+    const chatBox = document.getElementById('lp-sensei-chat-box');
+    const chatMessages = document.getElementById('lp-chat-messages');
+    const chatInput = document.getElementById('lp-chat-input');
 
     const sentenceWrap = document.getElementById('lp-sentence-wrapper');
     const sentJpEl = document.getElementById('lp-sentence-jp');
+    const sentRomajiEl = document.getElementById('lp-sentence-romaji');
     const sentEnEl = document.getElementById('lp-sentence-en');
     const sentSpeedEl = document.getElementById('lp-sentence-speed');
 
@@ -746,7 +768,7 @@ content_code = """/**
     posEl.textContent = `Base form: ${token.baseForm}`;
     activeLiveSentence = sentenceContext || token.surface;
 
-    // Instant Sentence Context Rendering
+    // Instant Sentence Context & Romaji Rendering
     if (sentenceWrap && sentJpEl && sentEnEl) {
       const activeText = (activeLiveSentence || '').trim();
       if (activeText) {
@@ -756,6 +778,12 @@ content_code = """/**
           sentJpEl.innerHTML = parts.join(`<span style="color:#a78bfa; font-weight:bold; background:rgba(167,139,250,0.2); padding:1px 4px; border-radius:4px;">${token.surface}</span>`);
         } else {
           sentJpEl.textContent = activeText;
+        }
+
+        if (sentRomajiEl) {
+          const romajiHtml = generateSentenceRomaji(activeText, token.surface);
+          sentRomajiEl.innerHTML = romajiHtml;
+          sentRomajiEl.style.display = romajiHtml ? 'block' : 'none';
         }
 
         if (sentenceTranslationCache.has(activeText)) {
@@ -786,6 +814,10 @@ content_code = """/**
     aiResults.style.display = 'none';
     aiLoading.style.display = 'none';
     aiAnkiBtn.style.display = 'none';
+    if (chatBox) chatBox.style.display = 'none';
+    if (chatMessages) chatMessages.innerHTML = '';
+    if (chatInput) chatInput.value = '';
+    senseiChatHistory = [];
     lastAiData = null;
 
     const local = JDICT[token.baseForm] || JDICT[token.surface];
@@ -1043,7 +1075,8 @@ content_code = """/**
           <span>💬 Context Sentence</span>
           <span id="lp-sentence-speed" style="font-size:9.5px; color:#34d399; font-weight:600; text-transform:none;"></span>
         </div>
-        <div id="lp-sentence-jp" style="font-size:14px; color:#f8fafc; font-weight:500; line-height:1.5; margin-bottom:4px; font-family:'Noto Sans JP',sans-serif;"></div>
+        <div id="lp-sentence-jp" style="font-size:14px; color:#f8fafc; font-weight:500; line-height:1.5; margin-bottom:2px; font-family:'Noto Sans JP',sans-serif;"></div>
+        <div id="lp-sentence-romaji" style="font-size:12px; color:#fda4af; font-family:monospace; line-height:1.4; margin-bottom:4px;"></div>
         <div id="lp-sentence-en" style="font-size:13px; color:#cbd5e1; line-height:1.45; font-style:italic;"></div>
       </div>
 
@@ -1057,17 +1090,41 @@ content_code = """/**
       </button>
 
       <button id="lp-ai-btn" class="linguaplay-btn linguaplay-btn-primary">
-        ✨ Ask Antigravity AI
+        ✨ Ask Sensei (AI Grammar Tutor)
       </button>
 
       <div id="lp-ai-section">
         <div id="lp-ai-loading" style="display:none; font-size: 12px; color: #a78bfa; text-align: center; padding: 10px 0;">
-          <span style="display:inline-block; animation:spin 1s linear infinite;">⚡</span> Analyzing in context...
+          <span style="display:inline-block; animation:spin 1s linear infinite;">⚡</span> Sensei is analyzing…
         </div>
         <div id="lp-ai-results" style="margin-top: 10px; display: none;"></div>
         <button id="lp-ai-anki-btn" class="linguaplay-btn linguaplay-btn-secondary" style="display:none; margin-top: 8px;">
           🗂️ Save Enriched AI Card to Anki
         </button>
+
+        <!-- Sensei Pedagogical Interactive Chatbot -->
+        <div id="lp-sensei-chat-box" style="display:none; margin-top:14px; border-top:1px solid rgba(255,255,255,0.1); padding-top:12px;">
+          <div style="font-size:11px; font-weight:bold; color:#a78bfa; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
+            <div style="display:flex; align-items:center; gap:5px;">
+              <span>🧑‍🏫</span> <span>Ask Sensei (AI Japanese Tutor)</span>
+            </div>
+            <span id="lp-sensei-provider-badge" style="font-size:9.5px; color:#cbd5e1; background:rgba(255,255,255,0.08); padding:1px 6px; border-radius:4px; font-weight:normal;"></span>
+          </div>
+          
+          <div class="lp-chat-chips-row" style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px;">
+            <button class="lp-chat-chip" data-prompt="Why is this particle used here?">Why this particle?</button>
+            <button class="lp-chat-chip" data-prompt="Break down the grammar step-by-step.">Grammar breakdown</button>
+            <button class="lp-chat-chip" data-prompt="Give me 2 more natural example sentences with this word.">2 More examples</button>
+            <button class="lp-chat-chip" data-prompt="Explain the nuance and politeness level.">Nuance & Politeness</button>
+          </div>
+
+          <div id="lp-chat-messages" style="max-height:220px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; margin-bottom:10px; padding-right:4px;"></div>
+
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="lp-chat-input" placeholder="Ask Sensei anything about this sentence..." style="flex:1; background:rgba(15,23,42,0.8); border:1px solid rgba(167,139,250,0.3); border-radius:8px; padding:7px 10px; color:#f8fafc; font-size:12px; outline:none;" />
+            <button id="lp-chat-send-btn" class="linguaplay-btn linguaplay-btn-primary" style="padding:7px 12px; font-size:12px; width:auto; margin:0; cursor:pointer;">Send</button>
+          </div>
+        </div>
       </div>
     `;
 
@@ -1200,13 +1257,13 @@ content_code = """/**
       setTimeout(() => { btn.textContent = '🗃️ Quick Add to Anki'; }, 2000);
     });
 
-    async function runGeminiDirect(word, romaji, sentence, geminiKey) {
-      const loading = document.getElementById('lp-ai-loading');
-      const results = document.getElementById('lp-ai-results');
-      const ankiBtn = document.getElementById('lp-ai-anki-btn');
+    const SENSEI_SYSTEM_PROMPT = `You are "Sensei", an empathetic, expert Japanese language and grammar teacher assisting a student immersing in Japanese media.
+Explain grammatical nuances, particle usage, verb conjugations, and sentence connections clearly and encouragingly.
+Always provide Hiragana readings and Romaji for any Japanese words you introduce.
+Keep answers structured, concise, and focused on this sentence context.`;
 
-      try {
-        const prompt = `You are an expert Japanese immersion tutor.
+    function buildSenseiAnalysisPrompt(word, romaji, sentence) {
+      return `You are Sensei, an expert Japanese language and grammar teacher.
 Focus strictly on HOW THE TARGET WORD FITS INTO THIS SPECIFIC CONTEXT SENTENCE.
 Do NOT give generic dictionary essays or unrelated examples.
 
@@ -1246,31 +1303,266 @@ Respond with ONLY valid JSON:
     }
   ]
 }`;
+    }
+
+    async function callSenseiLlmApi({ messages, isJson, config, word, romaji, sentence }) {
+      const provider = config.linguaplay_ai_provider || 'gemini';
+      const geminiKey = (config.linguaplay_gemini_key || '').trim();
+      const deepseekKey = (config.linguaplay_deepseek_key || '').trim();
+      const openrouterKey = (config.linguaplay_openrouter_key || '').trim();
+      const openrouterModel = (config.linguaplay_openrouter_model || 'deepseek/deepseek-chat').trim();
+      const opencodeUrl = (config.linguaplay_opencode_url || 'http://127.0.0.1:11434/v1').trim();
+      const opencodeKey = (config.linguaplay_opencode_key || '').trim();
+      const opencodeModel = (config.linguaplay_opencode_model || 'deepseek-chat').trim();
+      const serverUrl = (config.linguaplay_server_url || 'http://127.0.0.1:8000').trim();
+
+      // 1. Google Gemini Flash Direct
+      if (provider === 'gemini') {
+        if (!geminiKey) throw new Error('Missing Google Gemini API key. Add it in Extension Settings.');
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+        
+        const contents = [];
+        for (const m of messages) {
+          if (m.role === 'system') continue;
+          contents.push({
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: m.content }]
+          });
+        }
+        if (contents.length === 0 && messages.length > 0) {
+          contents.push({ role: 'user', parts: [{ text: messages[0].content }] });
+        }
+
+        const sysMsg = messages.find(m => m.role === 'system');
+        const body = {
+          contents,
+          generationConfig: isJson ? { responseMimeType: 'application/json' } : {}
+        };
+        if (sysMsg) {
+          body.systemInstruction = { parts: [{ text: sysMsg.content }] };
+        }
+
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: 'application/json' }
-          })
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(12000)
         });
-
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error?.message || `Gemini API returned status ${res.status}`);
+        }
         const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        const json = JSON.parse(text.replace(/```json|```/g, '').trim());
-        lastAiData = json;
-
-        loading.style.display = 'none';
-        results.style.display = 'block';
-        ankiBtn.style.display = 'block';
-
-        results.innerHTML = renderPedagogicalBreakdown(json, '✨ GEMINI FLASH AI BREAKDOWN');
-      } catch (err) {
-        loading.style.display = 'none';
-        results.style.display = 'block';
-        results.innerHTML = `<div style="font-size: 11px; color: #fca5a5;">AI analysis error: ${err.message}</div>`;
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       }
+
+      // 2. DeepSeek Direct API
+      if (provider === 'deepseek') {
+        if (!deepseekKey) throw new Error('Missing DeepSeek API key. Add it in Extension Settings.');
+        const url = 'https://api.deepseek.com/v1/chat/completions';
+        const body = {
+          model: 'deepseek-chat',
+          messages: messages,
+          response_format: isJson ? { type: 'json_object' } : undefined
+        };
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${deepseekKey}`
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(12000)
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error?.message || `DeepSeek API returned status ${res.status}`);
+        }
+        const data = await res.json();
+        return data.choices?.[0]?.message?.content || '';
+      }
+
+      // 3. OpenRouter Direct API
+      if (provider === 'openrouter') {
+        if (!openrouterKey) throw new Error('Missing OpenRouter API key. Add it in Extension Settings.');
+        const url = 'https://openrouter.ai/api/v1/chat/completions';
+        const body = {
+          model: openrouterModel,
+          messages: messages,
+          response_format: isJson ? { type: 'json_object' } : undefined
+        };
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${openrouterKey}`,
+            'HTTP-Referer': 'https://linguaplay.app',
+            'X-Title': 'LinguaPlay'
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(14000)
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error?.message || `OpenRouter API returned status ${res.status}`);
+        }
+        const data = await res.json();
+        return data.choices?.[0]?.message?.content || '';
+      }
+
+      // 4. OpenCode / Custom OpenAI Endpoint
+      if (provider === 'opencode') {
+        const targetUrl = opencodeUrl.endsWith('/chat/completions') ? opencodeUrl : `${opencodeUrl.replace(/\\/$/, '')}/chat/completions`;
+        const headers = { 'Content-Type': 'application/json' };
+        if (opencodeKey) headers['Authorization'] = `Bearer ${opencodeKey}`;
+        const body = {
+          model: opencodeModel,
+          messages: messages,
+          response_format: isJson ? { type: 'json_object' } : undefined
+        };
+        const res = await fetch(targetUrl, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(12000)
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error?.message || `Custom Endpoint returned status ${res.status}`);
+        }
+        const data = await res.json();
+        return data.choices?.[0]?.message?.content || '';
+      }
+
+      // 5. Antigravity CLI Local Server
+      if (provider === 'antigravity') {
+        if (isJson) {
+          const res = await fetch(`${serverUrl}/api/ai/analyze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ word, reading: romaji, sentence, provider: 'antigravity' }),
+            signal: AbortSignal.timeout(4000)
+          });
+          if (!res.ok) throw new Error(`Local server returned ${res.status}`);
+          const raw = await res.json();
+          return JSON.stringify(raw.data || raw);
+        } else {
+          // Check chat
+          const res = await fetch(`${serverUrl}/api/ai/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages, word, sentence }),
+            signal: AbortSignal.timeout(4000)
+          });
+          if (res.ok) {
+            const raw = await res.json();
+            return raw.reply || raw.content || '';
+          }
+          throw new Error('Local server chat unavailable. Please select Gemini or DeepSeek in settings.');
+        }
+      }
+
+      throw new Error(`Unsupported AI provider: ${provider}`);
+    }
+
+    function appendChatMessage(role, text) {
+      const container = document.getElementById('lp-chat-messages');
+      if (!container) return null;
+      const msgEl = document.createElement('div');
+      msgEl.className = role === 'user' ? 'lp-chat-msg-user' : 'lp-chat-msg-sensei';
+      if (role === 'user') {
+        msgEl.textContent = text;
+      } else {
+        let formatted = (text || '')
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>')
+          .replace(/\\*(.*?)\\*/g, '<em>$1</em>')
+          .replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,0.35); padding:1px 4px; border-radius:4px; font-family:monospace; color:#fda4af;">$1</code>')
+          .replace(/\\n/g, '<br>');
+        msgEl.innerHTML = formatted;
+      }
+      container.appendChild(msgEl);
+      container.scrollTop = container.scrollHeight;
+      return msgEl;
+    }
+
+    async function sendSenseiQuestion(questionText) {
+      if (!questionText || !questionText.trim()) return;
+      const word = document.getElementById('lp-active-word')?.textContent || '';
+      const romaji = document.getElementById('lp-active-romaji')?.textContent || '';
+      const sentence = activeLiveSentence || '';
+
+      appendChatMessage('user', questionText);
+      senseiChatHistory.push({ role: 'user', content: questionText });
+
+      const loadingEl = appendChatMessage('sensei', '⚡ Sensei is thinking…');
+
+      chrome.storage.local.get([
+        'linguaplay_ai_provider',
+        'linguaplay_gemini_key',
+        'linguaplay_deepseek_key',
+        'linguaplay_openrouter_key',
+        'linguaplay_openrouter_model',
+        'linguaplay_opencode_url',
+        'linguaplay_opencode_key',
+        'linguaplay_opencode_model',
+        'linguaplay_server_url'
+      ], async (cfg) => {
+        try {
+          const messages = [
+            {
+              role: 'system',
+              content: `${SENSEI_SYSTEM_PROMPT}\\n\\nContext Sentence: "${sentence}"\\nTarget Word: "${word}" (${romaji})`
+            },
+            ...senseiChatHistory
+          ];
+
+          const reply = await callSenseiLlmApi({
+            messages,
+            isJson: false,
+            config: cfg,
+            word,
+            romaji,
+            sentence
+          });
+
+          senseiChatHistory.push({ role: 'assistant', content: reply });
+          if (loadingEl) loadingEl.remove();
+          appendChatMessage('sensei', reply);
+        } catch (err) {
+          if (loadingEl) loadingEl.remove();
+          appendChatMessage('sensei', `⚠️ Sensei error: ${err.message}`);
+        }
+      });
+    }
+
+    // Attach Chatbot Chip and Send Listeners
+    document.querySelectorAll('.lp-chat-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const prompt = chip.getAttribute('data-prompt');
+        if (prompt) sendSenseiQuestion(prompt);
+      });
+    });
+
+    const chatInputEl = document.getElementById('lp-chat-input');
+    const chatSendBtn = document.getElementById('lp-chat-send-btn');
+    if (chatSendBtn && chatInputEl) {
+      chatSendBtn.addEventListener('click', () => {
+        const val = chatInputEl.value.trim();
+        if (val) {
+          sendSenseiQuestion(val);
+          chatInputEl.value = '';
+        }
+      });
+      chatInputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const val = chatInputEl.value.trim();
+          if (val) {
+            sendSenseiQuestion(val);
+            chatInputEl.value = '';
+          }
+        }
+      });
     }
 
     document.getElementById('lp-ai-btn').addEventListener('click', async () => {
@@ -1280,97 +1572,100 @@ Respond with ONLY valid JSON:
       const loading = document.getElementById('lp-ai-loading');
       const results = document.getElementById('lp-ai-results');
       const ankiBtn = document.getElementById('lp-ai-anki-btn');
+      const chatBox = document.getElementById('lp-sensei-chat-box');
+      const badgeEl = document.getElementById('lp-sensei-provider-badge');
 
       loading.style.display = 'block';
       results.style.display = 'none';
       ankiBtn.style.display = 'none';
+      if (chatBox) chatBox.style.display = 'none';
 
-      chrome.storage.local.get(['linguaplay_gemini_key', 'linguaplay_ai_provider', 'linguaplay_server_url'], async (cfg) => {
-        const provider = cfg.linguaplay_ai_provider || 'antigravity';
-        const serverUrl = cfg.linguaplay_server_url || 'http://127.0.0.1:8000';
-        const geminiKey = (cfg.linguaplay_gemini_key || '').trim();
+      chrome.storage.local.get([
+        'linguaplay_ai_provider',
+        'linguaplay_gemini_key',
+        'linguaplay_deepseek_key',
+        'linguaplay_openrouter_key',
+        'linguaplay_openrouter_model',
+        'linguaplay_opencode_url',
+        'linguaplay_opencode_key',
+        'linguaplay_opencode_model',
+        'linguaplay_server_url'
+      ], async (cfg) => {
+        const provider = cfg.linguaplay_ai_provider || (cfg.linguaplay_gemini_key ? 'gemini' : 'antigravity');
+        const prompt = buildSenseiAnalysisPrompt(word, romaji, sentence);
+        const messages = [{ role: 'user', content: prompt }];
 
-        // Direct Gemini Flash Path
-        if (provider === 'gemini' && geminiKey) {
-          await runGeminiDirect(word, romaji, sentence, geminiKey);
-          return;
-        }
+        const providerTitleMap = {
+          gemini: '✨ GEMINI FLASH SENSEI BREAKDOWN',
+          deepseek: '⚡ DEEPSEEK SENSEI BREAKDOWN',
+          openrouter: `🌐 OPENROUTER (${cfg.linguaplay_openrouter_model || 'deepseek'}) BREAKDOWN`,
+          opencode: `💻 OPENCODE (${cfg.linguaplay_opencode_model || 'custom'}) BREAKDOWN`,
+          antigravity: '🤖 ANTIGRAVITY CLI BREAKDOWN'
+        };
 
-        // Antigravity CLI Local Server Path
-        if (provider === 'antigravity') {
-          try {
-            const res = await fetch(`${serverUrl}/api/ai/analyze`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
+        try {
+          const rawText = await callSenseiLlmApi({
+            messages,
+            isJson: true,
+            config: cfg,
+            word,
+            romaji,
+            sentence
+          });
+
+          const json = JSON.parse(rawText.replace(/```json|```/g, '').trim());
+          lastAiData = json;
+
+          loading.style.display = 'none';
+          results.style.display = 'block';
+          ankiBtn.style.display = 'block';
+          if (chatBox) chatBox.style.display = 'block';
+          if (badgeEl) badgeEl.textContent = provider.toUpperCase();
+
+          results.innerHTML = renderPedagogicalBreakdown(json, providerTitleMap[provider] || '✨ SENSEI AI BREAKDOWN');
+        } catch (err) {
+          // If local server failed and user has configured another key, try fallback
+          if (provider === 'antigravity' && cfg.linguaplay_gemini_key) {
+            try {
+              const fallbackCfg = { ...cfg, linguaplay_ai_provider: 'gemini' };
+              const rawText = await callSenseiLlmApi({
+                messages,
+                isJson: true,
+                config: fallbackCfg,
                 word,
-                reading: romaji,
-                sentence,
-                provider: 'antigravity'
-              }),
-              signal: AbortSignal.timeout(3000)
-            });
-
-            if (!res.ok) throw new Error(`Server returned ${res.status}`);
-            const raw = await res.json();
-            const aiData = raw.data || raw;
-            lastAiData = aiData;
-
-            loading.style.display = 'none';
-            results.style.display = 'block';
-            ankiBtn.style.display = 'block';
-
-            results.innerHTML = renderPedagogicalBreakdown(aiData, '🤖 ANTIGRAVITY CLI BREAKDOWN');
-            return;
-          } catch (err) {
-            if (geminiKey) {
-              console.warn('[LinguaPlay] Local server offline, trying Gemini fallback...', err);
-              await runGeminiDirect(word, romaji, sentence, geminiKey);
-              return;
-            } else {
+                romaji,
+                sentence
+              });
+              const json = JSON.parse(rawText.replace(/```json|```/g, '').trim());
+              lastAiData = json;
               loading.style.display = 'none';
               results.style.display = 'block';
-              results.innerHTML = `
-                <div style="background: rgba(124, 58, 237, 0.12); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: #e2e8f0; line-height: 1.5;">
-                  <div style="font-weight: 600; color: #a78bfa; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
-                    <span>⚡</span> Instant Sentence Translation is Active Above!
-                  </div>
-                  <p style="margin: 0 0 6px; color: #cbd5e1; font-size: 11.5px;">
-                    To unlock deep AI grammatical nuance and morphological breakdown:
-                  </p>
-                  <ul style="margin: 0 0 8px 16px; padding: 0; font-size: 11px; color: #94a3b8;">
-                    <li><strong>Option A:</strong> Add a free Google Gemini API key in <a href="#" id="lp-go-options-btn" style="color: #6ee7b7; text-decoration: underline;">Extension Settings</a> (100% serverless).</li>
-                    <li><strong>Option B:</strong> Start the local CLI server with <code>python3 Server.py</code>.</li>
-                  </ul>
-                </div>
-              `;
-              const optBtn = document.getElementById('lp-go-options-btn');
-              if (optBtn) {
-                optBtn.addEventListener('click', (e) => {
-                  e.preventDefault();
-                  chrome.runtime.sendMessage({ action: 'OPEN_OPTIONS_PAGE' });
-                });
-              }
+              ankiBtn.style.display = 'block';
+              if (chatBox) chatBox.style.display = 'block';
+              if (badgeEl) badgeEl.textContent = 'GEMINI (FALLBACK)';
+              results.innerHTML = renderPedagogicalBreakdown(json, '✨ GEMINI FLASH SENSEI BREAKDOWN');
               return;
+            } catch (fallbackErr) {
+              console.warn('[LinguaPlay] Fallback also failed:', fallbackErr);
             }
           }
-        }
 
-        // Fallback to Gemini if requested or no local server
-        if (geminiKey) {
-          await runGeminiDirect(word, romaji, sentence, geminiKey);
-        } else {
           loading.style.display = 'none';
           results.style.display = 'block';
           results.innerHTML = `
             <div style="background: rgba(124, 58, 237, 0.12); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: #e2e8f0; line-height: 1.5;">
-              <div style="font-weight: 600; color: #a78bfa; margin-bottom: 4px;">⚡ Instant Translation Active Above</div>
-              <div style="color:#cbd5e1; font-size:11.5px;">Please add your free Gemini API key in <a href="#" id="lp-go-options-btn2" style="color: #6ee7b7; text-decoration: underline;">Extension Settings</a> to enable deep AI nuance.</div>
+              <div style="font-weight: 600; color: #f87171; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                <span>⚠️</span> AI Analysis Notice: ${err.message}
+              </div>
+              <p style="margin: 0 0 6px; color: #cbd5e1; font-size: 11.5px;">
+                Configure your preferred AI Provider (Gemini, DeepSeek, OpenRouter, OpenCode, or local CLI server) in settings:
+              </p>
+              <button id="lp-go-options-btn" style="background:#7c3aed; border:none; color:white; font-size:11px; padding:4px 10px; border-radius:6px; cursor:pointer; font-weight:600;">⚙️ Open Extension Settings</button>
             </div>
           `;
-          const optBtn2 = document.getElementById('lp-go-options-btn2');
-          if (optBtn2) {
-            optBtn2.addEventListener('click', (e) => {
+          const optBtn = document.getElementById('lp-go-options-btn');
+          if (optBtn) {
+            optBtn.addEventListener('click', (e) => {
               e.preventDefault();
               chrome.runtime.sendMessage({ action: 'OPEN_OPTIONS_PAGE' });
             });
