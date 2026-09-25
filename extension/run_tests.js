@@ -9,10 +9,14 @@ const fs = require('fs');
 
 console.log('🧪 Running LinguaPlay Exhaustive Test Suite...\n');
 
-// ── Test Suite 1: Load and Test Kanji Engine from kanji-dict.js and content.js ──
-const realWanakana = require('./lib/wanakana.min.js');
+const path = require('path');
 
-const kanjiDictCode = fs.readFileSync('extension/js/kanji-dict.js', 'utf8')
+// ── Test Suite 1: Load and Test Kanji Engine from kanji-dict.js and content.js ──
+const wanakanaPath = path.join(__dirname, 'lib', 'wanakana.min.js');
+const realWanakana = require(wanakanaPath);
+
+const dictPath = path.join(__dirname, 'js', 'kanji-dict.js');
+const kanjiDictCode = fs.readFileSync(dictPath, 'utf8')
   .replace('export const SPECIAL_WORDS', 'const SPECIAL_WORDS')
   .replace('export const KANJI_DB', 'const KANJI_DB')
   .replace('export function matchVerbInflectionAt', 'function matchVerbInflectionAt')
@@ -21,6 +25,7 @@ const kanjiDictCode = fs.readFileSync('extension/js/kanji-dict.js', 'utf8')
   .replace('export function getWordReading', 'function getWordReading');
 
 eval(kanjiDictCode);
+
 
 // ── 100+ Comprehensive Test Sentences and Words ──
 const TEST_PHRASES = [
@@ -196,18 +201,66 @@ assert.strictEqual(iken.romaji, 'iken');
 console.log('✅ Test 5d: Compound "意見" ->', iken);
 
 
+// ── Specific Validation for 恋 (koi) & Romance Vocabulary (User Screenshot Fix) ──
+const koi = getWordReading('恋', realWanakana);
+assert.strictEqual(koi.furigana, 'こい');
+assert.strictEqual(koi.romaji, 'koi');
+console.log('✅ Test 5n: Standalone "恋" ->', koi);
+
+const koibito = getWordReading('恋人', realWanakana);
+assert.strictEqual(koibito.furigana, 'こいびと');
+assert.strictEqual(koibito.romaji, 'koibito');
+console.log('✅ Test 5o: Compound "恋人" ->', koibito);
+
+const koigokoro = getWordReading('恋心', realWanakana);
+assert.strictEqual(koigokoro.furigana, 'こいごころ');
+assert.strictEqual(koigokoro.romaji, 'koigokoro');
+console.log('✅ Test 5p: Compound "恋心" ->', koigokoro);
+
+const hatsukoi = getWordReading('初恋', realWanakana);
+assert.strictEqual(hatsukoi.furigana, 'はつこい');
+assert.strictEqual(hatsukoi.romaji, 'hatsukoi');
+console.log('✅ Test 5q: Compound "初恋" ->', hatsukoi);
+
+const shitsuren = getWordReading('失恋', realWanakana);
+assert.strictEqual(shitsuren.furigana, 'しつれん');
+assert.strictEqual(shitsuren.romaji, 'shitsuren');
+console.log('✅ Test 5r: Compound "失恋" ->', shitsuren);
+
+const mataKimiNiKoiWoShiru = resolveToHiragana('また君に恋を知る');
+assert.strictEqual(mataKimiNiKoiWoShiru, 'またきみにこいをしる');
+console.log('✅ Test 5s: Sentence "また君に恋を知る" ->', mataKimiNiKoiWoShiru);
+
+
 // ── Test Suite 2: CSS Layout & Sidebar Validation ──
-const contentCss = fs.readFileSync('extension/content.css', 'utf8');
+const cssPath = path.join(__dirname, 'content.css');
+const contentCss = fs.readFileSync(cssPath, 'utf8');
 assert(contentCss.includes('#linguaplay-yt-drawer'), 'CSS must define #linguaplay-yt-drawer');
 assert(contentCss.includes('floating-fallback'), 'CSS must support floating fallback mode');
 assert(contentCss.includes('#linguaplay-toggle-trigger'), 'Must include retractable widget toggle');
 assert(contentCss.includes('#linguaplay-yt-tokens-overlay'), 'Must include bottom tokens overlay');
+assert(contentCss.includes('.linguaplay-has-japanese .ytp-caption-window-container'), 'CSS must scope caption hiding to .linguaplay-has-japanese');
+assert(contentCss.includes('#linguaplay-yt-tokens-overlay.active'), 'CSS must support .active toggle for tokens overlay');
 assert(contentCss.includes('.linguaplay-gloss-container'), 'CSS must define .linguaplay-gloss-container');
 assert(contentCss.includes('.linguaplay-gloss-card'), 'CSS must define .linguaplay-gloss-card');
 assert(contentCss.includes('.linguaplay-shimmer'), 'CSS must define .linguaplay-shimmer');
-console.log('✅ Test 6: CSS Native Sidebar, Gloss Cards & Shimmer Structure: PASSED');
+console.log('✅ Test 6: CSS Native Sidebar, Gloss Cards & Dormant Mode Scoping: PASSED');
 
-// ── Test Suite 3: Subtitle Parsers (VTT & SRT) ──
+// ── Test Suite 3: Subtitle Parsers & Language Filtering (Dormant Mode) ──
+function hasJapaneseCharacters(text) {
+  if (!text || typeof text !== 'string') return false;
+  return /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
+}
+
+assert.strictEqual(hasJapaneseCharacters('Hello World! This is an English video.'), false);
+assert.strictEqual(hasJapaneseCharacters('1234567890 !@#$%^&*()'), false);
+assert.strictEqual(hasJapaneseCharacters('Ini adalah subtitle bahasa Indonesia'), false);
+assert.strictEqual(hasJapaneseCharacters('また君に恋を知る'), true);
+assert.strictEqual(hasJapaneseCharacters('自己嫌悪に落ちてく'), true);
+assert.strictEqual(hasJapaneseCharacters('日本語'), true);
+assert.strictEqual(hasJapaneseCharacters('アニメ anime 123'), true);
+console.log('✅ Test 6b: Japanese Language Detection (Dormant Filter): PASSED');
+
 function parseVTT(raw) {
   if (!raw) return [];
   const lines = raw.replace(/\r\n/g, '\n').split('\n');
@@ -240,9 +293,11 @@ assert.strictEqual(vttCues[0].text, '自己嫌悪に落ちてく');
 console.log('✅ Test 7: Subtitle Parsing & Sync: PASSED');
 
 // ── Test Suite 4: Manifest V3 Compatibility ──
-const manifest = JSON.parse(fs.readFileSync('extension/manifest.json', 'utf8'));
+const manifestPath = path.join(__dirname, 'manifest.json');
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 assert.strictEqual(manifest.manifest_version, 3);
 assert.strictEqual(manifest.name, 'LinguaPlay — Japanese AI Immersion Player');
 console.log('✅ Test 8: Manifest V3 Configuration: PASSED');
+
 
 console.log(`\n🎉 ALL 8 TEST SUITES (${TEST_PHRASES.length} PHRASES) PASSED CLEANLY WITH ZERO KANJI ERRORS!\n`);

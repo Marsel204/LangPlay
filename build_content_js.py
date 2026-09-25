@@ -347,6 +347,12 @@ content_code = """/**
     return cues.sort((a, b) => a.start - b.start);
   }
 
+  // ── Language Detection Helper ──
+  function hasJapaneseCharacters(text) {
+    if (!text || typeof text !== 'string') return false;
+    return /[\\u3040-\\u309F\\u30A0-\\u30FF\\u4E00-\\u9FAF]/.test(text);
+  }
+
   // ── Caption Fetchers ──
   async function fetchYouTubeCaptions(videoId) {
     try {
@@ -354,7 +360,8 @@ content_code = """/**
       if (res.ok) {
         const vtt = await res.text();
         const cues = parseVTT(vtt);
-        if (cues.length > 0) return cues;
+        const hasJp = cues.some(c => hasJapaneseCharacters(c.text));
+        if (cues.length > 0 && hasJp) return cues;
       }
     } catch (e) { /* ignore */ }
 
@@ -365,7 +372,7 @@ content_code = """/**
         const m = html.match(/"captionTracks":\\s*(\\[.*?\\])/);
         if (m) {
           const tracks = JSON.parse(m[1]);
-          const jaTrack = tracks.find(t => t.languageCode?.startsWith('ja')) || tracks[0];
+          const jaTrack = tracks.find(t => t.languageCode && t.languageCode.toLowerCase().startsWith('ja'));
           if (jaTrack && jaTrack.baseUrl) {
             const sep = jaTrack.baseUrl.includes('?') ? '&' : '?';
             const vttRes = await fetch(`${jaTrack.baseUrl}${sep}fmt=vtt`);
@@ -385,12 +392,19 @@ content_code = """/**
   // ── Render Tokens into Subtitle Overlay ──
   function renderSentenceTokens(sentenceText) {
     const container = document.getElementById('linguaplay-yt-tokens');
+    const overlay = document.getElementById('linguaplay-yt-tokens-overlay');
+    const player = document.querySelector('#movie_player') || document.querySelector('.html5-video-player');
     if (!container) return;
 
-    if (!sentenceText || !sentenceText.trim()) {
+    if (!sentenceText || !sentenceText.trim() || !hasJapaneseCharacters(sentenceText)) {
       container.innerHTML = '';
+      if (overlay) overlay.classList.remove('active');
+      if (player) player.classList.remove('linguaplay-has-japanese');
       return;
     }
+
+    if (overlay) overlay.classList.add('active');
+    if (player) player.classList.add('linguaplay-has-japanese');
 
     const tokens = tokenize(sentenceText);
     container.innerHTML = '';
@@ -578,8 +592,13 @@ content_code = """/**
         if (segs.length > 0) {
           const text = Array.from(segs).map(s => s.textContent || '').join(' ').trim();
           if (text && text !== activeLiveSentence && subtitleTimeline.length === 0) {
-            activeLiveSentence = text;
-            renderSentenceTokens(text);
+            if (hasJapaneseCharacters(text)) {
+              activeLiveSentence = text;
+              renderSentenceTokens(text);
+            } else {
+              activeLiveSentence = '';
+              renderSentenceTokens('');
+            }
           }
         }
       }
@@ -594,9 +613,12 @@ content_code = """/**
         track.oncuechange = () => {
           if (subtitleTimeline.length === 0 && track.activeCues && track.activeCues.length > 0) {
             const cueText = track.activeCues[0].text;
-            if (cueText) {
+            if (cueText && hasJapaneseCharacters(cueText)) {
               activeLiveSentence = cueText;
               renderSentenceTokens(cueText);
+            } else {
+              activeLiveSentence = '';
+              renderSentenceTokens('');
             }
           }
         };
@@ -640,6 +662,7 @@ content_code = """/**
           subtitleTimeline = cues;
           const statusBadge = document.getElementById('linguaplay-sub-status');
           if (statusBadge) statusBadge.textContent = `Subs (${cues.length})`;
+          ensureYouTubeCCEnabled();
           alert(`Loaded ${cues.length} subtitle cues from ${file.name}!`);
         }
       };
@@ -1050,13 +1073,17 @@ Respond with ONLY valid JSON:
         setupLiveCaptionHooking();
       }
 
-      ensureYouTubeCCEnabled();
-
       const cues = await fetchYouTubeCaptions(vid);
       if (cues && cues.length > 0) {
         subtitleTimeline = cues;
         const statusBadge = document.getElementById('linguaplay-sub-status');
         if (statusBadge) statusBadge.textContent = `Auto Sub (${cues.length})`;
+        ensureYouTubeCCEnabled();
+      } else {
+        subtitleTimeline = [];
+        const statusBadge = document.getElementById('linguaplay-sub-status');
+        if (statusBadge) statusBadge.textContent = '';
+        renderSentenceTokens('');
       }
     }
   }

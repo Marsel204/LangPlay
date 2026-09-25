@@ -2,8 +2,8 @@
    LinguaPlay Chrome Extension — YouTube On-Site Content Styles (content.css)
    ══════════════════════════════════════════════════════════════════════ */
 
-/* Hide native YouTube plain subtitle text when LinguaPlay is active */
-.ytp-caption-window-container {
+/* Only hide native YouTube plain subtitle text when LinguaPlay has active Japanese subtitles */
+.linguaplay-has-japanese .ytp-caption-window-container {
   opacity: 0 !important;
   pointer-events: none !important;
 }
@@ -14,13 +14,17 @@
   bottom: 45px;
   left: 0;
   right: 0;
-  display: flex;
+  display: none;
   justify-content: center;
   align-items: flex-end;
   padding: 8px 24px;
   z-index: 55;
   pointer-events: none;
   user-select: none;
+}
+
+#linguaplay-yt-tokens-overlay.active {
+  display: flex;
 }
 
 #linguaplay-yt-tokens {
