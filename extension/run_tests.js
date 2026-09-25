@@ -10,67 +10,26 @@ const fs = require('fs');
 console.log('🧪 Running LinguaPlay Exhaustive Test Suite...\n');
 
 // ── Test Suite 1: Load and Test Kanji Engine from kanji-dict.js and content.js ──
+const realWanakana = require('./lib/wanakana.min.js');
+
 const kanjiDictCode = fs.readFileSync('extension/js/kanji-dict.js', 'utf8')
   .replace('export const SPECIAL_WORDS', 'const SPECIAL_WORDS')
   .replace('export const KANJI_DB', 'const KANJI_DB')
+  .replace('export function matchVerbInflectionAt', 'function matchVerbInflectionAt')
   .replace('export function resolveToHiragana', 'function resolveToHiragana')
+  .replace('export function toModifiedHepburnRomaji', 'function toModifiedHepburnRomaji')
   .replace('export function getWordReading', 'function getWordReading');
 
 eval(kanjiDictCode);
 
-const mockWanakana = {
-  toRomaji: (text) => {
-    if (!text) return '';
-    const romajiMap = {
-      'あ': 'a', 'い': 'i', 'う': 'u', 'え': 'e', 'お': 'o',
-      'か': 'ka', 'き': 'ki', 'く': 'ku', 'け': 'ke', 'こ': 'ko',
-      'さ': 'sa', 'し': 'shi', 'す': 'su', 'せ': 'se', 'そ': 'so',
-      'た': 'ta', 'ち': 'chi', 'つ': 'tsu', 'て': 'te', 'と': 'to',
-      'な': 'na', 'に': 'ni', 'ぬ': 'nu', 'ね': 'ne', 'の': 'no',
-      'は': 'ha', 'ひ': 'hi', 'ふ': 'fu', 'へ': 'he', 'ほ': 'ho',
-      'ま': 'ma', 'み': 'mi', 'む': 'mu', 'め': 'me', 'も': 'mo',
-      'や': 'ya', 'ゆ': 'yu', 'よ': 'yo',
-      'ら': 'ra', 'り': 'ri', 'る': 'ru', 'れ': 're', 'ろ': 'ro',
-      'わ': 'wa', 'を': 'wo', 'ん': 'n',
-      'が': 'ga', 'ぎ': 'gi', 'ぐ': 'gu', 'げ': 'ge', 'ご': 'go',
-      'ざ': 'za', 'じ': 'ji', 'ず': 'zu', 'ぜ': 'ze', 'ぞ': 'zo',
-      'だ': 'da', 'ぢ': 'ji', 'づ': 'zu', 'で': 'de', 'ど': 'do',
-      'ば': 'ba', 'び': 'bi', 'ぶ': 'bu', 'べ': 'be', 'ぼ': 'bo',
-      'ぱ': 'pa', 'ぴ': 'pi', 'ぷ': 'pu', 'ぺ': 'pe', 'ぽ': 'po',
-      'きゃ': 'kya', 'きゅ': 'kyu', 'きょ': 'kyo',
-      'しゃ': 'sha', 'しゅ': 'shu', 'しょ': 'sho',
-      'ちゃ': 'cha', 'ちゅ': 'chu', 'ちょ': 'cho',
-      'にゃ': 'nya', 'にゅ': 'nyu', 'にょ': 'nyo',
-      'ひゃ': 'hya', 'ひゅ': 'hyu', 'ひょ': 'hyo',
-      'みゃ': 'mya', 'みゅ': 'myu', 'みょ': 'myo',
-      'りゃ': 'rya', 'りゅ': 'ryu', 'りょ': 'ryo',
-      'ぎゃ': 'gya', 'ぎゅ': 'gyu', 'ぎょ': 'gyo',
-      'じゃ': 'ja', 'じゅ': 'ju', 'じょ': 'jo',
-      'びゃ': 'bya', 'びゅ': 'byu', 'びょ': 'byo',
-      'ぴゃ': 'pya', 'ぴゅ': 'pyu', 'ぴょ': 'pyo',
-      'っ': ''
-    };
-    let out = '';
-    let idx = 0;
-    while (idx < text.length) {
-      const two = text.slice(idx, idx + 2);
-      if (romajiMap[two]) {
-        out += romajiMap[two];
-        idx += 2;
-      } else {
-        const one = text[idx];
-        out += romajiMap[one] || one;
-        idx += 1;
-      }
-    }
-    return out;
-  },
-  toHiragana: (t) => t
-};
-
 // ── 100+ Comprehensive Test Sentences and Words ──
 const TEST_PHRASES = [
   '自己', '嫌悪', '自己嫌悪', '落ち', '落ちてく', '落ちる', '落ちた', '落ちていく',
+  '眼鏡', '部屋', '時計', '今朝', '今年', '今日', '昨日', '明日', '明後日',
+  '一人', '二人', '三人', '大人', '子供', '一日', '二日', '三日', '四日', '五日',
+  '六日', '七日', '八日', '九日', '十日', '二十日', '二十歳', '田舎', '土産', 'お土産',
+  '果物', '景色', '紅葉', '吹雪', '足袋', '浴衣', '為替', '八百屋', '上手', '下手', '清水',
+  'お母さん', 'お父さん', 'お兄さん', 'お姉さん',
   '君が見せてくれた世界はとても綺麗だったな',
   '書架の隙間に住まう一輪の花は',
   '僕には届かぬ存在で',
@@ -130,7 +89,7 @@ let failedCount = 0;
 for (let i = 0; i < TEST_PHRASES.length; i++) {
   const phrase = TEST_PHRASES[i];
   const hira = resolveToHiragana(phrase);
-  const reading = getWordReading(phrase, mockWanakana);
+  const reading = getWordReading(phrase, realWanakana);
 
   if (/[\u4e00-\u9faf]/.test(hira)) {
     console.error(`❌ [FAIL] Phrase "${phrase}" produced Kanji in Hiragana reading: "${hira}"`);
@@ -146,42 +105,96 @@ for (let i = 0; i < TEST_PHRASES.length; i++) {
 assert.strictEqual(failedCount, 0, `All ${TEST_PHRASES.length} phrases MUST have 0% Kanji in readings!`);
 console.log(`✅ Test 1: Zero-Kanji Guarantee PASSED (${TEST_PHRASES.length}/${TEST_PHRASES.length} phrases 100% pure kana/romaji)`);
 
-// ── Specific Validation for User-Reported Words ──
-const jiko = getWordReading('自己', mockWanakana);
+// ── Specific Validation for User-Reported Words & Jukujikun ──
+const jiko = getWordReading('自己', realWanakana);
 assert.strictEqual(jiko.furigana, 'じこ');
 assert.strictEqual(jiko.romaji, 'jiko');
 console.log('✅ Test 2: "自己" ->', jiko);
 
-const ken_o = getWordReading('嫌悪', mockWanakana);
+const ken_o = getWordReading('嫌悪', realWanakana);
 assert.strictEqual(ken_o.furigana, 'けんお');
-assert.strictEqual(ken_o.romaji, 'keno');
+assert.strictEqual(ken_o.romaji, "ken'o");
 console.log('✅ Test 3: "嫌悪" ->', ken_o);
 
-const ochi = getWordReading('落ち', mockWanakana);
+const jikoken_o = getWordReading('自己嫌悪', realWanakana);
+assert.strictEqual(jikoken_o.furigana, 'じこけんお');
+assert.strictEqual(jikoken_o.romaji, "jikoken'o");
+console.log('✅ Test 3b: "自己嫌悪" ->', jikoken_o);
+
+const megane = getWordReading('眼鏡', realWanakana);
+assert.strictEqual(megane.furigana, 'めがね');
+assert.strictEqual(megane.romaji, 'megane');
+console.log('✅ Test 3c: "眼鏡" (Jukujikun) ->', megane);
+
+const ochi = getWordReading('落ち', realWanakana);
 assert.strictEqual(ochi.furigana, 'おち');
 assert.strictEqual(ochi.romaji, 'ochi');
 console.log('✅ Test 4: "落ち" ->', ochi);
 
-const ochiteku = getWordReading('落ちてく', mockWanakana);
+const ochiteku = getWordReading('落ちてく', realWanakana);
 assert.strictEqual(ochiteku.furigana, 'おちてく');
 assert.strictEqual(ochiteku.romaji, 'ochiteku');
 console.log('✅ Test 5: "落ちてく" ->', ochiteku);
 
+// ── Specific Validation for Verb Inflections & Onbin Shifts ──
+const kaite = getWordReading('書いて', realWanakana);
+assert.strictEqual(kaite.furigana, 'かいて');
+assert.strictEqual(kaite.romaji, 'kaite');
+console.log('✅ Test 5e: Verb Onbin "書いて" ->', kaite);
+
+const itta = getWordReading('行った', realWanakana);
+assert.strictEqual(itta.furigana, 'いった');
+assert.strictEqual(itta.romaji, 'itta');
+console.log('✅ Test 5f: Verb Sokuonbin "行った" ->', itta);
+
+const ittaSay = getWordReading('言った', realWanakana);
+assert.strictEqual(ittaSay.furigana, 'いった');
+assert.strictEqual(ittaSay.romaji, 'itta');
+console.log('✅ Test 5g: Verb Sokuonbin "言った" ->', ittaSay);
+
+const nonde = getWordReading('飲んで', realWanakana);
+assert.strictEqual(nonde.furigana, 'のんで');
+assert.strictEqual(nonde.romaji, 'nonde');
+console.log('✅ Test 5h: Verb Hatsuonbin "飲んで" ->', nonde);
+
+const misetekureta = getWordReading('見せてくれた', realWanakana);
+assert.strictEqual(misetekureta.furigana, 'みせてくれた');
+assert.strictEqual(misetekureta.romaji, 'misetekureta');
+console.log('✅ Test 5i: Compound Suffix "見せてくれた" ->', misetekureta);
+
+// ── Specific Validation for Particles & Greetings ──
+const waParticle = getWordReading('は', realWanakana);
+assert.strictEqual(waParticle.romaji, 'wa');
+console.log('✅ Test 5j: Topic Particle "は" ->', waParticle);
+
+const eParticle = getWordReading('へ', realWanakana);
+assert.strictEqual(eParticle.romaji, 'e');
+console.log('✅ Test 5k: Directional Particle "へ" ->', eParticle);
+
+const oParticle = getWordReading('を', realWanakana);
+assert.strictEqual(oParticle.romaji, 'o');
+console.log('✅ Test 5l: Object Particle "を" ->', oParticle);
+
+const konnichiwa = getWordReading('こんにちは', realWanakana);
+assert.strictEqual(konnichiwa.romaji, 'konnichiwa');
+console.log('✅ Test 5m: Greeting "こんにちは" ->', konnichiwa);
+
 // ── Specific Validation for Kun'yomi vs On'yomi Context ──
-const mi = getWordReading('見', mockWanakana);
+const mi = getWordReading('見', realWanakana);
 assert.strictEqual(mi.furigana, 'み');
 assert.strictEqual(mi.romaji, 'mi');
 console.log('✅ Test 5b: Standalone "見" ->', mi);
 
-const kengaku = getWordReading('見学', mockWanakana);
+const kengaku = getWordReading('見学', realWanakana);
 assert.strictEqual(kengaku.furigana, 'けんがく');
 assert.strictEqual(kengaku.romaji, 'kengaku');
 console.log('✅ Test 5c: Compound "見学" ->', kengaku);
 
-const iken = getWordReading('意見', mockWanakana);
+const iken = getWordReading('意見', realWanakana);
 assert.strictEqual(iken.furigana, 'いけん');
 assert.strictEqual(iken.romaji, 'iken');
 console.log('✅ Test 5d: Compound "意見" ->', iken);
+
 
 // ── Test Suite 2: CSS Layout & Sidebar Validation ──
 const contentCss = fs.readFileSync('extension/content.css', 'utf8');
@@ -232,4 +245,4 @@ assert.strictEqual(manifest.manifest_version, 3);
 assert.strictEqual(manifest.name, 'LinguaPlay — Japanese AI Immersion Player');
 console.log('✅ Test 8: Manifest V3 Configuration: PASSED');
 
-console.log('\n🎉 ALL 8 TEST SUITES (166 PHRASES) PASSED CLEANLY WITH ZERO KANJI ERRORS!\n');
+console.log(`\n🎉 ALL 8 TEST SUITES (${TEST_PHRASES.length} PHRASES) PASSED CLEANLY WITH ZERO KANJI ERRORS!\n`);
