@@ -43,6 +43,7 @@ search_cache = {}    # query -> (timestamp, list_of_videos)
 stream_cache = {}    # video_id -> (timestamp, stream_url)
 ai_analysis_cache = {} # (word, sentence) -> (timestamp, parsed_json)
 CACHE_TTL = 3600     # 1 hour
+ANTIGRAVITY_TIMEOUT_SECONDS = 90
 
 
 def get_from_cache(cache_dict, key):
@@ -135,7 +136,7 @@ def run_antigravity_analysis(word, sentence, romaji=""):
     cmd = [agy_bin, "--print", prompt]
 
     print(f"  🤖 Running Antigravity CLI for: '{word}'...")
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=ANTIGRAVITY_TIMEOUT_SECONDS)
 
     if result.returncode != 0:
         err_msg = result.stderr.strip() or f"Process exited with code {result.returncode}"
@@ -358,7 +359,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json_response(200, {"status": "success", "data": ai_data, "provider": provider})
 
             except subprocess.TimeoutExpired:
-                self.send_json_response(504, {"status": "error", "message": "Antigravity CLI execution timed out."})
+                self.send_json_response(504, {"status": "error", "message": f"Antigravity CLI did not finish within {ANTIGRAVITY_TIMEOUT_SECONDS} seconds. Please try again."})
             except Exception as e:
                 print(f"  ❌ AI Analysis Error: {e}")
                 self.send_json_response(500, {"status": "error", "message": str(e)})
