@@ -127,15 +127,12 @@ Respond with ONLY a valid, raw JSON object (strictly no markdown fences, no back
 }}"""
 
 
-def run_antigravity_analysis(word, sentence, romaji=""):
+def run_antigravity_prompt(prompt):
     agy_bin = find_agy_binary()
     if not agy_bin:
         raise RuntimeError("Antigravity CLI ('agy') not found in PATH or ~/.local/bin/agy")
 
-    prompt = build_ai_prompt(word, sentence, romaji)
     cmd = [agy_bin, "--print", prompt]
-
-    print(f"  🤖 Running Antigravity CLI for: '{word}'...")
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=ANTIGRAVITY_TIMEOUT_SECONDS)
 
     if result.returncode != 0:
@@ -143,6 +140,25 @@ def run_antigravity_analysis(word, sentence, romaji=""):
         raise RuntimeError(f"Antigravity CLI error: {err_msg}")
 
     stdout = result.stdout.strip()
+    if not stdout:
+        raise RuntimeError("Antigravity CLI returned an empty reply")
+    return stdout
+
+
+def run_antigravity_chat(messages, word="", sentence="", romaji=""):
+    conversation = "\n\n".join(f"{message['role'].upper()}:\n{message['content']}" for message in messages)
+    prompt = (
+        "You are Sensei, a Japanese grammar tutor. Answer the latest user question using the conversation below. "
+        "Reply in readable Markdown, not JSON. Use romaji when explaining Japanese.\n\n"
+        f"Context Sentence: {sentence}\nTarget Word: {word} ({romaji})\n\n"
+        f"Conversation in chronological order:\n{conversation}\n\nASSISTANT:\n"
+    )
+    return run_antigravity_prompt(prompt)
+
+
+def run_antigravity_analysis(word, sentence, romaji=""):
+    print(f"  🤖 Running Antigravity CLI for: '{word}'...")
+    stdout = run_antigravity_prompt(build_ai_prompt(word, sentence, romaji))
     clean_json = stdout
     if clean_json.startswith("```json"):
         clean_json = clean_json[7:]
@@ -321,6 +337,35 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed_path = urllib.parse.urlparse(self.path)
+
+        # ── POST /api/ai/chat ──
+        if parsed_path.path == "/api/ai/chat":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                if not 0 < content_length <= 1048576:
+                    raise ValueError("Chat request must contain JSON smaller than 1 MiB")
+                body = json.loads(self.rfile.read(content_length).decode("utf-8"))
+                if not isinstance(body, dict):
+                    raise ValueError("Chat request must be an object")
+                messages = body.get("messages")
+                if not isinstance(messages, list) or not messages or not all(
+                    isinstance(message, dict) and message.get("role") in ("system", "user", "assistant")
+                    and isinstance(message.get("content"), str) and message["content"].strip()
+                    for message in messages
+                ) or messages[-1]["role"] != "user":
+                    raise ValueError("Chat messages must end with a nonempty user question and use valid roles")
+                context = [body.get(key, "") for key in ("word", "sentence", "romaji")]
+                if not all(isinstance(value, str) for value in context):
+                    raise ValueError("Word, sentence and romaji must be strings")
+                reply = run_antigravity_chat(messages, *context)
+                self.send_json_response(200, {"status": "success", "reply": reply})
+            except (ValueError, UnicodeError) as error:
+                self.send_json_response(400, {"status": "error", "message": str(error)})
+            except subprocess.TimeoutExpired:
+                self.send_json_response(504, {"status": "error", "message": f"Antigravity CLI did not finish within {ANTIGRAVITY_TIMEOUT_SECONDS} seconds. Please try again."})
+            except Exception as error:
+                self.send_json_response(500, {"status": "error", "message": str(error)})
+            return
 
         # ── POST /api/ai/analyze ──
         if parsed_path.path == "/api/ai/analyze":
