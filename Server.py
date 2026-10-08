@@ -22,6 +22,7 @@ import time
 import urllib.parse
 import urllib.request
 import webbrowser
+from japanese_parser import parse_japanese, ParserUnavailable
 
 # ── Configuration & Paths ──
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -337,6 +338,24 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed_path = urllib.parse.urlparse(self.path)
+
+        if parsed_path.path == "/api/parse":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                if not 0 < length <= 65536:
+                    raise ValueError("Parser request must contain JSON smaller than 64 KiB")
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                if not isinstance(body, dict):
+                    raise ValueError("Parser request must be an object")
+                tokens = parse_japanese(body.get("text"))
+                self.send_json_response(200, {"status": "success", "engine": "sudachi", "tokens": tokens})
+            except (ValueError, UnicodeError) as error:
+                self.send_json_response(400, {"status": "error", "message": str(error)})
+            except ParserUnavailable as error:
+                self.send_json_response(503, {"status": "error", "message": str(error)})
+            except Exception:
+                self.send_json_response(500, {"status": "error", "message": "Japanese parsing failed"})
+            return
 
         # ── POST /api/ai/chat ──
         if parsed_path.path == "/api/ai/chat":
