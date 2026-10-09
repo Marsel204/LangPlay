@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const opencodeKey = document.getElementById('opencode-key');
   const opencodeModel = document.getElementById('opencode-model');
   const serverUrl = document.getElementById('server-url');
+  const autoStartServer = document.getElementById('auto-start-server');
   const ankiDeck = document.getElementById('anki-deck');
   const ankiConnectUrl = document.getElementById('ankiconnect-url');
   const readingMode = document.getElementById('reading-mode');
@@ -46,12 +47,13 @@ document.addEventListener('DOMContentLoaded', () => {
     'linguaplay_opencode_key',
     'linguaplay_opencode_model',
     'linguaplay_server_url',
+    'linguaplay_auto_start_server',
     'linguaplay_anki_deck',
     'linguaplay_ankiconnect_url',
     'linguaplay_reading_mode',
     'linguaplay_cards'
   ], (res) => {
-    aiProvider.value = res.linguaplay_ai_provider || 'gemini';
+    aiProvider.value = res.linguaplay_ai_provider || (res.linguaplay_gemini_key ? 'gemini' : 'antigravity');
     if (res.linguaplay_gemini_key) geminiKey.value = res.linguaplay_gemini_key;
     if (res.linguaplay_deepseek_key) deepseekKey.value = res.linguaplay_deepseek_key;
     if (res.linguaplay_openrouter_key) openrouterKey.value = res.linguaplay_openrouter_key;
@@ -60,6 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (res.linguaplay_opencode_key) opencodeKey.value = res.linguaplay_opencode_key;
     if (res.linguaplay_opencode_model) opencodeModel.value = res.linguaplay_opencode_model;
     if (res.linguaplay_server_url) serverUrl.value = res.linguaplay_server_url;
+    autoStartServer.checked = res.linguaplay_auto_start_server !== false;
     if (res.linguaplay_anki_deck) ankiDeck.value = res.linguaplay_anki_deck;
     if (res.linguaplay_ankiconnect_url) ankiConnectUrl.value = res.linguaplay_ankiconnect_url;
     if (res.linguaplay_reading_mode) readingMode.value = res.linguaplay_reading_mode;
@@ -68,8 +71,28 @@ document.addEventListener('DOMContentLoaded', () => {
     savedCardCounter.textContent = `${cards.length} card${cards.length === 1 ? '' : 's'} in storage`;
   });
 
+  async function allowCustomEndpoint() {
+    const endpoint = new URL(opencodeUrl.value.trim() || 'http://127.0.0.1:11434/v1');
+    if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) {
+      throw new Error('Use an HTTP or HTTPS endpoint URL without embedded credentials');
+    }
+    const permissions = { origins: [`${endpoint.protocol}//${endpoint.hostname}/*`] };
+    if (!await chrome.permissions.contains(permissions) && !await chrome.permissions.request(permissions)) {
+      throw new Error('Endpoint access was not allowed. Settings were not saved.');
+    }
+  }
+
   // 2. Save settings
-  saveSettingsBtn.addEventListener('click', () => {
+  saveSettingsBtn.addEventListener('click', async () => {
+    if (aiProvider.value === 'opencode') {
+      try {
+        await allowCustomEndpoint();
+      } catch (error) {
+        opencodeStatusText.textContent = `❌ ${error.message}`;
+        opencodeStatusText.style.color = '#f87171';
+        return;
+      }
+    }
     chrome.storage.local.set({
       linguaplay_ai_provider: aiProvider.value,
       linguaplay_gemini_key: geminiKey.value.trim(),
@@ -80,6 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
       linguaplay_opencode_key: opencodeKey.value.trim(),
       linguaplay_opencode_model: opencodeModel.value.trim() || 'deepseek-chat',
       linguaplay_server_url: serverUrl.value.trim() || 'http://127.0.0.1:8000',
+      linguaplay_auto_start_server: autoStartServer.checked,
       linguaplay_anki_deck: ankiDeck.value.trim() || 'LinguaPlay',
       linguaplay_ankiconnect_url: ankiConnectUrl.value.trim() || 'http://127.0.0.1:8765',
       linguaplay_reading_mode: readingMode.value
@@ -220,6 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (key) headers['Authorization'] = `Bearer ${key}`;
 
       try {
+        await allowCustomEndpoint();
         const res = await fetch(targetUrl, {
           method: 'POST',
           headers: headers,
@@ -235,7 +260,8 @@ document.addEventListener('DOMContentLoaded', () => {
           opencodeStatusText.style.color = '#34d399';
         } else {
           const err = await res.json().catch(() => ({}));
-          opencodeStatusText.textContent = `❌ Error: ${err.error?.message || 'Status ' + res.status}`;
+          const originHint = res.status === 403 ? ' If using Ollama, set OLLAMA_ORIGINS=chrome-extension://* and restart Ollama.' : '';
+          opencodeStatusText.textContent = `❌ Error: ${err.error?.message || 'Status ' + res.status}${originHint}`;
           opencodeStatusText.style.color = '#f87171';
         }
       } catch (e) {

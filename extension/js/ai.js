@@ -9,7 +9,7 @@
 import { toRomaji } from './tokenizer.js';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENROUTER_MODEL = 'deepseek/deepseek-v4-flash';
+const OPENROUTER_MODEL = 'deepseek/deepseek-chat';
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 const DEFAULT_LOCAL_SERVER = 'http://127.0.0.1:8000';
 
@@ -17,9 +17,15 @@ const LS_AI_PROVIDER = 'linguaplay_ai_provider';
 const LS_OPENROUTER_KEY = 'linguaplay_openrouter_key';
 const LS_GEMINI_KEY = 'linguaplay_gemini_key';
 const LS_SERVER_URL = 'linguaplay_server_url';
+const API_KEY_STORAGE_KEYS = {
+  gemini: LS_GEMINI_KEY,
+  openrouter: LS_OPENROUTER_KEY,
+  deepseek: 'linguaplay_deepseek_key',
+  opencode: 'linguaplay_opencode_key'
+};
 
 let activeAbortController = null;
-let currentProvider = 'antigravity'; // 'antigravity' | 'gemini' | 'openrouter'
+let currentProvider = 'antigravity';
 let antigravityAvailable = false;
 let customServerUrl = DEFAULT_LOCAL_SERVER;
 
@@ -60,7 +66,7 @@ export function getAIProvider() {
 }
 
 export function setAIProvider(provider) {
-  if (['antigravity', 'gemini', 'openrouter'].includes(provider)) {
+  if (['antigravity', ...Object.keys(API_KEY_STORAGE_KEYS)].includes(provider)) {
     currentProvider = provider;
     try {
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
@@ -80,15 +86,15 @@ export function isAntigravityAvailable() {
 
 export async function getSavedApiKey(provider = null) {
   const p = provider || currentProvider;
+  const keyName = API_KEY_STORAGE_KEYS[p];
+  if (!keyName) return '';
   try {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      const keyName = p === 'gemini' ? LS_GEMINI_KEY : LS_OPENROUTER_KEY;
       const res = await chrome.storage.local.get([keyName]);
       if (res[keyName]) return res[keyName];
     }
     if (typeof localStorage !== 'undefined') {
-      if (p === 'gemini') return localStorage.getItem(LS_GEMINI_KEY) || '';
-      if (p === 'openrouter') return localStorage.getItem(LS_OPENROUTER_KEY) || '';
+      return localStorage.getItem(keyName) || '';
     }
   } catch (e) { /* ignore */ }
   return '';
@@ -97,7 +103,8 @@ export async function getSavedApiKey(provider = null) {
 export function saveApiKey(key, provider = null) {
   const p = provider || currentProvider;
   const trimmed = (key || '').trim();
-  const keyName = p === 'gemini' ? LS_GEMINI_KEY : LS_OPENROUTER_KEY;
+  const keyName = API_KEY_STORAGE_KEYS[p];
+  if (!keyName) return;
   try {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.set({ [keyName]: trimmed });
@@ -173,6 +180,7 @@ export async function requestAIAnalysis({ word, romaji, sentence, provider = nul
   const activeProv = provider || currentProvider;
 
   activeAbortController = new AbortController();
+  const controller = activeAbortController;
   const signal = activeAbortController.signal;
 
   // 1. Antigravity CLI / Local Server
@@ -208,6 +216,62 @@ export async function requestAIAnalysis({ word, romaji, sentence, provider = nul
       onError(err.message || 'Local Antigravity Server not running. Start Server.py or switch to Gemini API in options.');
     } finally {
       activeAbortController = null;
+    }
+    return;
+  }
+
+  // Direct DeepSeek and custom OpenAI-compatible JSON analysis.
+  if (activeProv === 'deepseek' || activeProv === 'opencode') {
+    try {
+      const key = (apiKey || await getSavedApiKey(activeProv)).trim();
+      if (activeProv === 'deepseek' && !key) throw new Error('Please provide a DeepSeek API key in the top bar or Options page.');
+      const config = await chrome.storage.local.get([
+        'linguaplay_opencode_url', 'linguaplay_opencode_model'
+      ]);
+      let url = 'https://api.deepseek.com/v1/chat/completions';
+      let model = 'deepseek-chat';
+      if (activeProv === 'opencode') {
+        const endpoint = new URL((config.linguaplay_opencode_url || 'http://127.0.0.1:11434/v1').trim());
+        if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) {
+          throw new Error('Custom endpoint must be an HTTP or HTTPS URL without embedded credentials');
+        }
+        endpoint.pathname = endpoint.pathname.replace(/\/+$/, '');
+        if (!endpoint.pathname.endsWith('/chat/completions')) endpoint.pathname += '/chat/completions';
+        url = endpoint.href;
+        model = (config.linguaplay_opencode_model || 'deepseek-chat').trim();
+      }
+      if (signal.aborted) return;
+      if (onChunk) onChunk(activeProv === 'deepseek' ? 'Requesting DeepSeek breakdown…' : 'Requesting custom AI breakdown…');
+      const headers = { 'Content-Type': 'application/json' };
+      if (key) headers.Authorization = `Bearer ${key}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: buildSystemPrompt() },
+            { role: 'user', content: `Context Sentence: "${sentence || word}"\nTarget Word: "${word}" (Reading: ${romaji || ''})` }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.2
+        }),
+        signal
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const originHint = activeProv === 'opencode' && response.status === 403
+          ? ' If using Ollama, set OLLAMA_ORIGINS=chrome-extension://* and restart Ollama to allow the extension.' : '';
+        throw new Error((data.error?.message || `AI endpoint returned status ${response.status}`) + originHint);
+      }
+      const text = data.choices?.[0]?.message?.content;
+      if (!text) throw new Error('Empty response from AI endpoint');
+      if (signal.aborted) return;
+      onSuccess(JSON.parse(text.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '').trim()));
+    } catch (error) {
+      if (error.name !== 'AbortError') onError(error.message);
+    } finally {
+      if (activeAbortController === controller) activeAbortController = null;
     }
     return;
   }
@@ -276,6 +340,7 @@ Target Word: "${word}" (Reading: ${romaji || ''})
 Please provide an in-depth linguistic and grammatical breakdown with full Romaji transcriptions in JSON format.`;
 
   try {
+    const savedModel = await chrome.storage.local.get(['linguaplay_openrouter_model']);
     const response = await fetch(OPENROUTER_URL, {
       method: 'POST',
       headers: {
@@ -285,7 +350,7 @@ Please provide an in-depth linguistic and grammatical breakdown with full Romaji
         'X-Title': 'LinguaPlay Japanese Immersion Chrome Extension'
       },
       body: JSON.stringify({
-        model: OPENROUTER_MODEL,
+        model: savedModel.linguaplay_openrouter_model || OPENROUTER_MODEL,
         messages: [
           { role: 'system', content: buildSystemPrompt() },
           { role: 'user', content: userPrompt }

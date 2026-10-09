@@ -82,6 +82,37 @@ class ChatTests(unittest.TestCase):
                     self.assertEqual(code, 500)
                     self.assertTrue(data['message'])
 
+    def test_analyze_supports_custom_prompt_for_song_identification(self):
+        song_prompt = 'Extract the song metadata:\nTitle: "Oregairu S2 OP - Harumodoki"\nRespond in JSON only: {"trackName": "...", "artistName": "...", "animeName": "..."}'
+        ai_reply = '```json\n{"trackName": "春擬き", "artistName": "やなぎなぎ", "animeName": "やはり俺の青春ラブコメはまちがっている。続"}\n```'
+        payload = json.dumps({
+            'word': 'Oregairu S2 OP - Harumodoki',
+            'sentence': 'Oregairu S2 OP - Harumodoki',
+            'romaji': '',
+            'prompt': song_prompt,
+            'provider': 'antigravity',
+        }).encode()
+        req = urllib.request.Request(
+            f'http://127.0.0.1:{self.http.server_port}/api/ai/analyze',
+            data=payload,
+            headers={'Content-Type': 'application/json'},
+        )
+        with patch.object(server, 'find_agy_binary', return_value='/test/agy'), patch.object(
+            server.subprocess,
+            'run',
+            return_value=subprocess.CompletedProcess([], 0, stdout=ai_reply, stderr=''),
+        ) as run:
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                code = resp.code
+                data = json.load(resp)
+        self.assertEqual(code, 200)
+        self.assertEqual(data['status'], 'success')
+        self.assertEqual(data['data']['trackName'], '春擬き')
+        self.assertEqual(data['data']['artistName'], 'やなぎなぎ')
+        command = run.call_args.args[0]
+        self.assertEqual(command[2], song_prompt)
+
 
 if __name__ == '__main__':
     unittest.main()
+

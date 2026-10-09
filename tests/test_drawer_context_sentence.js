@@ -50,7 +50,7 @@ assert.ok(
 );
 
 // 6. Verify Save Enriched AI Card to Anki (lp-ai-anki-btn) uses drawerContextSentence
-const aiAnkiMatch = contentJs.match(/document\.getElementById\(['"]lp-ai-anki-btn['"]\)[\s\S]*?addEventListener\('click'[\s\S]*?\{([\s\S]*?)(?:chrome\.storage\.local\.get)/);
+const aiAnkiMatch = contentJs.match(/document\.getElementById\(['"]lp-ai-anki-btn['"]\)\??\.addEventListener\('click'[\s\S]*?\{([\s\S]*?)(?:chrome\.storage\.local\.get)/);
 assert.ok(aiAnkiMatch, 'lp-ai-anki-btn click listener found');
 const aiAnkiBody = aiAnkiMatch[1];
 assert.ok(

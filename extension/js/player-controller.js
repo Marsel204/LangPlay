@@ -3,6 +3,9 @@
  * Unifies HTML5 native <video> element and YouTube IFrame Player API.
  */
 
+import { retryJapaneseParser } from './tokenizer.js';
+import { refreshTokenParsing } from './subtitles.js';
+
 let mediaMode = 'native'; // 'native' | 'youtube'
 let videoEl = null;
 let ytPlayer = null;
@@ -10,6 +13,17 @@ let ytApiReadyPromise = null;
 let ytPollInterval = null;
 let onTimeUpdateCallback = null;
 let ytPlayerReady = false;
+
+function startServerOnPlayback() {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
+  try {
+    chrome.runtime.sendMessage({ action: 'ENSURE_LOCAL_SERVER' }, response => {
+      const error = chrome.runtime.lastError;
+      if (error || (response && !response.success)) console.warn('[LinguaPlay] Server auto-start:', error?.message || response.error);
+      if (!error && response?.success) { retryJapaneseParser(); refreshTokenParsing(); }
+    });
+  } catch (error) { console.warn('[LinguaPlay] Server auto-start:', error.message); }
+}
 
 function ensureYouTubeApiReady() {
   if (ytApiReadyPromise) return ytApiReadyPromise;
@@ -52,6 +66,9 @@ export function initPlayer(videoElement, timeUpdateHandler) {
   onTimeUpdateCallback = timeUpdateHandler;
 
   if (videoEl) {
+    videoEl.addEventListener('playing', () => {
+      if (mediaMode === 'native' && !videoEl.paused && !videoEl.ended) startServerOnPlayback();
+    });
     videoEl.addEventListener('timeupdate', () => {
       if (mediaMode === 'native' && onTimeUpdateCallback) {
         onTimeUpdateCallback(videoEl.currentTime);
@@ -133,6 +150,7 @@ export async function loadYouTubeVideo(videoId, onErrorCallback = null) {
         onStateChange: (event) => {
           if (event.data === window.YT.PlayerState.PLAYING) {
             startYTPolling();
+            if (mediaMode === 'youtube') startServerOnPlayback();
           } else {
             stopYTPolling();
             if (onTimeUpdateCallback) {

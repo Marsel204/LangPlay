@@ -44,7 +44,7 @@
       ],
       "js": [
         "lib/wanakana.min.js",
-        "lib/kuromoji.js",
+        "js/japanese-parser.js",
         "lib/yomitan-deinflector.js",
         "content.js"
       ],
@@ -56,6 +56,7 @@
   ],
   "permissions": [
     "storage",
+    "nativeMessaging",
     "activeTab",
     "scripting",
     "downloads",
@@ -64,14 +65,20 @@
   ],
   "host_permissions": [
     "https://*.youtube.com/*",
+    "https://lrclib.net/*",
+    "http://lyrics.kugou.com/*",
+    "http://*/*",
+    "https://*/*",
     "https://generativelanguage.googleapis.com/*",
     "https://openrouter.ai/*",
     "https://api.deepseek.com/*",
     "https://translate.googleapis.com/*",
-    "http://127.0.0.1:8765/*",
-    "http://127.0.0.1:8000/*",
-    "http://localhost:8765/*",
-    "http://localhost:8000/*"
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
   ],
   "web_accessible_resources": [
     {

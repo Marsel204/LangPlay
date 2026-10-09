@@ -4,7 +4,7 @@
  */
 
 import { JDICT, fetchGoogleTranslation } from './dict.js';
-import { initTokenizer, tokenizeSentence } from './tokenizer.js';
+import { initTokenizer, parseSelectedWord, onParserReady } from './tokenizer.js';
 import {
   parseSubtitleFile,
   findCueIndexAtTime,
@@ -112,6 +112,9 @@ const captionsCopyBtn = document.getElementById('captions-copy-btn');
 const captionsCopyFeedback = document.getElementById('captions-copy-feedback');
 
 let currentActiveToken = null;
+let wordSelectionVersion = 0;
+let refreshActiveWordParsing = () => {};
+onParserReady(() => refreshActiveWordParsing());
 let currentLastAiData = null;
 let currentYouTubeId = null;
 
@@ -126,7 +129,7 @@ function onTimeUpdate(currentTime) {
   if (cueIdx === -1) {
     if (prevIdx !== -1) {
       setCurrentCueIndex(-1);
-      tokensContainer.innerHTML = '';
+      renderTokens('', tokensContainer);
     }
   } else if (cueIdx !== prevIdx) {
     setCurrentCueIndex(cueIdx);
@@ -168,18 +171,24 @@ async function updateAIProviderUI() {
   const icons = {
     antigravity: '⚡',
     gemini: '🌟',
-    openrouter: '🚀'
+    openrouter: '🚀',
+    deepseek: '⚡',
+    opencode: '💻'
   };
 
   const btnLabels = {
     antigravity: 'Ask Antigravity AI for Breakdown',
     gemini: 'Ask Gemini AI for Breakdown',
-    openrouter: 'Ask DeepSeek AI for Breakdown'
+    openrouter: 'Ask OpenRouter AI for Breakdown',
+    deepseek: 'Ask DeepSeek AI for Breakdown',
+    opencode: 'Ask Custom AI for Breakdown'
   };
 
   const placeholders = {
     gemini: 'Gemini key (AIzaSy…)',
-    openrouter: 'OpenRouter key (sk-or…)'
+    openrouter: 'OpenRouter key (sk-or…)',
+    deepseek: 'DeepSeek key (sk-…)',
+    opencode: 'Optional endpoint API key…'
   };
 
   if (aiProviderIcon) aiProviderIcon.textContent = icons[prov] || '🤖';
@@ -311,7 +320,7 @@ async function loadYouTube(input) {
   currentYouTubeId = videoId;
   showYouTubeUI();
   setTimeline([], false);
-  tokensContainer.innerHTML = '';
+  renderTokens('', tokensContainer);
   subLabel.textContent = 'Fetching subs…';
 
   try {
@@ -427,6 +436,7 @@ function handleTokenClick(tokenEl) {
   if (currentActiveToken) currentActiveToken.classList.remove('active');
   tokenEl.classList.add('active');
   currentActiveToken = tokenEl;
+  const selectionVersion = ++wordSelectionVersion;
 
   const word = tokenEl.dataset.word;
   const romaji = tokenEl.dataset.romaji;
@@ -436,23 +446,30 @@ function handleTokenClick(tokenEl) {
   const posDetail = tokenEl.dataset.posDetail;
   const baseform = tokenEl.dataset.baseform || word;
 
-  activeWord.textContent = word;
-  activeRomaji.textContent = romaji;
-  activePos.textContent = `Part of Speech: ${pos || '—'} ${posDetail ? `(${posDetail})` : ''} • Base: ${baseform}`;
-
-  const localDef = JDICT[baseform] || JDICT[word];
-  if (localDef) {
-    activeDef.innerHTML = `${baseform !== word ? baseform + ' — ' : ''}${localDef}`;
-  } else {
+  let definitionBase = null;
+  function showWord(data) {
+    const base = data.baseForm || word;
+    activeWord.textContent = word;
+    activeRomaji.textContent = data.romaji;
+    activePos.textContent = `Part of Speech: ${data.pos || '—'} ${data.posDetail ? `(${data.posDetail})` : ''} • Base: ${base}`;
+    if (definitionBase === base) return;
+    definitionBase = base;
+    const localDef = JDICT[base] || JDICT[word];
+    if (localDef) { activeDef.textContent = `${base !== word ? base + ' — ' : ''}${localDef}`; return; }
     activeDef.innerHTML = '<span class="animate-pulse">Fetching translation…</span>';
-    fetchGoogleTranslation(baseform).then(translation => {
-      if (translation) {
-        activeDef.innerHTML = `${baseform !== word ? baseform + ' — ' : ''}${translation}`;
-      } else {
-        activeDef.textContent = `No local definition for "${baseform}". Click "Ask AI" below for deep analysis.`;
-      }
+    fetchGoogleTranslation(base).then(translation => {
+      if (selectionVersion !== wordSelectionVersion || definitionBase !== base || currentActiveToken !== tokenEl) return;
+      activeDef.textContent = translation ? `${base !== word ? base + ' — ' : ''}${translation}` : `No local definition for "${base}". Click "Ask AI" below for deep analysis.`;
     });
   }
+  showWord({ romaji, pos, posDetail, baseForm: baseform });
+  const contextSentence = getCurrentSentence() || word;
+  refreshActiveWordParsing = () => parseSelectedWord(contextSentence, word, tokenEl.dataset.start === undefined ? undefined : Number(tokenEl.dataset.start)).then(selected => {
+    if (!selected || selectionVersion !== wordSelectionVersion || currentActiveToken !== tokenEl) return;
+    Object.assign(tokenEl.dataset, { romaji: selected.romaji, reading: selected.reading, furigana: selected.furigana, baseform: selected.baseForm, pos: selected.pos, posDetail: selected.posDetail });
+    showWord(selected);
+  });
+  refreshActiveWordParsing();
 
   abortAIAnalysis();
   aiTriggerSection.classList.remove('hidden');
@@ -543,7 +560,7 @@ export async function initApp() {
     reader.onload = (evt) => {
       const cues = parseSubtitleFile(evt.target.result, file.name);
       setTimeline(cues, true);
-      tokensContainer.innerHTML = '';
+      renderTokens('', tokensContainer);
       if (cues.length === 0) {
         showToast('Parsed 0 cues. Verify file syntax (.srt/.vtt)', 'error');
       } else {

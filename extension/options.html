@@ -84,6 +84,7 @@
           <input type="text" id="opencode-model" placeholder="deepseek-chat" value="deepseek-chat" style="flex: 1; font-size: 12px; padding: 6px 10px;">
         </div>
         <p id="opencode-status-text" class="help-text">Compatible with Ollama, LM Studio, LocalAI, vLLM, OpenCode, and any OpenAI API compatible server.</p>
+        <p class="help-text">For Ollama, set <code>OLLAMA_ORIGINS=chrome-extension://*</code> and restart Ollama to allow extension access. Saving a remote endpoint requests access to that host.</p>
       </div>
 
       <!-- Local Server.py / Antigravity CLI -->
@@ -94,6 +95,11 @@
           <button id="test-server-btn" class="btn-secondary" type="button">Test Server</button>
         </div>
         <p id="server-status-text" class="help-text">Used if you run Server.py for local Antigravity CLI execution.</p>
+        <label style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+          <input type="checkbox" id="auto-start-server" checked>
+          Start local server when a video plays
+        </label>
+        <p class="help-text">Requires the local launcher. A running server is reused and stays available after playback stops.</p>
       </div>
     </div>
 

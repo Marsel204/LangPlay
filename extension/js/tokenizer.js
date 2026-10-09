@@ -1,10 +1,25 @@
 /**
  * LinguaPlay Chrome Extension — Tokenizer Module (tokenizer.js)
- * High-performance Japanese morphological analysis with Kuromoji, WanaKana,
- * and built-in Kanji reading dictionary.
+ * Async local Sudachi analysis with WanaKana and a lightweight offline fallback.
  */
 
 import { getWordReading } from './kanji-dict.js';
+import './japanese-parser.js';
+
+const japaneseParser = globalThis.LinguaPlayParser.create();
+const parserReadyListeners = new Set();
+export function requestParsedSentence(text) { return japaneseParser.request(text); }
+export function onParserReady(callback) { parserReadyListeners.add(callback); return () => parserReadyListeners.delete(callback); }
+export function retryJapaneseParser() {
+  japaneseParser.retry();
+  for (const callback of parserReadyListeners) callback();
+}
+export async function parseSelectedWord(text, surface, start) {
+  const tokens = await japaneseParser.request(text);
+  if (!tokens) return null;
+  const matches = token => token.surface === surface && (!Number.isInteger(start) || token.start === start);
+  return tokens.find(matches) || tokens.flatMap(token => token.morphemes || []).filter(matches).map(japaneseParser.readingToken)[0] || null;
+}
 
 let tokenizer = null;
 let initPromise = null;
@@ -12,6 +27,12 @@ let initPromise = null;
 export function initTokenizer(onProgress = null) {
   if (tokenizer) return Promise.resolve(tokenizer);
   if (initPromise) return initPromise;
+  // Extension pages use the local parser asynchronously. Avoid decompressing
+  // the remote Kuromoji dictionary on the playback/UI thread.
+  if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+    if (onProgress) onProgress('ready', 'Ready');
+    return Promise.resolve(null);
+  }
 
   initPromise = new Promise((resolve) => {
     const kuromojiLib = typeof window !== 'undefined' ? window.kuromoji : null;
@@ -62,6 +83,8 @@ export function toFurigana(token) {
 export function tokenizeSentence(text) {
   if (!text || !text.trim()) return [];
   const clean = text.trim();
+  const parsed = japaneseParser.cached(text);
+  if (parsed) return parsed;
   const wk = typeof window !== 'undefined' ? window.wanakana : null;
 
   // 1. If Kuromoji is initialized, use full morphological breakdown

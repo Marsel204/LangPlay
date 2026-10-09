@@ -72,10 +72,10 @@
 
         <!-- Subtitles File Input -->
         <label class="file-label cursor-pointer flex items-center gap-2 px-3 py-2 bg-surface-100/60 border border-slate-700/60 rounded-xl shrink-0"
-          title="Select Subtitle File (.vtt/.srt)">
+          title="Select Subtitle or Lyrics File (.vtt/.srt/.lrc)">
           <span class="text-xs text-rose-subtle">💬</span>
           <span id="sub-file-label" class="text-xs font-semibold text-slate-300 truncate" style="max-width: 100px;">Subtitles</span>
-          <input type="file" id="sub-input" accept=".srt,.vtt" class="hidden">
+          <input type="file" id="sub-input" accept=".srt,.vtt,.lrc" class="hidden">
         </label>
 
         <!-- AI Engine & Key Selector -->
@@ -85,7 +85,9 @@
             <select id="ai-provider-select" class="bg-transparent text-xs text-slate-200 font-semibold outline-none cursor-pointer pr-1">
               <option value="antigravity" class="bg-surface-200 text-slate-200" selected>Local Antigravity CLI</option>
               <option value="gemini" class="bg-surface-200 text-slate-200">Google Gemini API</option>
+              <option value="deepseek" class="bg-surface-200 text-slate-200">DeepSeek API</option>
               <option value="openrouter" class="bg-surface-200 text-slate-200">OpenRouter DeepSeek</option>
+              <option value="opencode" class="bg-surface-200 text-slate-200">OpenCode / Custom Endpoint</option>
             </select>
           </div>
 

@@ -4,7 +4,7 @@
  * timing offset manager, and tokenized reading mode renderer.
  */
 
-import { tokenizeSentence } from './tokenizer.js';
+import { tokenizeSentence, requestParsedSentence } from './tokenizer.js';
 
 const VTT_TIME_RE = /(\d{1,2}:)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{1,2}:)?(\d{2}):(\d{2})[.,](\d{3})/;
 const SRT_TIME_RE = /(\d{2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[.,](\d{3})/;
@@ -14,6 +14,14 @@ let currentSubIndex = -1;
 let timingOffset = 0.0; // in seconds
 let readingMode = 'furigana'; // 'furigana' | 'romaji' | 'hidden'
 let manualCaptionsLoaded = false;
+const tokenRenderVersions = new WeakMap();
+let lastTokenRender = null;
+
+export function refreshTokenParsing() {
+  if (lastTokenRender && currentSubIndex >= 0 && subtitleTimeline[currentSubIndex]?.text === lastTokenRender.text) {
+    renderTokens(lastTokenRender.text, lastTokenRender.container);
+  }
+}
 
 try {
   if (typeof localStorage !== 'undefined' && localStorage.getItem) {
@@ -139,10 +147,164 @@ export function parseJSON3(json) {
   return cues.sort((a, b) => a.start - b.start);
 }
 
+export function parseLRC(raw) {
+  if (!raw) return [];
+  const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const rawCues = [];
+  let globalOffset = 0.0;
+  const timeRegex = /\[(\d{1,2}):(\d{2})(?:[.:](\d{2,3}))?\]/g;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const offsetMatch = trimmed.match(/^\[offset:\s*([+-]?\d+)\s*\]/i);
+    if (offsetMatch) {
+      globalOffset = (parseInt(offsetMatch[1], 10) || 0) / 1000;
+      continue;
+    }
+
+    if (/^\[[a-z]{2,8}:/i.test(trimmed)) continue;
+
+    const matches = [...trimmed.matchAll(timeRegex)];
+    if (matches.length === 0) continue;
+
+    const text = trimmed.replace(timeRegex, '').replace(/<[^>]+>/g, '').trim();
+    if (!text) continue;
+
+    for (const m of matches) {
+      const minutes = parseInt(m[1], 10);
+      const seconds = parseInt(m[2], 10);
+      let millis = 0;
+      if (m[3]) {
+        if (m[3].length === 2) {
+          millis = parseInt(m[3], 10) * 10;
+        } else {
+          millis = parseInt(m[3].padEnd(3, '0').slice(0, 3), 10);
+        }
+      }
+      const start = Math.max(0, minutes * 60 + seconds + (millis / 1000) + globalOffset);
+      rawCues.push({ start, text });
+    }
+  }
+
+  if (rawCues.length === 0) return [];
+  rawCues.sort((a, b) => a.start - b.start);
+
+  const cues = [];
+  for (let i = 0; i < rawCues.length; i++) {
+    const curr = rawCues[i];
+    let end;
+    if (i + 1 < rawCues.length) {
+      const nextStart = rawCues[i + 1].start;
+      end = nextStart > curr.start ? Math.min(nextStart, curr.start + 8.0) : curr.start + 3.0;
+    } else {
+      end = curr.start + 4.0;
+    }
+    cues.push({ start: curr.start, end, text: curr.text });
+  }
+
+  return cues;
+}
+
+export function cleanSongTitle(rawTitle, rawChannel = '') {
+  if (!rawTitle || typeof rawTitle !== 'string') {
+    const fallback = (rawChannel || '').trim();
+    return { trackName: '', artistName: fallback, query: fallback };
+  }
+
+  let clean = rawTitle.trim();
+  clean = clean.replace(/\s*-\s*YouTube$/i, '').trim();
+
+  // Strip sumitsuki kakko 【...】 if there is text outside of it
+  const withoutSumitsuki = clean.replace(/【[^】]*】/g, ' ').trim();
+  if (withoutSumitsuki) {
+    clean = withoutSumitsuki;
+  } else {
+    clean = clean.replace(/[【】]/g, ' ').trim();
+  }
+
+  // Strip anime theme metadata in parentheses if there is text outside of it
+  const withoutAnimeParens = clean.replace(/[（\(](?:TVアニメ|アニメ|TV Anime|Anime|主題歌|OP|ED|挿入歌|テーマ|Character Song).*?[）\)]/gi, ' ').trim();
+  if (withoutAnimeParens) {
+    clean = withoutAnimeParens;
+  }
+
+  clean = clean.replace(/\[(?:Official|MV|Music Video|Full|Audio|Lyric Video|4K|HD|Remastered|Live).*?\]/gi, ' ');
+  clean = clean.replace(/\((?:Official|Music Video|MV|Audio|Lyric Video|Full Ver\.?|Live|Visualizer|THE FIRST TAKE).*?\)/gi, ' ');
+  clean = clean.replace(/THE FIRST TAKE/gi, ' ');
+  clean = clean.replace(/\b(?:Official Music Video|Official Video|Music Video|Lyric Video|Official Audio)\b/gi, ' ');
+
+  const cleanChannel = (rawChannel || '')
+    .replace(/(?:\s*-\s*Topic|Official Channel|OFFICIAL CHANNEL|Official YouTube Channel|OFFICIAL|Official|チャンネル)/gi, '')
+    .trim();
+
+  let trackName = '';
+  let artistName = '';
+
+  const quoteMatch = clean.match(/[『「]([^』」]+)[』」]/);
+  if (quoteMatch) {
+    trackName = quoteMatch[1].trim();
+    const before = clean.slice(0, quoteMatch.index).replace(/[-/／|｜~～\s]+$/, '').trim();
+    const after = clean.slice(quoteMatch.index + quoteMatch[0].length).replace(/^[-/／|｜~～\s]+/, '').trim();
+    if (before && !/^(?:MV|Official)$/i.test(before)) {
+      artistName = before.replace(/\s*(?:x|feat\.?|ft\.?).*$/i, '').trim();
+    } else if (after) {
+      const candidate = after.split(/[/／|｜]/)[0].replace(/\s*(?:x|feat\.?|ft\.?).*$/i, '').trim();
+      if (candidate && !/^(?:MV|Official)$/i.test(candidate)) {
+        artistName = candidate;
+      }
+    }
+  }
+
+  if (!trackName) {
+    const parts = clean.split(/\s*[-—／|｜]\s*|\s+\/\s+/).map(p => p.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const chLower = cleanChannel.toLowerCase();
+      if (chLower && parts[0].toLowerCase().includes(chLower)) {
+        artistName = parts[0];
+        trackName = parts[1];
+      } else if (chLower && parts[1].toLowerCase().includes(chLower)) {
+        artistName = parts[1];
+        trackName = parts[0];
+      } else {
+        artistName = parts[0];
+        trackName = parts[1];
+      }
+    } else {
+      trackName = clean;
+    }
+  }
+
+  if (!artistName && cleanChannel) {
+    artistName = cleanChannel;
+  }
+
+  const stripFeatures = (str) => {
+    return str
+      .replace(/\s*(?:feat\.?|ft\.?)\s+.*$/i, '')
+      .replace(/\s*（(?:CV|feat|ft).*?）/gi, '')
+      .replace(/\s*\((?:CV|feat|ft).*?\)/gi, '')
+      .replace(/[（\(][^）\)]*[）\)]/g, '')
+      .replace(/[/／|｜].*$/, '')
+      .trim();
+  };
+
+  trackName = stripFeatures(trackName);
+  artistName = stripFeatures(artistName);
+
+  const query = [artistName, trackName].filter(Boolean).join(' ') || clean;
+  return { trackName, artistName, query };
+}
+
 export function parseSubtitleFile(raw, filename = '') {
   const isVtt = filename.toLowerCase().endsWith('.vtt') || raw.trim().startsWith('WEBVTT');
   if (isVtt) {
     return parseVTT(raw);
+  }
+  const isLrc = filename.toLowerCase().endsWith('.lrc') || /\[\d{1,2}:\d{2}[.:]\d{2,3}\]/.test(raw);
+  if (isLrc) {
+    return parseLRC(raw);
   }
   return parseSRT(raw);
 }
@@ -249,10 +411,16 @@ export function getReadingMode() {
 
 export function renderTokens(text, container) {
   if (!container) return;
+  lastTokenRender = { text, container };
+  const version = (tokenRenderVersions.get(container) || 0) + 1;
+  tokenRenderVersions.set(container, version);
   container.innerHTML = '';
   if (!text || !text.trim()) return;
 
   const tokens = tokenizeSentence(text);
+  requestParsedSentence(text).then(parsed => {
+    if (parsed && tokenRenderVersions.get(container) === version && tokens !== parsed) renderTokens(text, container);
+  });
   if (tokens.length === 0) {
     const span = document.createElement('span');
     span.className = 'text-white text-xl font-medium px-2 py-1';
@@ -261,6 +429,7 @@ export function renderTokens(text, container) {
     return;
   }
 
+  let offset = 0;
   for (const tk of tokens) {
     if (!tk.surface.trim()) continue;
 
@@ -273,6 +442,8 @@ export function renderTokens(text, container) {
     span.dataset.pos = tk.pos;
     span.dataset.posDetail = tk.posDetail;
     span.dataset.baseform = tk.baseForm;
+    span.dataset.start = Number.isInteger(tk.start) ? tk.start : text.indexOf(tk.surface, offset);
+    offset = Number(span.dataset.start) + tk.surface.length;
 
     let readingText = tk.furigana || tk.reading;
     let readingHiddenClass = '';
@@ -283,10 +454,15 @@ export function renderTokens(text, container) {
       readingHiddenClass = 'hidden-reading';
     }
 
-    span.innerHTML = `
-      <span class="token-reading text-rose-subtle/80 leading-tight ${readingHiddenClass}">${readingText || '&nbsp;'}</span>
-      <span class="jp-text text-white text-xl font-medium" style="font-family:'Noto Sans JP',sans-serif">${tk.surface}</span>
-    `;
+    const readingSpan = document.createElement('span');
+    readingSpan.className = `token-reading text-rose-subtle/80 leading-tight ${readingHiddenClass}`;
+    readingSpan.textContent = readingText || '\u00a0';
+    const wordSpan = document.createElement('span');
+    wordSpan.className = 'jp-text text-white text-xl font-medium';
+    wordSpan.style.fontFamily = "'Noto Sans JP',sans-serif";
+    wordSpan.textContent = tk.surface;
+    span.appendChild(readingSpan);
+    span.appendChild(wordSpan);
 
     container.appendChild(span);
   }

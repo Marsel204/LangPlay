@@ -157,9 +157,10 @@ def run_antigravity_chat(messages, word="", sentence="", romaji=""):
     return run_antigravity_prompt(prompt)
 
 
-def run_antigravity_analysis(word, sentence, romaji=""):
+def run_antigravity_analysis(word, sentence, romaji="", custom_prompt=""):
     print(f"  🤖 Running Antigravity CLI for: '{word}'...")
-    stdout = run_antigravity_prompt(build_ai_prompt(word, sentence, romaji))
+    prompt = custom_prompt if custom_prompt else build_ai_prompt(word, sentence, romaji)
+    stdout = run_antigravity_prompt(prompt)
     clean_json = stdout
     if clean_json.startswith("```json"):
         clean_json = clean_json[7:]
@@ -178,11 +179,11 @@ def run_antigravity_analysis(word, sentence, romaji=""):
         raise ValueError(f"Could not parse Antigravity response as JSON: {stdout[:200]}")
 
 
-def run_gemini_api_analysis(word, sentence, romaji, api_key):
+def run_gemini_api_analysis(word, sentence, romaji, api_key, custom_prompt=""):
     if not api_key or not api_key.strip():
         raise ValueError("Missing Gemini API key")
 
-    prompt = build_ai_prompt(word, sentence, romaji)
+    prompt = custom_prompt if custom_prompt else build_ai_prompt(word, sentence, romaji)
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key.strip()}"
     payload = json.dumps({
         "contents": [{
@@ -200,6 +201,7 @@ def run_gemini_api_analysis(word, sentence, romaji, api_key):
         candidate = raw.get("candidates", [{}])[0]
         content_text = candidate.get("content", {}).get("parts", [{}])[0].get("text", "")
         return json.loads(content_text.strip())
+
 
 
 def http_get_backend(url, headers=None, data=None, timeout=8):
@@ -396,28 +398,30 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 word = req_json.get("word", "").strip()
                 sentence = req_json.get("sentence", "").strip()
                 romaji = req_json.get("romaji", "").strip()
+                custom_prompt = req_json.get("prompt", "").strip()
                 provider = req_json.get("provider", "antigravity").lower()
                 api_key = req_json.get("apiKey", "").strip()
 
-                if not word:
+                if not word and not custom_prompt:
                     self.send_json_response(400, {"status": "error", "message": "Missing 'word' parameter"})
                     return
 
-                # Check cache (v5 compact horizontal gloss format)
-                cache_key = f"v5:{provider}:{word}:{sentence}"
+                # Check cache (v5 compact horizontal gloss format or custom prompt)
+                cache_key = f"v5:{provider}:prompt:{custom_prompt}" if custom_prompt else f"v5:{provider}:{word}:{sentence}"
                 cached = get_from_cache(ai_analysis_cache, cache_key)
                 if cached:
-                    print(f"  ⚡ Serving cached AI analysis for '{word}'")
+                    print(f"  ⚡ Serving cached AI analysis for '{word or 'custom_prompt'}'")
                     self.send_json_response(200, {"status": "success", "data": cached, "cached": True})
                     return
 
                 if provider in ["antigravity", "agy"]:
-                    ai_data = run_antigravity_analysis(word, sentence, romaji)
+                    ai_data = run_antigravity_analysis(word, sentence, romaji, custom_prompt)
                 elif provider in ["gemini", "gemini_api"]:
-                    ai_data = run_gemini_api_analysis(word, sentence, romaji, api_key)
+                    ai_data = run_gemini_api_analysis(word, sentence, romaji, api_key, custom_prompt)
                 else:
                     self.send_json_response(400, {"status": "error", "message": f"Unsupported provider: {provider}"})
                     return
+
 
                 set_in_cache(ai_analysis_cache, cache_key, ai_data)
                 self.send_json_response(200, {"status": "success", "data": ai_data, "provider": provider})

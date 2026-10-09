@@ -78,6 +78,17 @@ content_code = """/**
     const w = word.trim();
     if (SPECIAL_WORDS[w]) return SPECIAL_WORDS[w];
     const deinflections = yomitanDeinflector.deinflect(w);
+    // 来る changes its stem with the inflection. 行く must retain the
+    // established reading ahead of the ambiguous 行う candidate.
+    if (w.startsWith('来') && deinflections.some(candidate => candidate.term === '来る')) {
+      const suffix = w.slice(1);
+      const stem = /^(?:な|ず|ぬ|よう|られ|させ|い|れる)/.test(suffix)
+        ? 'こ' : /^(?:る|れ)/.test(suffix) ? 'く' : 'き';
+      return stem + suffix;
+    }
+    if (w.startsWith('行') && deinflections.some(candidate => candidate.term === '行く')) {
+      return 'い' + w.slice(1);
+    }
     for (let dIdx = 0; dIdx < deinflections.length; dIdx++) {
       const { term } = deinflections[dIdx];
       if (SPECIAL_WORDS[term]) {
@@ -318,6 +329,8 @@ content_code = """/**
     return { furigana: hira, romaji };
   }
 
+  const japaneseParser = globalThis.LinguaPlayParser?.create({ wanakana: window.wanakana });
+
   const COPULAS = new Set([
     'だった', 'でした', 'だろう', 'でしょう', 'だ', 'です',
     'じゃない', 'じゃなかった', 'ではない', 'ではなかった'
@@ -439,6 +452,8 @@ content_code = """/**
 
   function generateSentenceRomaji(sentenceText, targetWord) {
     if (!sentenceText || !sentenceText.trim()) return '';
+    const parsedRomaji = japaneseParser?.romaji(sentenceText, targetWord);
+    if (parsedRomaji != null) return parsedRomaji;
     const clean = sentenceText.trim();
     const tokens = segmentJapaneseSentence(clean);
 
@@ -543,14 +558,27 @@ content_code = """/**
   let timingOffset = 0.0;
   let readingMode = 'furigana';
   let currentVideoId = null;
+  let lyricsFetchAttemptedVid = null;
+  let isFetchingLyrics = false;
   let lastAiData = null;
   let senseiChatHistory = [];
+  let activeSenseiChatRequest = null;
+  let drawerContextVersion = 0;
+  let refreshDrawerParsing = () => {};
   let drawerContextSentence = '';
   let drawerActiveWord = '';
   let activeLiveSentence = '';
   let isPanelCollapsed = true;
+  let areSubtitlesHidden = false;
+  let playerUI = null;
+  let liveCaptionObserver = null;
+  let drawerPlacementObserver = null;
+  let drawerSidebar = null;
 
   // ── Load Settings ──
+  let renderedSentence = '';
+  let subtitleRenderVersion = 0;
+
   chrome.storage.local.get(['linguaplay_reading_mode', 'linguaplay_panel_collapsed'], (res) => {
     if (res.linguaplay_reading_mode) readingMode = res.linguaplay_reading_mode;
     if (typeof res.linguaplay_panel_collapsed === 'boolean') isPanelCollapsed = res.linguaplay_panel_collapsed;
@@ -560,6 +588,8 @@ content_code = """/**
   // ── Tokenizer with Kanji Resolution ──
   function tokenize(sentence) {
     if (!sentence || !sentence.trim()) return [];
+    const parsed = japaneseParser?.cached(sentence);
+    if (parsed) return parsed;
     
     if (typeof Intl !== 'undefined' && Intl.Segmenter) {
       try {
@@ -661,6 +691,164 @@ content_code = """/**
       if (text) cues.push({ start, end, text });
     }
     return cues.sort((a, b) => a.start - b.start);
+  }
+
+  function parseLRC(raw) {
+    if (!raw) return [];
+    const lines = raw.replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n').split('\\n');
+    const rawCues = [];
+    let globalOffset = 0.0;
+    const timeRegex = /\\[(\\d{1,2}):(\\d{2})(?:[.:](\\d{2,3}))?\\]/g;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      const offsetMatch = trimmed.match(/^\\[offset:\\s*([+-]?\\d+)\\s*\\]/i);
+      if (offsetMatch) {
+        globalOffset = (parseInt(offsetMatch[1], 10) || 0) / 1000;
+        continue;
+      }
+
+      if (/^\\[[a-z]{2,8}:/i.test(trimmed)) continue;
+
+      const matches = [...trimmed.matchAll(timeRegex)];
+      if (matches.length === 0) continue;
+
+      const text = trimmed.replace(timeRegex, '').replace(/<[^>]+>/g, '').trim();
+      if (!text) continue;
+
+      for (const m of matches) {
+        const minutes = parseInt(m[1], 10);
+        const seconds = parseInt(m[2], 10);
+        let millis = 0;
+        if (m[3]) {
+          if (m[3].length === 2) {
+            millis = parseInt(m[3], 10) * 10;
+          } else {
+            millis = parseInt(m[3].padEnd(3, '0').slice(0, 3), 10);
+          }
+        }
+        const start = Math.max(0, minutes * 60 + seconds + (millis / 1000) + globalOffset);
+        rawCues.push({ start, text });
+      }
+    }
+
+    if (rawCues.length === 0) return [];
+    rawCues.sort((a, b) => a.start - b.start);
+
+    const cues = [];
+    for (let i = 0; i < rawCues.length; i++) {
+      const curr = rawCues[i];
+      let end;
+      if (i + 1 < rawCues.length) {
+        const nextStart = rawCues[i + 1].start;
+        end = nextStart > curr.start ? Math.min(nextStart, curr.start + 8.0) : curr.start + 3.0;
+      } else {
+        end = curr.start + 4.0;
+      }
+      cues.push({ start: curr.start, end, text: curr.text });
+    }
+
+    return cues;
+  }
+
+  function parseSubtitleFile(raw, filename = '') {
+    const isVtt = filename.toLowerCase().endsWith('.vtt') || raw.trim().startsWith('WEBVTT');
+    if (isVtt) return parseVTT(raw);
+    const isLrc = filename.toLowerCase().endsWith('.lrc') || /\\[\\d{1,2}:\\d{2}[.:]\\d{2,3}\\]/.test(raw);
+    if (isLrc) return parseLRC(raw);
+    return parseSRT(raw);
+  }
+
+  function cleanSongTitle(rawTitle, rawChannel = '') {
+    if (!rawTitle || typeof rawTitle !== 'string') {
+      const fallback = (rawChannel || '').trim();
+      return { trackName: '', artistName: fallback, query: fallback };
+    }
+
+    let clean = rawTitle.trim();
+    clean = clean.replace(/\\s*-\\s*YouTube$/i, '').trim();
+
+    // Strip sumitsuki kakko 【...】 if there is text outside of it
+    const withoutSumitsuki = clean.replace(/【[^】]*】/g, ' ').trim();
+    if (withoutSumitsuki) {
+      clean = withoutSumitsuki;
+    } else {
+      clean = clean.replace(/[【】]/g, ' ').trim();
+    }
+
+    // Strip anime theme metadata in parentheses if there is text outside of it
+    const withoutAnimeParens = clean.replace(/[（\\(](?:TVアニメ|アニメ|TV Anime|Anime|主題歌|OP|ED|挿入歌|テーマ|Character Song).*?[）\\)]/gi, ' ').trim();
+    if (withoutAnimeParens) {
+      clean = withoutAnimeParens;
+    }
+
+    clean = clean.replace(/\\[(?:Official|MV|Music Video|Full|Audio|Lyric Video|4K|HD|Remastered|Live).*?\\]/gi, ' ');
+    clean = clean.replace(/\\((?:Official|Music Video|MV|Audio|Lyric Video|Full Ver\\.?|Live|Visualizer|THE FIRST TAKE).*?\\)/gi, ' ');
+    clean = clean.replace(/THE FIRST TAKE/gi, ' ');
+    clean = clean.replace(/\\b(?:Official Music Video|Official Video|Music Video|Lyric Video|Official Audio)\\b/gi, ' ');
+
+    const cleanChannel = (rawChannel || '')
+      .replace(/(?:\\s*-\\s*Topic|Official Channel|OFFICIAL CHANNEL|Official YouTube Channel|OFFICIAL|Official|チャンネル)/gi, '')
+      .trim();
+
+    let trackName = '';
+    let artistName = '';
+
+    const quoteMatch = clean.match(/[『「]([^』」]+)[』」]/);
+    if (quoteMatch) {
+      trackName = quoteMatch[1].trim();
+      const before = clean.slice(0, quoteMatch.index).replace(/[-/／|｜~～\\s]+$/, '').trim();
+      const after = clean.slice(quoteMatch.index + quoteMatch[0].length).replace(/^[-/／|｜~～\\s]+/, '').trim();
+      if (before && !/^(?:MV|Official)$/i.test(before)) {
+        artistName = before.replace(/\\s*(?:x|feat\\.?|ft\\.?).*$/i, '').trim();
+      } else if (after) {
+        const candidate = after.split(/[/／|｜]/)[0].replace(/\\s*(?:x|feat\\.?|ft\\.?).*$/i, '').trim();
+        if (candidate && !/^(?:MV|Official)$/i.test(candidate)) {
+          artistName = candidate;
+        }
+      }
+    }
+
+    if (!trackName) {
+      const parts = clean.split(/\\s*[-—／|｜]\\s*|\\s+\\/\\s+/).map(p => p.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        const chLower = cleanChannel.toLowerCase();
+        if (chLower && parts[0].toLowerCase().includes(chLower)) {
+          artistName = parts[0];
+          trackName = parts[1];
+        } else if (chLower && parts[1].toLowerCase().includes(chLower)) {
+          artistName = parts[1];
+          trackName = parts[0];
+        } else {
+          artistName = parts[0];
+          trackName = parts[1];
+        }
+      } else {
+        trackName = clean;
+      }
+    }
+
+    if (!artistName && cleanChannel) {
+      artistName = cleanChannel;
+    }
+
+    const stripFeatures = (str) => {
+      return str
+        .replace(/\\s*(?:feat\\.?|ft\\.?)\\s+.*$/i, '')
+        .replace(/\\s*（(?:CV|feat|ft).*?）/gi, '')
+        .replace(/\\s*\\((?:CV|feat|ft).*?\\)/gi, '')
+        .replace(/[（\\(][^）\\)]*[）\\)]/g, '')
+        .replace(/[/／|｜].*$/, '')
+        .trim();
+    };
+
+    trackName = stripFeatures(trackName);
+    artistName = stripFeatures(artistName);
+
+    const query = [artistName, trackName].filter(Boolean).join(' ') || clean;
+    return { trackName, artistName, query };
   }
 
   // ── Language Detection Helper ──
@@ -913,8 +1101,418 @@ content_code = """/**
     return [];
   }
 
+  // ── Sensei AI LLM Call Engine (Shared Across LinguaPlay) ──
+  function getSenseiProvider(config) {
+    return config.linguaplay_ai_provider || (config.linguaplay_gemini_key ? 'gemini' : 'antigravity');
+  }
+
+   async function callSenseiLlmApi({ messages, isJson, config, word, romaji, sentence, prompt }) {
+    const provider = getSenseiProvider(config);
+    const geminiKey = (config.linguaplay_gemini_key || '').trim();
+    const deepseekKey = (config.linguaplay_deepseek_key || '').trim();
+    const openrouterKey = (config.linguaplay_openrouter_key || '').trim();
+    const openrouterModel = (config.linguaplay_openrouter_model || 'deepseek/deepseek-chat').trim();
+    const serverUrl = (config.linguaplay_server_url || 'http://127.0.0.1:8000').trim();
+
+    // 1. Google Gemini Flash Direct
+    if (provider === 'gemini') {
+      if (!geminiKey) throw new Error('Missing Google Gemini API key. Add it in Extension Settings.');
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+      
+      const contents = [];
+      for (const m of messages) {
+        if (m.role === 'system') continue;
+        contents.push({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }]
+        });
+      }
+      if (contents.length === 0 && messages.length > 0) {
+        contents.push({ role: 'user', parts: [{ text: messages[0].content }] });
+      }
+
+      const sysMsg = messages.find(m => m.role === 'system');
+      const body = {
+        contents,
+        generationConfig: isJson ? { responseMimeType: 'application/json' } : {}
+      };
+      if (sysMsg) {
+        body.systemInstruction = { parts: [{ text: sysMsg.content }] };
+      }
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(12000)
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Gemini API returned status ${res.status}`);
+      }
+      const data = await res.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }
+
+    // 2. DeepSeek Direct API
+    if (provider === 'deepseek') {
+      if (!deepseekKey) throw new Error('Missing DeepSeek API key. Add it in Extension Settings.');
+      const url = 'https://api.deepseek.com/v1/chat/completions';
+      const body = {
+        model: 'deepseek-chat',
+        messages: messages,
+        response_format: isJson ? { type: 'json_object' } : undefined
+      };
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${deepseekKey}`
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(12000)
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || `DeepSeek API returned status ${res.status}`);
+      }
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || '';
+    }
+
+    // 3. OpenRouter Direct API
+    if (provider === 'openrouter') {
+      if (!openrouterKey) throw new Error('Missing OpenRouter API key. Add it in Extension Settings.');
+      const url = 'https://openrouter.ai/api/v1/chat/completions';
+      const body = {
+        model: openrouterModel,
+        messages: messages,
+        response_format: isJson ? { type: 'json_object' } : undefined
+      };
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${openrouterKey}`,
+          'HTTP-Referer': 'https://linguaplay.app',
+          'X-Title': 'LinguaPlay'
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(14000)
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || `OpenRouter API returned status ${res.status}`);
+      }
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || '';
+    }
+
+    // 4. OpenCode Custom Endpoint
+    if (provider === 'opencode') {
+      return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ action: 'CALL_CUSTOM_AI', messages, isJson }, response => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else if (!response || !response.success) {
+            reject(new Error(response?.error || 'Custom endpoint request failed'));
+          } else {
+            resolve(response.content);
+          }
+        });
+      });
+    }
+
+    // 5. Antigravity CLI Local Server
+    if (provider === 'antigravity') {
+      const localAiTimeout = 120000;
+      if (isJson) {
+        try {
+          const res = await fetch(`${serverUrl}/api/ai/analyze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ word, romaji, sentence, ...(prompt ? { prompt } : {}), provider: 'antigravity' }),
+            signal: AbortSignal.timeout(localAiTimeout)
+          });
+          const raw = await res.json().catch(() => ({}));
+          if (!res.ok || raw.status === 'error') throw new Error(raw.message || `Local server returned ${res.status}`);
+          return JSON.stringify(raw.data || raw);
+        } catch (error) {
+          if (error.name === 'TimeoutError') throw new Error('Local AI did not respond within two minutes. Click Ask Sensei to try again.');
+          throw error;
+        }
+      } else {
+        const res = await fetch(`${serverUrl}/api/ai/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages, word, romaji, sentence }),
+          signal: AbortSignal.timeout(localAiTimeout)
+        });
+        const raw = await res.json().catch(() => ({}));
+        if (!res.ok || raw.status === 'error') throw new Error(raw.message || `Local server chat returned ${res.status}`);
+        const reply = raw.reply || raw.content;
+        if (typeof reply !== 'string' || !reply.trim()) throw new Error('Local server returned an empty chat reply.');
+        return reply;
+      }
+    }
+
+    throw new Error(`Unsupported AI provider: ${provider}`);
+  }
+
+  // ── Sensei AI Song Identification ──
+  function parseSongMetadataJson(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    const cleaned = raw.replace(/```json|```/gi, '').trim();
+    const extractFields = (obj) => {
+      const data = obj?.data && typeof obj.data === 'object' ? obj.data : obj;
+      if (data && typeof data === 'object' && (data.trackName || data.artistName)) {
+        return {
+          trackName: String(data.trackName || '').trim(),
+          artistName: String(data.artistName || '').trim(),
+          animeName: String(data.animeName || '').trim()
+        };
+      }
+      return null;
+    };
+    try {
+      const parsed = extractFields(JSON.parse(cleaned));
+      if (parsed) return parsed;
+    } catch { /* try regex extraction */ }
+    const match = cleaned.match(/\\{[\\s\\S]*\\}/);
+    if (match) {
+      try {
+        const parsed = extractFields(JSON.parse(match[0]));
+        if (parsed) return parsed;
+      } catch { /* ignore */ }
+    }
+    return null;
+  }
+
+  async function identifySongWithSensei(title, channel, options = {}) {
+    if (!title || typeof title !== 'string') return null;
+    return new Promise((resolve) => {
+      if (!chrome.storage?.local) {
+        resolve(null);
+        return;
+      }
+      chrome.storage.local.get([
+        'linguaplay_ai_provider',
+        'linguaplay_gemini_key',
+        'linguaplay_deepseek_key',
+        'linguaplay_openrouter_key',
+        'linguaplay_openrouter_model',
+        'linguaplay_opencode_url',
+        'linguaplay_opencode_key',
+        'linguaplay_opencode_model',
+        'linguaplay_server_url'
+      ], async (cfg) => {
+        try {
+          const primaryProvider = getSenseiProvider(cfg);
+          const hasKey = cfg.linguaplay_gemini_key || cfg.linguaplay_deepseek_key || cfg.linguaplay_openrouter_key || cfg.linguaplay_opencode_key || cfg.linguaplay_opencode_url || primaryProvider === 'antigravity' || primaryProvider === 'opencode';
+          if (!hasKey) {
+            resolve({ error: 'Please set up an AI API key (Gemini, DeepSeek, etc.) in LinguaPlay settings to use Sensei AI.' });
+            return;
+          }
+
+          const prompt = `You are Sensei, an expert in Japanese music, anime soundtracks, and J-pop.
+Given this YouTube music video title and channel:
+Title: "${title.replace(/"/g, '\\"')}"
+Channel: "${(channel || '').replace(/"/g, '\\"')}"
+
+Extract the song metadata:
+1. "trackName": The real Japanese song title (strip "OP", "ED", "Theme", "MV", "Full", parenthetical translations, etc.).
+2. "artistName": The actual performing music artist/singer (NOT the anime series name, anime studio, or YouTube reposter). If the song is an anime theme and the singer is not named in the title, use your knowledge of the official soundtrack release to provide the real artist name.
+3. "animeName": The anime series name if applicable, or empty string.
+
+Respond in JSON only:
+{"trackName": "...", "artistName": "...", "animeName": "..."}`;
+
+          const candidateProviders = [primaryProvider];
+          if (cfg.linguaplay_gemini_key && !candidateProviders.includes('gemini')) candidateProviders.push('gemini');
+          if (cfg.linguaplay_deepseek_key && !candidateProviders.includes('deepseek')) candidateProviders.push('deepseek');
+          if (cfg.linguaplay_openrouter_key && !candidateProviders.includes('openrouter')) candidateProviders.push('openrouter');
+          if ((cfg.linguaplay_opencode_key || cfg.linguaplay_opencode_url) && !candidateProviders.includes('opencode')) candidateProviders.push('opencode');
+          if (!candidateProviders.includes('antigravity')) candidateProviders.push('antigravity');
+
+          let lastError = null;
+          for (const prov of candidateProviders) {
+            try {
+              if (prov === 'antigravity' && options?.ensureServer && chrome.runtime?.sendMessage) {
+                await new Promise(r => {
+                  try {
+                    chrome.runtime.sendMessage({ action: 'ENSURE_LOCAL_SERVER' }, () => {
+                      void chrome.runtime?.lastError;
+                      r();
+                    });
+                  } catch {
+                    r();
+                  }
+                });
+              }
+
+              const raw = await callSenseiLlmApi({
+                messages: [{ role: 'user', content: prompt }],
+                isJson: true,
+                config: { ...cfg, linguaplay_ai_provider: prov },
+                word: title,
+                romaji: '',
+                sentence: title,
+                prompt
+              });
+
+              let parsed = parseSongMetadataJson(raw);
+              if (!parsed && prov === 'antigravity') {
+                const chatRaw = await callSenseiLlmApi({
+                  messages: [{ role: 'user', content: prompt }],
+                  isJson: false,
+                  config: { ...cfg, linguaplay_ai_provider: 'antigravity' },
+                  word: title,
+                  romaji: '',
+                  sentence: title
+                });
+                parsed = parseSongMetadataJson(chatRaw);
+              }
+
+              if (parsed && (parsed.trackName || parsed.artistName)) {
+                resolve(parsed);
+                return;
+              }
+            } catch (err) {
+              lastError = err;
+              console.warn(`[LinguaPlay] identifySongWithSensei (${prov}) error:`, err);
+            }
+          }
+
+          if (lastError) {
+            resolve({ error: lastError.message });
+            return;
+          }
+          resolve(null);
+        } catch (e) {
+          console.warn('[LinguaPlay] identifySongWithSensei error:', e);
+          resolve({ error: e.message });
+        }
+      });
+    });
+  }
+
+  // ── Fetch Synced Lyrics from LRCLIB & Kugou (with Heuristic + Sensei AI Fallback) ──
+  async function fetchLrclibLyrics(title, channel, duration) {
+    try {
+      const meta = cleanSongTitle(title, channel);
+      const queryApi = (t, a, q) => new Promise(resolve => {
+        chrome.runtime.sendMessage({
+          action: 'FETCH_LRCLIB_LYRICS',
+          trackName: t,
+          artistName: a,
+          query: q,
+          duration: duration || 0
+        }, res => {
+          if (chrome.runtime?.lastError) {
+            resolve({ success: false, error: chrome.runtime.lastError.message });
+          } else {
+            resolve(res);
+          }
+        });
+      });
+
+      // 1. Try heuristic extraction first (0ms)
+      let response = null;
+      if (meta.trackName || meta.query) {
+        response = await queryApi(meta.trackName, meta.artistName, meta.query);
+      }
+
+      if (response && response.success && response.syncedLyrics) {
+        const cues = parseLRC(response.syncedLyrics);
+        if (cues && cues.length > 0) {
+          return {
+            cues,
+            trackName: response.trackName || meta.trackName,
+            artistName: response.artistName || meta.artistName,
+            provider: response.provider || 'lrclib',
+            syncedLyrics: response.syncedLyrics
+          };
+        }
+      }
+
+      // 2. Auto-fallback to Sensei AI if heuristic search found nothing
+      const aiMeta = await identifySongWithSensei(title, channel);
+      if (aiMeta && !aiMeta.error && (aiMeta.trackName || aiMeta.artistName)) {
+        const aiQuery = [aiMeta.artistName, aiMeta.trackName].filter(Boolean).join(' ');
+        response = await queryApi(aiMeta.trackName, aiMeta.artistName, aiQuery);
+        if (response && response.success && response.syncedLyrics) {
+          const cues = parseLRC(response.syncedLyrics);
+          if (cues && cues.length > 0) {
+            return {
+              cues,
+              trackName: response.trackName || aiMeta.trackName,
+              artistName: response.artistName || aiMeta.artistName,
+              provider: response.provider || 'lrclib',
+              isAi: true,
+              syncedLyrics: response.syncedLyrics
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[LinguaPlay] LRCLIB lyrics fetch failed:', e);
+    }
+    return null;
+  }
+
+  function getYouTubeVideoMetadata() {
+    let title = '';
+    let channel = '';
+
+    const watchFlexy = document.querySelector('ytd-watch-flexy');
+    const flexyVideoId = watchFlexy?.getAttribute?.('video-id');
+    const isWatchDomCurrent = !flexyVideoId || !currentVideoId || flexyVideoId === currentVideoId;
+
+    if (isWatchDomCurrent) {
+      const titleEl = document.querySelector('ytd-watch-metadata h1 yt-formatted-string') ||
+                      document.querySelector('h1.ytd-watch-metadata yt-formatted-string') ||
+                      document.querySelector('h1.title yt-formatted-string') ||
+                      document.querySelector('#title h1 yt-formatted-string') ||
+                      document.querySelector('h1.ytd-video-primary-info-renderer yt-formatted-string') ||
+                      document.querySelector('h1.ytd-video-primary-info-renderer');
+      if (titleEl && titleEl.textContent && titleEl.textContent.trim()) {
+        title = titleEl.textContent.trim();
+      }
+    }
+
+    if (!title && document.title) {
+      const docT = document.title.replace(/^\\(\\d+\\)\\s*/, '').replace(/\\s*-\\s*YouTube$/i, '').trim();
+      if (docT && !/^YouTube$/i.test(docT)) {
+        title = docT;
+      }
+    }
+
+    if (!title && isWatchDomCurrent) {
+      const metaTitle = document.querySelector('meta[name="title"]') || document.querySelector('meta[property="og:title"]');
+      if (metaTitle && metaTitle.content && metaTitle.content.trim()) {
+        title = metaTitle.content.trim();
+      }
+    }
+
+    if (isWatchDomCurrent) {
+      const channelEl = document.querySelector('ytd-watch-metadata #upload-info #channel-name a') ||
+                        document.querySelector('ytd-watch-metadata ytd-channel-name a') ||
+                        document.querySelector('#upload-info #channel-name a') ||
+                        document.querySelector('ytd-channel-name a') ||
+                        document.querySelector('#owner-name a');
+      if (channelEl && channelEl.textContent && channelEl.textContent.trim()) {
+        channel = channelEl.textContent.trim();
+      }
+    }
+
+    return { title, channel };
+  }
+
   // ── Render Tokens into Subtitle Overlay ──
   function renderSentenceTokens(sentenceText) {
+    const renderVersion = ++subtitleRenderVersion;
+    const videoId = currentVideoId;
+    renderedSentence = sentenceText || '';
     const container = document.getElementById('linguaplay-yt-tokens');
     const overlay = document.getElementById('linguaplay-yt-tokens-overlay');
     const player = document.querySelector('#movie_player') || document.querySelector('.html5-video-player');
@@ -931,9 +1529,21 @@ content_code = """/**
     if (player) player.classList.add('linguaplay-has-japanese');
 
     const tokens = tokenize(sentenceText);
+    if (japaneseParser && !japaneseParser.cached(sentenceText)) {
+      japaneseParser.request(sentenceText).then(parsed => {
+        if (parsed && renderVersion === subtitleRenderVersion && videoId === currentVideoId && renderedSentence === sentenceText) {
+          renderSentenceTokens(sentenceText);
+        }
+      });
+    }
     container.innerHTML = '';
 
+    let offset = 0;
     tokens.forEach(tk => {
+      if (!tk.surface.trim()) return;
+      const start = Number.isInteger(tk.start) ? tk.start : sentenceText.indexOf(tk.surface, offset);
+      const token = { ...tk, start, end: Number.isInteger(tk.end) ? tk.end : start + tk.surface.length };
+      offset = token.end;
       const span = document.createElement('span');
       span.className = 'linguaplay-yt-token';
       span.dataset.word = tk.surface;
@@ -948,14 +1558,18 @@ content_code = """/**
         hiddenClass = 'hidden-reading';
       }
 
-      span.innerHTML = `
-        <span class="linguaplay-token-reading ${hiddenClass}">${reading || '&nbsp;'}</span>
-        <span class="linguaplay-jp-text">${tk.surface}</span>
-      `;
+      const readingSpan = document.createElement('span');
+      readingSpan.className = `linguaplay-token-reading ${hiddenClass}`;
+      readingSpan.textContent = reading || '\\u00a0';
+      const surfaceSpan = document.createElement('span');
+      surfaceSpan.className = 'linguaplay-jp-text';
+      surfaceSpan.textContent = tk.surface;
+      span.appendChild(readingSpan);
+      span.appendChild(surfaceSpan);
 
       span.addEventListener('click', (e) => {
         e.stopPropagation();
-        handleTokenClick(tk, sentenceText);
+        handleTokenClick(token, sentenceText);
       });
 
       container.appendChild(span);
@@ -1044,23 +1658,45 @@ content_code = """/**
     }
   }
 
-  // ── Handle Word Click (Non-Interrupting & Side-Panel Integration) ──
-  function handleTokenClick(token, sentenceContext) {
-    let drawer = document.getElementById('linguaplay-yt-drawer');
+  // Use the outer sidebar: Mix/playlist panels may precede #secondary-inner.
+  function ensureDrawerPlacement() {
+    const drawer = playerUI?.drawer || document.getElementById('linguaplay-yt-drawer');
     if (!drawer) return;
-
-    const secondary = document.querySelector('#secondary-inner') || document.querySelector('#secondary') || document.querySelector('#related');
-    if (secondary && secondary.offsetParent !== null) {
-      if (drawer.parentElement !== secondary) {
-        secondary.insertBefore(drawer, secondary.firstChild);
-      }
+    const sidebar = ['#secondary', '#secondary-inner', '#related']
+      .map(selector => document.querySelector(selector))
+      .find(element => element && element.offsetParent !== null) || null;
+    if (sidebar) {
       drawer.classList.remove('floating-fallback');
+      if (drawer.parentElement !== sidebar || sidebar.firstChild !== drawer) sidebar.insertBefore(drawer, sidebar.firstChild);
     } else {
-      if (drawer.parentElement !== document.body) {
-        document.body.appendChild(drawer);
-      }
       drawer.classList.add('floating-fallback');
+      if (drawer.parentElement !== document.body) document.body.appendChild(drawer);
     }
+    if (drawerSidebar !== sidebar) {
+      if (drawerPlacementObserver) drawerPlacementObserver.disconnect();
+      drawerSidebar = sidebar;
+      if (sidebar) {
+        drawerPlacementObserver = new MutationObserver(ensureDrawerPlacement);
+        // Watch direct sidebar children only; translation/chat updates should
+        // not trigger repositioning or an observer loop.
+        drawerPlacementObserver.observe(sidebar, { childList: true });
+      }
+    }
+  }
+
+  // ── Handle Word Click (Non-Interrupting & Side-Panel Integration) ──
+  function updateSenseiChatControls() {
+    const busy = activeSenseiChatRequest?.contextVersion === drawerContextVersion;
+    const sendButton = document.getElementById('lp-chat-send-btn');
+    if (sendButton) sendButton.disabled = busy;
+    document.querySelectorAll('.lp-chat-chip').forEach(button => { button.disabled = busy; });
+    document.getElementById('lp-chat-messages')?.setAttribute('aria-busy', String(busy));
+  }
+
+  function handleTokenClick(token, sentenceContext) {
+    const drawer = playerUI?.drawer || document.getElementById('linguaplay-yt-drawer');
+    if (!drawer) return;
+    ensureDrawerPlacement();
 
     const wordEl = document.getElementById('lp-active-word');
     const romajiEl = document.getElementById('lp-active-romaji');
@@ -1085,7 +1721,8 @@ content_code = """/**
     const chatEnEl = document.getElementById('lp-chat-sentence-en');
     const chatBadgeEl = document.getElementById('lp-sensei-provider-badge');
 
-    const readingData = getWordReading(token.surface);
+    const readingData = token.furigana && token.romaji
+      ? { furigana: token.furigana, romaji: token.romaji } : getWordReading(token.surface);
     const displayReading = readingData.romaji && readingData.furigana !== readingData.romaji
       ? `${readingData.furigana} (${readingData.romaji})`
       : readingData.furigana;
@@ -1099,8 +1736,53 @@ content_code = """/**
       posEl.textContent = '';
       posEl.style.display = 'none';
     }
+    drawerContextVersion++;
     drawerActiveWord = token.surface || '';
     drawerContextSentence = (sentenceContext || token.surface || '').trim();
+    const contextVersion = drawerContextVersion;
+    const leadingWhitespace = (sentenceContext || '').length - (sentenceContext || '').trimStart().length;
+    const selectedStart = Number.isInteger(token.start) ? token.start - leadingWhitespace : null;
+    let definitionBase = null;
+    function updateDefinition(selected) {
+      const base = selected.baseForm || selected.surface;
+      if (definitionBase === base) return;
+      definitionBase = base;
+      const local = JDICT[base] || JDICT[selected.surface];
+      if (local) { defEl.innerHTML = local; return; }
+      defEl.innerHTML = '<span style="opacity:0.6;">Looking up definition…</span>';
+      fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=en&dt=t&q=${encodeURIComponent(base)}`)
+        .then(r => r.json()).then(d => {
+          if (drawerContextVersion !== contextVersion || definitionBase !== base) return;
+          defEl.textContent = d?.[0]?.map(s => s[0]).filter(Boolean).join('') || 'No definition found';
+        }).catch(() => {
+          if (drawerContextVersion === contextVersion && definitionBase === base) defEl.textContent = 'Click Ask Antigravity AI below for deep analysis.';
+        });
+    }
+
+    if (japaneseParser) {
+      const contextSentence = drawerContextSentence;
+      refreshDrawerParsing = () => japaneseParser.request(contextSentence).then(parsed => {
+        if (!parsed || contextVersion !== drawerContextVersion || contextSentence !== drawerContextSentence) return;
+        let selected = parsed.find(item => item.surface === token.surface && (selectedStart === null || item.start === selectedStart));
+        if (!selected) {
+          const morpheme = parsed.flatMap(item => Array.isArray(item.morphemes) ? item.morphemes : [])
+            .find(item => item.surface === token.surface && (selectedStart === null || item.start === selectedStart));
+          if (morpheme) selected = japaneseParser.readingToken(morpheme);
+        }
+        if (selected) {
+          romajiEl.textContent = `${selected.furigana} (${selected.romaji})`;
+          posEl.textContent = selected.baseForm !== token.surface ? `(Base: ${selected.baseForm})` : '';
+          posEl.style.display = selected.baseForm !== token.surface ? 'inline' : 'none';
+          updateDefinition(selected);
+        }
+        const html = japaneseParser.romaji(contextSentence, token.surface);
+        if (html != null) {
+          if (sentRomajiEl) sentRomajiEl.innerHTML = html;
+          if (chatRomajiEl) chatRomajiEl.innerHTML = html;
+        }
+      });
+      refreshDrawerParsing();
+    }
 
     // Instant Sentence Context & Romaji Rendering
     if (sentenceWrap && sentJpEl && sentEnEl) {
@@ -1169,30 +1851,15 @@ content_code = """/**
     if (chatMessages) chatMessages.innerHTML = '';
     if (chatInput) chatInput.value = '';
     senseiChatHistory = [];
+    activeSenseiChatRequest = null;
+    updateSenseiChatControls();
     lastAiData = null;
 
     if (typeof switchDrawerTab === 'function') {
       switchDrawerTab('breakdown');
     }
 
-    const local = JDICT[token.baseForm] || JDICT[token.surface];
-    if (local) {
-      defEl.innerHTML = local;
-    } else {
-      defEl.innerHTML = '<span style="opacity:0.6;">Looking up definition…</span>';
-      fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=en&dt=t&q=${encodeURIComponent(token.baseForm)}`)
-        .then(r => r.json())
-        .then(d => {
-          let trans = '';
-          if (d && d[0] && Array.isArray(d[0])) {
-            trans = d[0].map(s => s[0]).filter(Boolean).join('');
-          }
-          defEl.textContent = trans || 'No definition found';
-        })
-        .catch(() => {
-          defEl.textContent = 'Click Ask Antigravity AI below for deep analysis.';
-        });
-    }
+    updateDefinition(token);
 
     drawer.classList.remove('hidden');
     drawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -1260,6 +1927,7 @@ content_code = """/**
 
   // ── Hook Live YouTube Closed Captions (DOM & textTracks) ──
   function setupLiveCaptionHooking() {
+    if (liveCaptionObserver) liveCaptionObserver.disconnect();
     const observer = new MutationObserver(() => {
       const captionContainer = document.querySelector('.ytp-caption-window-container') || document.querySelector('.caption-window');
       if (captionContainer) {
@@ -1284,6 +1952,7 @@ content_code = """/**
 
     const target = document.querySelector('#movie_player') || document.body;
     observer.observe(target, { childList: true, subtree: true, characterData: true });
+    liveCaptionObserver = observer;
 
     if (activeVideoEl && activeVideoEl.textTracks) {
       for (let i = 0; i < activeVideoEl.textTracks.length; i++) {
@@ -1309,27 +1978,86 @@ content_code = """/**
     }
   }
 
+  function updateSubtitleVisibility() {
+    // Keep rendering and requests running; only suppress their presentation.
+    // This page-session flag survives YouTube navigation without changing
+    // the drawer's own open/closed state or the selected reading mode.
+    document.documentElement.classList.toggle('linguaplay-subtitles-hidden', areSubtitlesHidden);
+    const button = playerUI?.visibilityToggle;
+    if (!button) return;
+    const label = areSubtitlesHidden ? 'Show subtitles and translation' : 'Hide subtitles and translation';
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.setAttribute('aria-pressed', String(areSubtitlesHidden));
+  }
+
   function updateWidgetState() {
-    const widget = document.getElementById('linguaplay-yt-widget');
+    updateSubtitleVisibility();
+    const widget = playerUI?.widget;
     if (!widget) return;
     if (isPanelCollapsed) {
       widget.classList.add('collapsed');
     } else {
       widget.classList.remove('collapsed');
     }
+    playerUI.settingsToggle.setAttribute('aria-expanded', String(!isPanelCollapsed));
+  }
+
+  function setPanelCollapsed(collapsed) {
+    isPanelCollapsed = collapsed;
+    chrome.storage.local.set({ linguaplay_panel_collapsed: collapsed });
+    updateWidgetState();
+  }
+
+  function ensurePlayerControls() {
+    if (!playerUI) return;
+    ensureDrawerPlacement();
+    const player = document.querySelector('#movie_player') || document.querySelector('.html5-video-player') || document.querySelector('video')?.parentElement;
+    if (!player) {
+      playerUI.controls.remove();
+      playerUI.widget.hidden = true;
+      return;
+    }
+    const { controls, widget, overlay } = playerUI;
+    if (overlay.parentElement !== player) player.appendChild(overlay);
+    if (widget.parentElement !== player) player.appendChild(widget);
+    if (playerUI.player !== player) {
+      playerUI.player = player;
+      setupLiveCaptionHooking();
+    }
+    const rightControls = player.querySelector('.ytp-right-controls');
+    widget.hidden = !rightControls;
+    if (!rightControls) {
+      controls.remove();
+      return;
+    }
+    const cc = rightControls.querySelector('.ytp-subtitles-button');
+    const anchor = cc?.parentElement === rightControls ? cc : Array.from(rightControls.children).find(child => child !== controls) || null;
+    if (controls.parentElement !== rightControls || controls.nextElementSibling !== anchor) {
+      rightControls.insertBefore(controls, anchor);
+    }
+    const nativeButton = Array.from(rightControls.querySelectorAll('.ytp-button')).find(button => !controls.contains(button) && button.getBoundingClientRect().width > 0);
+    if (nativeButton) controls.style.setProperty('--linguaplay-control-width', `${nativeButton.getBoundingClientRect().width}px`);
+    const playerBounds = player.getBoundingClientRect();
+    const barBounds = (player.querySelector('.ytp-chrome-bottom') || rightControls).getBoundingClientRect();
+    widget.style.bottom = `${Math.max(52, playerBounds.bottom - barBounds.top + 8)}px`;
+    widget.style.right = `${Math.max(12, playerBounds.right - barBounds.right)}px`;
   }
 
   // ── Inject LinguaPlay Interface on YouTube ──
   function injectUI() {
-    if (document.getElementById('linguaplay-yt-widget')) return;
+    if (playerUI) {
+      ensurePlayerControls();
+      return;
+    }
 
     const moviePlayer = document.querySelector('#movie_player') || document.querySelector('.html5-video-player') || document.querySelector('video')?.parentElement;
     if (!moviePlayer) return;
 
-    // 1. Hidden file input for manual .srt/.vtt upload on YouTube
+    // 1. Hidden file input for manual .srt/.vtt/.lrc upload on YouTube
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = '.srt,.vtt';
+    fileInput.accept = '.srt,.vtt,.lrc';
     fileInput.id = 'linguaplay-manual-sub-input';
     fileInput.style.display = 'none';
     document.body.appendChild(fileInput);
@@ -1340,11 +2068,12 @@ content_code = """/**
       const reader = new FileReader();
       reader.onload = (evt) => {
         const content = evt.target.result;
-        const cues = file.name.endsWith('.srt') ? parseSRT(content) : parseVTT(content);
+        const cues = parseSubtitleFile(content, file.name);
         if (cues.length > 0) {
           subtitleTimeline = cues;
           const statusBadge = document.getElementById('linguaplay-sub-status');
           if (statusBadge) statusBadge.textContent = `Subs (${cues.length})`;
+          updateLyricsModalStatus();
           ensureYouTubeCCEnabled();
           alert(`Loaded ${cues.length} subtitle cues from ${file.name}!`);
         }
@@ -1358,16 +2087,13 @@ content_code = """/**
     overlay.innerHTML = `<div id="linguaplay-yt-tokens"></div>`;
     moviePlayer.appendChild(overlay);
 
-    // 3. Retractable LinguaPlay Floating Widget (Top-Right Corner)
+    // 3. Settings panel above the native player control bar.
     const widget = document.createElement('div');
     widget.id = 'linguaplay-yt-widget';
     if (isPanelCollapsed) widget.classList.add('collapsed');
 
     widget.innerHTML = `
-      <div id="linguaplay-toggle-trigger" title="Open LinguaPlay Settings">
-        <span>言</span>
-      </div>
-      <div id="linguaplay-yt-bar">
+      <div id="linguaplay-yt-bar" role="group" aria-label="LinguaPlay settings">
         <span style="font-size: 11px; font-weight: bold; color: #a78bfa; margin-right: 2px; display:flex; align-items:center; gap:3px;">
           <span>言</span> <span>LinguaPlay</span>
         </span>
@@ -1379,14 +2105,37 @@ content_code = """/**
         <span id="linguaplay-offset-display" style="font-size: 10px; font-family: monospace; color: #cbd5e1; padding: 0 1px;">0.0s</span>
         <button class="linguaplay-bar-btn" id="linguaplay-offset-add" title="Delay +0.1s">+0.1s</button>
         <button class="linguaplay-bar-btn" id="linguaplay-repeat-btn" title="Repeat Cue (Shortcut: R)">🔁</button>
-        <button class="linguaplay-bar-btn" id="linguaplay-upload-sub-btn" title="Upload Japanese .srt/.vtt subtitle file">📁</button>
+        <button class="linguaplay-bar-btn" id="linguaplay-upload-sub-btn" title="Upload Japanese .srt/.vtt/.lrc subtitle file">📁</button>
+        <button class="linguaplay-bar-btn" id="linguaplay-fetch-lyrics-btn" title="Lyrics Manager (Search Synced Lyrics & Audio Timing)" style="background:rgba(124,58,237,0.35); border-color:#a78bfa; color:#fff; font-weight:600;">🎵 Lyrics</button>
         <button class="linguaplay-bar-btn" id="linguaplay-open-app-btn" title="Open in Full LinguaPlay Player Tab" style="background: rgba(124,58,237,0.4); border-color:#a78bfa; color:#fff;">🚀</button>
         <button class="linguaplay-bar-btn" id="linguaplay-open-settings-btn" title="Open Extension Settings" style="background: rgba(124,58,237,0.25); border-color:rgba(167,139,250,0.5); color:#fff;">⚙️</button>
-        <span id="linguaplay-sub-status" style="font-size: 10px; color: #6ee7b7; margin-left: 2px;"></span>
         <button class="linguaplay-bar-btn linguaplay-collapse-btn" id="linguaplay-collapse-btn" title="Collapse Bar">✕</button>
       </div>
     `;
     moviePlayer.appendChild(widget);
+
+    // Buttons inherit YouTube's native control-bar visibility. Retain their
+    // references so they can be reattached if YouTube replaces that bar.
+    const controls = document.createElement('span');
+    controls.id = 'linguaplay-yt-controls';
+    controls.innerHTML = `
+      <button type="button" class="ytp-button" id="linguaplay-visibility-toggle" title="Hide subtitles and translation" aria-label="Hide subtitles and translation" aria-pressed="false">
+        <svg class="linguaplay-eye-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>
+        </svg>
+        <svg class="linguaplay-eye-off" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="m3 3 18 18M10.6 5.1A12 12 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-3 4M6.5 6.5A18 18 0 0 0 2 12s3.5 7 10 7a12 12 0 0 0 5.5-1.5M10 10a3 3 0 0 0 4 4"/>
+        </svg>
+      </button>
+      <span id="linguaplay-sub-status" class="linguaplay-sub-status-badge" title="Click to open Lyrics Manager" role="button" tabindex="0"></span>
+      <button type="button" class="ytp-button" id="linguaplay-toggle-trigger" title="LinguaPlay settings" aria-label="LinguaPlay settings" aria-controls="linguaplay-yt-bar" aria-expanded="false">
+        <span aria-hidden="true">言</span>
+      </button>
+    `;
+    const visibilityToggle = controls.querySelector('#linguaplay-visibility-toggle');
+    const subStatusBadge = controls.querySelector('#linguaplay-sub-status');
+    const settingsToggle = controls.querySelector('#linguaplay-toggle-trigger');
+    playerUI = { player: moviePlayer, controls, widget, overlay, visibilityToggle, subStatusBadge, settingsToggle };
 
     // 4. Translation Panel (Defaults to Native Sidebar or Body)
     const drawer = document.createElement('div');
@@ -1480,26 +2229,44 @@ content_code = """/**
       </div>
     `;
 
-    const secondary = document.querySelector('#secondary-inner') || document.querySelector('#secondary') || document.querySelector('#related');
-    if (secondary) {
-      secondary.insertBefore(drawer, secondary.firstChild);
-    } else {
-      document.body.appendChild(drawer);
-    }
+    playerUI.drawer = drawer;
+    ensureDrawerPlacement();
 
     // 5. Retractable Widget Toggle Listeners
-    document.getElementById('linguaplay-toggle-trigger').addEventListener('click', (e) => {
+    visibilityToggle.addEventListener('click', (e) => {
       e.stopPropagation();
-      isPanelCollapsed = false;
-      chrome.storage.local.set({ linguaplay_panel_collapsed: false });
-      updateWidgetState();
+      areSubtitlesHidden = !areSubtitlesHidden;
+      if (!areSubtitlesHidden) onTimeUpdate();
+      updateSubtitleVisibility();
+    });
+    settingsToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      ensurePlayerControls();
+      setPanelCollapsed(!isPanelCollapsed);
     });
 
     document.getElementById('linguaplay-collapse-btn').addEventListener('click', (e) => {
       e.stopPropagation();
-      isPanelCollapsed = true;
-      chrome.storage.local.set({ linguaplay_panel_collapsed: true });
-      updateWidgetState();
+      setPanelCollapsed(true);
+      settingsToggle.focus();
+    });
+
+    // Stop player shortcuts without preventing native button activation or Tab.
+    [controls, widget].forEach(surface => {
+      ['click', 'keydown', 'keyup', 'pointerdown', 'pointerup', 'mousedown', 'mouseup'].forEach(eventName => {
+        surface.addEventListener(eventName, (e) => e.stopPropagation());
+      });
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !isPanelCollapsed) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPanelCollapsed(true);
+        settingsToggle.focus();
+      }
+    }, true);
+    document.addEventListener('click', (e) => {
+      if (!isPanelCollapsed && !widget.contains(e.target) && !controls.contains(e.target)) setPanelCollapsed(true);
     });
 
     // 6. Bar Event Listeners
@@ -1537,6 +2304,400 @@ content_code = """/**
     document.getElementById('linguaplay-upload-sub-btn').addEventListener('click', () => {
       fileInput.click();
     });
+
+    // 4. Lyrics Manager Modal Setup
+    let lyricsModal = document.getElementById('linguaplay-lyrics-modal');
+    if (!lyricsModal) {
+      lyricsModal = document.createElement('div');
+      lyricsModal.id = 'linguaplay-lyrics-modal';
+      lyricsModal.className = 'hidden';
+      lyricsModal.innerHTML = `
+        <div style="background:#0f172a; border:1px solid #334155; border-radius:16px; width:92%; max-width:540px; max-height:85vh; overflow-y:auto; padding:20px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.8); font-family:system-ui,-apple-system,sans-serif; color:#f8fafc; z-index:1000000;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid #1e293b; padding-bottom:12px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:22px;">🎵</span>
+              <h3 style="margin:0; font-size:17px; font-weight:700; color:#fff;">LinguaPlay Lyrics Manager</h3>
+            </div>
+            <button id="lp-lyrics-modal-close" style="background:rgba(255,255,255,0.08); border:none; color:#cbd5e1; font-size:16px; width:28px; height:28px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
+          </div>
+
+          <div id="lp-lyrics-modal-status" style="margin-bottom:14px; padding:10px 14px; background:rgba(30,27,75,0.5); border:1px solid rgba(139,92,246,0.3); border-radius:10px; font-size:12px; color:#c7d2fe; display:flex; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span>Active Subtitles: <strong id="lp-modal-active-count">0 cues</strong></span>
+              <span id="lp-modal-cache-badge" style="font-size:10px; padding:2px 6px; border-radius:4px; display:none;"></span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span id="lp-modal-active-type" style="color:#34d399; font-weight:600;">None</span>
+              <button id="lp-clear-cache-btn" style="display:none; background:rgba(239,68,68,0.2); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; border-radius:6px; padding:2px 8px; font-size:10.5px; cursor:pointer;" title="Clear cached lyrics for this video">Clear Cache</button>
+            </div>
+          </div>
+
+          <!-- Search Synced Lyrics (LRCLIB & Kugou) -->
+          <div style="margin-bottom:14px; background:#1e293b; padding:14px; border-radius:12px; border:1px solid #334155;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <label style="font-size:12px; font-weight:600; color:#a78bfa;">
+                🔍 Search Synced Lyrics
+              </label>
+              <span style="font-size:10px; color:#38bdf8; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.3); padding:1px 6px; border-radius:4px;">LRCLIB + Kugou Music</span>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+              <div>
+                <span style="font-size:10px; color:#94a3b8; display:block; margin-bottom:2px;">Track Name:</span>
+                <input type="text" id="lp-search-track-input" placeholder="Song title" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid #475569; border-radius:8px; padding:7px 10px; color:#fff; font-size:12px; outline:none;">
+              </div>
+              <div>
+                <span style="font-size:10px; color:#94a3b8; display:block; margin-bottom:2px;">Artist:</span>
+                <input type="text" id="lp-search-artist-input" placeholder="Artist name" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid #475569; border-radius:8px; padding:7px 10px; color:#fff; font-size:12px; outline:none;">
+              </div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button id="lp-search-submit-btn" style="flex:1; background:#7c3aed; color:#fff; border:none; border-radius:8px; padding:8px; font-size:12px; font-weight:600; cursor:pointer;">Search & Sync</button>
+              <button id="lp-ai-identify-btn" style="background:linear-gradient(135deg,#7c3aed,#ec4899); color:#fff; border:none; border-radius:8px; padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:4px; white-space:nowrap;" title="Use Sensei AI to extract clean Song Title and Artist from video">✨ AI Identify</button>
+            </div>
+            <div id="lp-search-results-list" style="margin-top:10px; max-height:140px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;"></div>
+          </div>
+
+          <!-- Audio Timing & Auto-Sync -->
+          <div style="background:#1e293b; padding:14px; border-radius:12px; border:1px solid #334155;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <label style="font-size:12px; font-weight:600; color:#f59e0b; display:flex; align-items:center; gap:6px;">
+                <span>⏱️ Audio Timing & Auto-Sync</span>
+              </label>
+              <div style="font-size:12px; color:#cbd5e1;">
+                Offset: <strong id="lp-modal-offset-val" style="color:#f59e0b; font-family:monospace; font-size:13px;">+0.0s</strong>
+              </div>
+            </div>
+
+            <!-- 1-Click Sync Anchor -->
+            <div style="background:#0f172a; border:1px solid #3b82f6; border-radius:8px; padding:10px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <div style="font-size:11px; color:#94a3b8; line-height:1.4;">
+                <span style="color:#60a5fa; font-weight:600;">🎯 1-Click Anchor:</span> When Line 1 starts singing, click:
+              </div>
+              <button id="lp-sync-playhead-btn" style="background:#2563eb; color:#fff; border:none; padding:7px 12px; border-radius:6px; font-size:11.5px; font-weight:600; cursor:pointer; white-space:nowrap; display:flex; align-items:center; gap:4px;">
+                <span>🎯 Sync Line 1 to Playhead</span>
+              </button>
+            </div>
+
+            <!-- Manual Numeric Input & Fine-Tuning Macros -->
+            <div style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
+              <span style="font-size:11px; color:#94a3b8;">Set Offset:</span>
+              <input type="number" id="lp-offset-manual-input" step="0.1" value="0.0" style="width:75px; background:#0f172a; border:1px solid #475569; border-radius:6px; padding:5px 8px; color:#fff; font-size:11.5px; font-family:monospace; outline:none;">
+              <button id="lp-offset-manual-set-btn" style="background:#475569; color:#fff; border:none; padding:5px 10px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer;">Set</button>
+              <div style="flex:1;"></div>
+              <span id="lp-offset-save-status" style="font-size:10px; color:#34d399;"></span>
+            </div>
+
+            <!-- Macro adjustment buttons -->
+            <div style="display:flex; flex-wrap:wrap; gap:4px; justify-content:center;">
+              <button class="lp-offset-adj-btn" data-delta="-5.0" style="background:#334155; color:#cbd5e1; border:none; padding:4px 7px; border-radius:6px; font-size:10.5px; cursor:pointer;">-5s</button>
+              <button class="lp-offset-adj-btn" data-delta="-1.0" style="background:#334155; color:#cbd5e1; border:none; padding:4px 7px; border-radius:6px; font-size:10.5px; cursor:pointer;">-1s</button>
+              <button class="lp-offset-adj-btn" data-delta="-0.5" style="background:#334155; color:#cbd5e1; border:none; padding:4px 7px; border-radius:6px; font-size:10.5px; cursor:pointer;">-0.5s</button>
+              <button class="lp-offset-adj-btn" data-delta="-0.1" style="background:#334155; color:#cbd5e1; border:none; padding:4px 7px; border-radius:6px; font-size:10.5px; cursor:pointer;">-0.1s</button>
+              <button class="lp-offset-adj-btn" data-delta="0" style="background:#475569; color:#fff; border:none; padding:4px 9px; border-radius:6px; font-size:10.5px; font-weight:600; cursor:pointer;">Reset (0s)</button>
+              <button class="lp-offset-adj-btn" data-delta="0.1" style="background:#334155; color:#cbd5e1; border:none; padding:4px 7px; border-radius:6px; font-size:10.5px; cursor:pointer;">+0.1s</button>
+              <button class="lp-offset-adj-btn" data-delta="0.5" style="background:#334155; color:#cbd5e1; border:none; padding:4px 7px; border-radius:6px; font-size:10.5px; cursor:pointer;">+0.5s</button>
+              <button class="lp-offset-adj-btn" data-delta="1.0" style="background:#334155; color:#cbd5e1; border:none; padding:4px 7px; border-radius:6px; font-size:10.5px; cursor:pointer;">+1s</button>
+              <button class="lp-offset-adj-btn" data-delta="5.0" style="background:#334155; color:#cbd5e1; border:none; padding:4px 7px; border-radius:6px; font-size:10.5px; cursor:pointer;">+5s</button>
+            </div>
+            <div style="font-size:10px; color:#64748b; text-align:center; margin-top:6px;">
+              💡 Hotkeys: <kbd style="background:#0f172a; padding:1px 4px; border-radius:3px;">[</kbd> / <kbd style="background:#0f172a; padding:1px 4px; border-radius:3px;">]</kbd> for ±0.1s | <kbd style="background:#0f172a; padding:1px 4px; border-radius:3px;">Shift+[</kbd> / <kbd style="background:#0f172a; padding:1px 4px; border-radius:3px;">Shift+]</kbd> for ±1.0s
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(lyricsModal);
+
+      document.getElementById('lp-lyrics-modal-close')?.addEventListener('click', () => {
+        lyricsModal.classList.add('hidden');
+      });
+      lyricsModal.addEventListener('click', (e) => {
+        if (e.target === lyricsModal) lyricsModal.classList.add('hidden');
+      });
+
+      document.getElementById('lp-search-submit-btn')?.addEventListener('click', () => {
+        return runModalLyricsSearch('');
+      });
+
+      // 1-Click AI Identification via Sensei LLM
+      document.getElementById('lp-ai-identify-btn')?.addEventListener('click', () => {
+        return runModalAiIdentifyAndSearch();
+      });
+
+      // Clear cached lyrics for current video
+      document.getElementById('lp-clear-cache-btn')?.addEventListener('click', () => {
+        if (!currentVideoId || !chrome.storage?.local) return;
+        chrome.storage.local.remove([`lp_lyrics_cache_${currentVideoId}`], () => {
+          subtitleTimeline = [];
+          currentSubIndex = -1;
+          const statusBadge = document.getElementById('linguaplay-sub-status');
+          if (statusBadge) statusBadge.textContent = '🎵 No lyrics (Click)';
+          updateLyricsModalStatus();
+          const listContainer = document.getElementById('lp-search-results-list');
+          if (listContainer) listContainer.innerHTML = '<div style="font-size:11px; color:#94a3b8;">Cleared cached lyrics for this video.</div>';
+        });
+      });
+
+      function setTimingOffset(newOffset) {
+        timingOffset = Math.round(newOffset * 10) / 10;
+        updateOffsetDisplay();
+        const modalOffset = document.getElementById('lp-modal-offset-val');
+        if (modalOffset) modalOffset.textContent = `${timingOffset >= 0 ? '+' : ''}${timingOffset.toFixed(1)}s`;
+        const manualInp = document.getElementById('lp-offset-manual-input');
+        if (manualInp && document.activeElement !== manualInp) manualInp.value = timingOffset.toFixed(1);
+
+        if (currentVideoId && chrome.storage?.local) {
+          chrome.storage.local.set({ [`lp_offset_${currentVideoId}`]: timingOffset }, () => {
+            const status = document.getElementById('lp-offset-save-status');
+            if (status) {
+              status.textContent = '✓ Saved';
+              setTimeout(() => { if (status) status.textContent = ''; }, 2000);
+            }
+          });
+        }
+      }
+
+      document.getElementById('lp-sync-playhead-btn')?.addEventListener('click', () => {
+        if (!activeVideoEl || subtitleTimeline.length === 0) {
+          alert('Please load subtitles or lyrics first before anchoring!');
+          return;
+        }
+        const playhead = activeVideoEl.currentTime;
+        const firstCueStart = subtitleTimeline[0].start;
+        const newOffset = playhead - firstCueStart;
+        setTimingOffset(newOffset);
+        alert(`Anchored Line 1 to video playhead (${playhead.toFixed(2)}s)!\nTiming offset set to ${timingOffset >= 0 ? '+' : ''}${timingOffset.toFixed(1)}s`);
+      });
+
+      document.getElementById('lp-offset-manual-set-btn')?.addEventListener('click', () => {
+        const val = parseFloat(document.getElementById('lp-offset-manual-input')?.value || '0');
+        if (!isNaN(val)) setTimingOffset(val);
+      });
+
+      document.querySelectorAll('.lp-offset-adj-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const delta = parseFloat(btn.dataset.delta);
+          if (delta === 0) setTimingOffset(0.0);
+          else setTimingOffset(timingOffset + delta);
+        });
+      });
+    }
+
+    let isModalAiIdentifying = false;
+
+    async function runModalLyricsSearch(prefixBannerHtml = '') {
+      const track = document.getElementById('lp-search-track-input')?.value?.trim() || '';
+      const artist = document.getElementById('lp-search-artist-input')?.value?.trim() || '';
+      const listContainer = document.getElementById('lp-search-results-list');
+      if (!track && !artist) {
+        if (listContainer) {
+          listContainer.innerHTML = `${prefixBannerHtml}<div style="font-size:11px; color:#ef4444;">Please enter a Track Name or Artist to search.</div>`;
+        }
+        return false;
+      }
+      if (listContainer) {
+        listContainer.innerHTML = `${prefixBannerHtml}<div style="font-size:11px; color:#a78bfa;">Searching LRCLIB & Kugou Music...</div>`;
+      }
+
+      const searchVid = currentVideoId;
+      const query = [artist, track].filter(Boolean).join(' ');
+      const response = await new Promise(resolve => {
+        if (!chrome.runtime?.sendMessage) {
+          resolve({ success: false, error: 'Extension runtime unavailable' });
+          return;
+        }
+        chrome.runtime.sendMessage({
+          action: 'FETCH_LRCLIB_LYRICS',
+          trackName: track,
+          artistName: artist,
+          query: query,
+          duration: activeVideoEl?.duration || 0
+        }, res => {
+          if (chrome.runtime?.lastError) {
+            resolve({ success: false, error: chrome.runtime.lastError.message });
+          } else {
+            resolve(res);
+          }
+        });
+      });
+
+      if (searchVid && currentVideoId && searchVid !== currentVideoId) return false;
+
+      if (response && response.success && response.syncedLyrics) {
+        const cues = parseLRC(response.syncedLyrics);
+        if (cues && cues.length > 0) {
+          subtitleTimeline = cues;
+          currentSubIndex = -1;
+          const provName = response.provider === 'kugou' ? 'Kugou Music' : 'LRCLIB';
+          const provTag = response.provider === 'kugou' ? ' [Kugou]' : (prefixBannerHtml ? ' [AI]' : '');
+          const statusBadge = playerUI?.subStatusBadge || document.getElementById('linguaplay-sub-status');
+          if (statusBadge) statusBadge.textContent = `🎵 ${response.trackName || track || 'Lyrics'}${provTag} (${cues.length})`;
+          if (listContainer) {
+            listContainer.innerHTML = `
+              ${prefixBannerHtml}
+              <div style="background:rgba(52,211,153,0.15); border:1px solid #34d399; padding:8px 10px; border-radius:8px; font-size:11px; color:#34d399;">
+                ✓ Found on ${provName}: <strong>${response.trackName || track}</strong> ${response.artistName ? 'by ' + response.artistName : ''} (${cues.length} cues)
+              </div>
+            `;
+          }
+
+          // Persist to local cache so user never has to re-search this video
+          if (currentVideoId && chrome.storage?.local) {
+            chrome.storage.local.set({
+              [`lp_lyrics_cache_${currentVideoId}`]: {
+                trackName: response.trackName || track,
+                artistName: response.artistName || artist,
+                provider: response.provider || 'lrclib',
+                isAi: Boolean(prefixBannerHtml),
+                syncedLyrics: response.syncedLyrics,
+                cachedAt: Date.now()
+              }
+            }, () => {
+              updateLyricsModalStatus();
+            });
+          } else {
+            updateLyricsModalStatus();
+          }
+
+          ensureYouTubeCCEnabled();
+          onTimeUpdate();
+          return true;
+        }
+      }
+      if (subtitleTimeline.length === 0) {
+        const statusBadge = playerUI?.subStatusBadge || document.getElementById('linguaplay-sub-status');
+        if (statusBadge) statusBadge.textContent = '🎵 No lyrics (Click)';
+      }
+      if (listContainer) {
+        listContainer.innerHTML = `${prefixBannerHtml}<div style="font-size:11px; color:#ef4444;">No synced lyrics found on LRCLIB or Kugou Music for this search query.</div>`;
+      }
+      return false;
+    }
+
+    async function runModalAiIdentifyAndSearch() {
+      if (isModalAiIdentifying) return;
+      const listContainer = document.getElementById('lp-search-results-list');
+      const aiBtn = document.getElementById('lp-ai-identify-btn');
+      const trackInp = document.getElementById('lp-search-track-input');
+      const artistInp = document.getElementById('lp-search-artist-input');
+      const statusBadge = playerUI?.subStatusBadge || document.getElementById('linguaplay-sub-status');
+      const meta = getYouTubeVideoMetadata();
+      const rawTitle = meta.title || trackInp?.value?.trim() || '';
+      const rawChannel = meta.channel || artistInp?.value?.trim() || '';
+
+      if (!rawTitle) {
+        if (listContainer) listContainer.innerHTML = '<div style="font-size:11px; color:#ef4444;">Could not read video title from YouTube page.</div>';
+        return;
+      }
+
+      isModalAiIdentifying = true;
+      if (statusBadge && subtitleTimeline.length === 0) {
+        statusBadge.textContent = '✨ AI Identifying...';
+      }
+      if (aiBtn) {
+        aiBtn.disabled = true;
+        aiBtn.textContent = '⏳ Identifying...';
+      }
+      if (listContainer) {
+        listContainer.innerHTML = '<div style="font-size:11px; color:#ec4899; display:flex; align-items:center; gap:6px;"><span>✨</span> Sensei AI is analyzing video title and identifying artist...</div>';
+      }
+
+      const identifyVid = currentVideoId;
+      let ai = null;
+      try {
+        ai = await identifySongWithSensei(rawTitle, rawChannel, { ensureServer: true });
+      } finally {
+        isModalAiIdentifying = false;
+        if (aiBtn) {
+          aiBtn.disabled = false;
+          aiBtn.textContent = '✨ AI Identify';
+        }
+      }
+
+      if (identifyVid && currentVideoId && identifyVid !== currentVideoId) return;
+
+      if (!ai || ai.error || (!ai.trackName && !ai.artistName)) {
+        const errMsg = ai?.error
+          ? `⚠️ Sensei AI Notice: ${ai.error}`
+          : 'Sensei AI could not identify song. Please check extension settings.';
+        const errBanner = `<div style="font-size:11px; color:#ef4444; margin-bottom:4px;">${errMsg}</div>`;
+        if (trackInp?.value?.trim() || artistInp?.value?.trim()) {
+          await runModalLyricsSearch(errBanner);
+        } else {
+          if (subtitleTimeline.length === 0 && statusBadge) {
+            statusBadge.textContent = '🎵 No lyrics (Click)';
+          }
+          if (listContainer) {
+            listContainer.innerHTML = errBanner;
+          }
+        }
+        return;
+      }
+
+      if (trackInp && ai.trackName) trackInp.value = ai.trackName;
+      if (artistInp && ai.artistName) artistInp.value = ai.artistName;
+
+      const identifiedBanner = `
+        <div style="font-size:11px; color:#c084fc; margin-bottom:4px;">
+          ✨ Identified: <strong>${ai.trackName || trackInp?.value || ''}</strong>${ai.artistName ? ' by <strong>' + ai.artistName + '</strong>' : ''} ${ai.animeName ? '(' + ai.animeName + ')' : ''}
+        </div>
+      `;
+      if (listContainer) {
+        listContainer.innerHTML = identifiedBanner;
+      }
+
+      // Trigger search automatically with AI identified metadata
+      await runModalLyricsSearch(identifiedBanner);
+    }
+
+    async function openLyricsModal(options = {}) {
+      const modal = document.getElementById('linguaplay-lyrics-modal');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+
+      const autoAiSearch = options === true || Boolean(options && options.autoAiSearch) || subtitleTimeline.length === 0;
+      const meta = getYouTubeVideoMetadata();
+      const cleaned = cleanSongTitle(meta.title, meta.channel);
+      const trackInp = document.getElementById('lp-search-track-input');
+      const artistInp = document.getElementById('lp-search-artist-input');
+
+      if (trackInp) trackInp.value = cleaned.trackName || '';
+      if (artistInp) artistInp.value = cleaned.artistName || '';
+
+      if (currentVideoId && chrome.storage?.local && !autoAiSearch) {
+        chrome.storage.local.get([`lp_lyrics_cache_${currentVideoId}`], (res) => {
+          const cached = res[`lp_lyrics_cache_${currentVideoId}`];
+          if (cached && (cached.trackName || cached.artistName)) {
+            if (trackInp) trackInp.value = cached.trackName || '';
+            if (artistInp) artistInp.value = cached.artistName || '';
+          }
+          updateLyricsModalStatus();
+        });
+      } else {
+        updateLyricsModalStatus();
+      }
+
+      if (autoAiSearch) {
+        await runModalAiIdentifyAndSearch();
+      }
+    }
+
+    const fetchLyricsBtn = document.getElementById('linguaplay-fetch-lyrics-btn');
+    if (fetchLyricsBtn) {
+      fetchLyricsBtn.addEventListener('click', () => openLyricsModal({ autoAiSearch: subtitleTimeline.length === 0 }));
+    }
+    if (subStatusBadge) {
+      subStatusBadge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        return openLyricsModal({ autoAiSearch: true });
+      });
+      subStatusBadge.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          return openLyricsModal({ autoAiSearch: true });
+        }
+      });
+    }
 
     function openExtensionSettings() {
       console.log('[LinguaPlay] Opening extension settings...');
@@ -1713,166 +2874,6 @@ Respond with ONLY valid JSON:
 }`;
     }
 
-    async function callSenseiLlmApi({ messages, isJson, config, word, romaji, sentence }) {
-      const provider = config.linguaplay_ai_provider || 'gemini';
-      const geminiKey = (config.linguaplay_gemini_key || '').trim();
-      const deepseekKey = (config.linguaplay_deepseek_key || '').trim();
-      const openrouterKey = (config.linguaplay_openrouter_key || '').trim();
-      const openrouterModel = (config.linguaplay_openrouter_model || 'deepseek/deepseek-chat').trim();
-      const opencodeUrl = (config.linguaplay_opencode_url || 'http://127.0.0.1:11434/v1').trim();
-      const opencodeKey = (config.linguaplay_opencode_key || '').trim();
-      const opencodeModel = (config.linguaplay_opencode_model || 'deepseek-chat').trim();
-      const serverUrl = (config.linguaplay_server_url || 'http://127.0.0.1:8000').trim();
-
-      // 1. Google Gemini Flash Direct
-      if (provider === 'gemini') {
-        if (!geminiKey) throw new Error('Missing Google Gemini API key. Add it in Extension Settings.');
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
-        
-        const contents = [];
-        for (const m of messages) {
-          if (m.role === 'system') continue;
-          contents.push({
-            role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }]
-          });
-        }
-        if (contents.length === 0 && messages.length > 0) {
-          contents.push({ role: 'user', parts: [{ text: messages[0].content }] });
-        }
-
-        const sysMsg = messages.find(m => m.role === 'system');
-        const body = {
-          contents,
-          generationConfig: isJson ? { responseMimeType: 'application/json' } : {}
-        };
-        if (sysMsg) {
-          body.systemInstruction = { parts: [{ text: sysMsg.content }] };
-        }
-
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(12000)
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error?.message || `Gemini API returned status ${res.status}`);
-        }
-        const data = await res.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      }
-
-      // 2. DeepSeek Direct API
-      if (provider === 'deepseek') {
-        if (!deepseekKey) throw new Error('Missing DeepSeek API key. Add it in Extension Settings.');
-        const url = 'https://api.deepseek.com/v1/chat/completions';
-        const body = {
-          model: 'deepseek-chat',
-          messages: messages,
-          response_format: isJson ? { type: 'json_object' } : undefined
-        };
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${deepseekKey}`
-          },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(12000)
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error?.message || `DeepSeek API returned status ${res.status}`);
-        }
-        const data = await res.json();
-        return data.choices?.[0]?.message?.content || '';
-      }
-
-      // 3. OpenRouter Direct API
-      if (provider === 'openrouter') {
-        if (!openrouterKey) throw new Error('Missing OpenRouter API key. Add it in Extension Settings.');
-        const url = 'https://openrouter.ai/api/v1/chat/completions';
-        const body = {
-          model: openrouterModel,
-          messages: messages,
-          response_format: isJson ? { type: 'json_object' } : undefined
-        };
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${openrouterKey}`,
-            'HTTP-Referer': 'https://linguaplay.app',
-            'X-Title': 'LinguaPlay'
-          },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(14000)
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error?.message || `OpenRouter API returned status ${res.status}`);
-        }
-        const data = await res.json();
-        return data.choices?.[0]?.message?.content || '';
-      }
-
-      // 4. OpenCode / Custom OpenAI Endpoint
-      if (provider === 'opencode') {
-        const targetUrl = opencodeUrl.endsWith('/chat/completions') ? opencodeUrl : `${opencodeUrl.replace(/\\/$/, '')}/chat/completions`;
-        const headers = { 'Content-Type': 'application/json' };
-        if (opencodeKey) headers['Authorization'] = `Bearer ${opencodeKey}`;
-        const body = {
-          model: opencodeModel,
-          messages: messages,
-          response_format: isJson ? { type: 'json_object' } : undefined
-        };
-        const res = await fetch(targetUrl, {
-          method: 'POST',
-          headers: headers,
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(12000)
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error?.message || `Custom Endpoint returned status ${res.status}`);
-        }
-        const data = await res.json();
-        return data.choices?.[0]?.message?.content || '';
-      }
-
-      // 5. Antigravity CLI Local Server
-      if (provider === 'antigravity') {
-        if (isJson) {
-          const res = await fetch(`${serverUrl}/api/ai/analyze`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ word, reading: romaji, sentence, provider: 'antigravity' }),
-            signal: AbortSignal.timeout(4000)
-          });
-          if (!res.ok) throw new Error(`Local server returned ${res.status}`);
-          const raw = await res.json();
-          return JSON.stringify(raw.data || raw);
-        } else {
-          // Check chat
-          const res = await fetch(`${serverUrl}/api/ai/chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages, word, sentence }),
-            signal: AbortSignal.timeout(4000)
-          });
-          if (res.ok) {
-            const raw = await res.json();
-            return raw.reply || raw.content || '';
-          }
-          throw new Error('Local server chat unavailable. Please select Gemini or DeepSeek in settings.');
-        }
-      }
-
-      throw new Error(`Unsupported AI provider: ${provider}`);
-    }
-
     function formatSenseiMarkdown(rawText) {
       if (!rawText) return '';
 
@@ -1966,7 +2967,16 @@ Respond with ONLY valid JSON:
       return output.join('<br>').replace(/(<\\/div>)<br>/g, '$1').replace(/<br>(<div)/g, '$1');
     }
 
-    function appendChatMessage(role, text) {
+    function captureChatScroll() {
+      const container = document.getElementById('lp-chat-messages');
+      if (!container || !container.clientHeight) return null;
+      return {
+        top: container.scrollTop,
+        following: container.scrollHeight - container.clientHeight - container.scrollTop <= 32
+      };
+    }
+
+    function appendChatMessage(role, text, scroll = captureChatScroll()) {
       const container = document.getElementById('lp-chat-messages');
       if (!container) return null;
       const msgEl = document.createElement('div');
@@ -1977,18 +2987,33 @@ Respond with ONLY valid JSON:
         msgEl.innerHTML = formatSenseiMarkdown(text);
       }
       container.appendChild(msgEl);
-      container.scrollTop = container.scrollHeight;
+      if (scroll?.following) {
+        // Long answers should start at their first line, not their last line.
+        if (role === 'sensei' && msgEl.getBoundingClientRect().height > container.clientHeight) {
+          container.scrollTop += msgEl.getBoundingClientRect().top - container.getBoundingClientRect().top - (container.clientTop || 0);
+        } else {
+          container.scrollTop = container.scrollHeight;
+        }
+      } else if (scroll) {
+        container.scrollTop = scroll.top;
+      }
       return msgEl;
     }
 
-    async function sendSenseiQuestion(questionText) {
-      if (!questionText || !questionText.trim()) return;
+    function sendSenseiQuestion(questionText) {
+      if (!questionText || !questionText.trim() || activeSenseiChatRequest?.contextVersion === drawerContextVersion) return false;
       const word = document.getElementById('lp-active-word')?.textContent || '';
       const romaji = document.getElementById('lp-active-romaji')?.textContent || '';
       const sentence = drawerContextSentence || document.getElementById('lp-chat-context-sentence')?.textContent || document.getElementById('lp-sentence-jp')?.textContent || activeLiveSentence || '';
 
+      const contextVersion = drawerContextVersion;
+      const history = senseiChatHistory;
+      const request = { contextVersion };
+      activeSenseiChatRequest = request;
+      updateSenseiChatControls();
       appendChatMessage('user', questionText);
-      senseiChatHistory.push({ role: 'user', content: questionText });
+      const userMessage = { role: 'user', content: questionText };
+      history.push(userMessage);
 
       const loadingEl = appendChatMessage('sensei', '⚡ Sensei is thinking…');
 
@@ -2004,12 +3029,13 @@ Respond with ONLY valid JSON:
         'linguaplay_server_url'
       ], async (cfg) => {
         try {
+          if (contextVersion !== drawerContextVersion) return;
           const messages = [
             {
               role: 'system',
               content: `${SENSEI_SYSTEM_PROMPT}\\n\\nContext Sentence: "${sentence}"\\nTarget Word: "${word}" (${romaji})`
             },
-            ...senseiChatHistory
+            ...history
           ];
 
           const reply = await callSenseiLlmApi({
@@ -2021,14 +3047,27 @@ Respond with ONLY valid JSON:
             sentence
           });
 
-          senseiChatHistory.push({ role: 'assistant', content: reply });
+          if (contextVersion !== drawerContextVersion) return;
+          history.push({ role: 'assistant', content: reply });
+          const scroll = captureChatScroll();
           if (loadingEl) loadingEl.remove();
-          appendChatMessage('sensei', reply);
+          appendChatMessage('sensei', reply, scroll);
         } catch (err) {
+          if (contextVersion !== drawerContextVersion) return;
+          const index = history.indexOf(userMessage);
+          if (index !== -1) history.splice(index, 1);
+          const scroll = captureChatScroll();
           if (loadingEl) loadingEl.remove();
-          appendChatMessage('sensei', `⚠️ Sensei error: ${err.message}`);
+          appendChatMessage('sensei', `⚠️ Sensei error: ${err.message}`, scroll);
+        } finally {
+          // An old response must not unlock a new word's pending request.
+          if (activeSenseiChatRequest === request) {
+            activeSenseiChatRequest = null;
+            updateSenseiChatControls();
+          }
         }
       });
+      return true;
     }
 
     // Attach Chatbot Chip and Send Listeners
@@ -2045,16 +3084,14 @@ Respond with ONLY valid JSON:
       chatSendBtn.addEventListener('click', () => {
         const val = chatInputEl.value.trim();
         if (val) {
-          sendSenseiQuestion(val);
-          chatInputEl.value = '';
+          if (sendSenseiQuestion(val)) chatInputEl.value = '';
         }
       });
       chatInputEl.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
+        if (e.key === 'Enter' && !e.isComposing) {
           const val = chatInputEl.value.trim();
           if (val) {
-            sendSenseiQuestion(val);
-            chatInputEl.value = '';
+            if (sendSenseiQuestion(val)) chatInputEl.value = '';
           }
         }
       });
@@ -2086,7 +3123,7 @@ Respond with ONLY valid JSON:
         'linguaplay_opencode_model',
         'linguaplay_server_url'
       ], async (cfg) => {
-        const provider = cfg.linguaplay_ai_provider || (cfg.linguaplay_gemini_key ? 'gemini' : 'antigravity');
+        const provider = getSenseiProvider(cfg);
         const prompt = buildSenseiAnalysisPrompt(word, romaji, sentence);
         const messages = [{ role: 'user', content: prompt }];
 
@@ -2153,9 +3190,9 @@ Respond with ONLY valid JSON:
                 <span>⚠️</span> AI Analysis Notice: ${err.message}
               </div>
               <p style="margin: 0 0 8px; color: #cbd5e1; font-size: 11.5px;">
-                Quick-save your API key directly below, or open full extension settings:
+                ${provider === 'antigravity' ? 'Click Ask Sensei to retry, or open extension settings to select another provider.' : 'Quick-save your API key directly below, or open full extension settings:'}
               </p>
-              <div style="display: flex; gap: 6px; margin-bottom: 8px; align-items: center;">
+              <div style="display: ${provider === 'antigravity' ? 'none' : 'flex'}; gap: 6px; margin-bottom: 8px; align-items: center;">
                 <select id="lp-inline-provider" style="background: #1e1b4b; color: #e2e8f0; border: 1px solid rgba(139,92,246,0.5); border-radius: 6px; padding: 4px 6px; font-size: 11px;">
                   <option value="deepseek" selected>DeepSeek</option>
                   <option value="gemini">Gemini</option>
@@ -2237,7 +3274,45 @@ Respond with ONLY valid JSON:
       setTimeout(() => { btn.textContent = '🗂️ Save Enriched AI Card to Anki'; }, 2000);
     });
 
+    updateWidgetState();
+    ensurePlayerControls();
     setupLiveCaptionHooking();
+  }
+
+  function updateLyricsModalStatus() {
+    const countEl = document.getElementById('lp-modal-active-count');
+    const typeEl = document.getElementById('lp-modal-active-type');
+    if (countEl) countEl.textContent = `${subtitleTimeline.length} cues`;
+    if (typeEl) {
+      typeEl.textContent = subtitleTimeline.length > 0
+        ? ((playerUI?.subStatusBadge || document.getElementById('linguaplay-sub-status'))?.textContent || 'Active')
+        : 'None';
+    }
+    const offsetEl = document.getElementById('lp-modal-offset-val');
+    if (offsetEl) offsetEl.textContent = `${timingOffset >= 0 ? '+' : ''}${timingOffset.toFixed(1)}s`;
+    const manualInp = document.getElementById('lp-offset-manual-input');
+    if (manualInp && document.activeElement !== manualInp) manualInp.value = timingOffset.toFixed(1);
+
+    if (currentVideoId && chrome.storage?.local) {
+      chrome.storage.local.get([`lp_lyrics_cache_${currentVideoId}`], (res) => {
+        const cached = res[`lp_lyrics_cache_${currentVideoId}`];
+        const cacheBadge = document.getElementById('lp-modal-cache-badge');
+        const clearBtn = document.getElementById('lp-clear-cache-btn');
+        if (cached && cached.syncedLyrics && subtitleTimeline.length > 0) {
+          if (cacheBadge) {
+            cacheBadge.style.display = 'inline-block';
+            cacheBadge.style.background = 'rgba(52,211,153,0.18)';
+            cacheBadge.style.color = '#34d399';
+            cacheBadge.style.border = '1px solid rgba(52,211,153,0.4)';
+            cacheBadge.textContent = '💾 Saved in Cache';
+          }
+          if (clearBtn) clearBtn.style.display = 'inline-block';
+        } else {
+          if (cacheBadge) cacheBadge.style.display = 'none';
+          if (clearBtn) clearBtn.style.display = 'none';
+        }
+      });
+    }
   }
 
   function updateOffsetDisplay() {
@@ -2279,49 +3354,209 @@ Respond with ONLY valid JSON:
     }
   }
 
+  function startServerOnPlayback() {
+    if (!activeVideoEl || activeVideoEl.paused || activeVideoEl.ended || !new URLSearchParams(window.location.search).get('v')) return;
+    if (!chrome.runtime?.sendMessage) return;
+    try {
+      chrome.runtime.sendMessage({ action: 'ENSURE_LOCAL_SERVER' }, response => {
+        const error = chrome.runtime.lastError;
+        if (error || (response && !response.success)) console.warn('[LinguaPlay] Server auto-start:', error?.message || response.error);
+        if (!error && response?.success) {
+          japaneseParser?.retry();
+          if (renderedSentence) renderSentenceTokens(renderedSentence);
+          refreshDrawerParsing();
+        }
+      });
+    } catch (error) { console.warn('[LinguaPlay] Server auto-start:', error.message); }
+  }
+
   async function checkAndInitVideo() {
     const urlParams = new URLSearchParams(window.location.search);
     const vid = urlParams.get('v');
     if (!vid) return;
 
+    // Also retry on the same video: native controls can arrive late or be rebuilt.
+    injectUI();
+    const v = document.querySelector('video');
+    if (v && v !== activeVideoEl) {
+      if (activeVideoEl) {
+        activeVideoEl.removeEventListener('timeupdate', onTimeUpdate);
+        activeVideoEl.removeEventListener('playing', startServerOnPlayback);
+      }
+      activeVideoEl = v;
+      activeVideoEl.addEventListener('timeupdate', onTimeUpdate);
+      activeVideoEl.addEventListener('playing', startServerOnPlayback);
+      setupLiveCaptionHooking();
+      startServerOnPlayback();
+    }
+
     if (vid !== currentVideoId) {
       currentVideoId = vid;
+      lyricsFetchAttemptedVid = null;
+      isFetchingLyrics = false;
+      japaneseParser?.reset();
+      subtitleRenderVersion++;
+      renderedSentence = '';
       currentSubIndex = -1;
       subtitleTimeline = [];
       activeLiveSentence = '';
       drawerContextSentence = '';
       drawerActiveWord = '';
+      drawerContextVersion++;
+      refreshDrawerParsing = () => {};
+      senseiChatHistory = [];
+      activeSenseiChatRequest = null;
+      const trackInp = document.getElementById('lp-search-track-input');
+      const artistInp = document.getElementById('lp-search-artist-input');
+      const listContainer = document.getElementById('lp-search-results-list');
+      const statusBadge = playerUI?.subStatusBadge || document.getElementById('linguaplay-sub-status');
+      if (trackInp) trackInp.value = '';
+      if (artistInp) artistInp.value = '';
+      if (listContainer) listContainer.innerHTML = '';
+      if (statusBadge) statusBadge.textContent = '';
+      updateSenseiChatControls();
+      updateLyricsModalStatus();
 
-      injectUI();
+      // Load stored offset and cached lyrics for this video
+      if (chrome.storage?.local) {
+        chrome.storage.local.get([`lp_offset_${vid}`, `lp_lyrics_cache_${vid}`], (res) => {
+          if (vid !== currentVideoId) return;
+          if (typeof res[`lp_offset_${vid}`] === 'number') {
+            timingOffset = res[`lp_offset_${vid}`];
+          } else {
+            timingOffset = 0.0;
+          }
+          updateOffsetDisplay();
 
-      const v = document.querySelector('video');
-      if (v && v !== activeVideoEl) {
-        if (activeVideoEl) activeVideoEl.removeEventListener('timeupdate', onTimeUpdate);
-        activeVideoEl = v;
-        activeVideoEl.addEventListener('timeupdate', onTimeUpdate);
-        setupLiveCaptionHooking();
+          const cached = res[`lp_lyrics_cache_${vid}`];
+          if (cached && cached.syncedLyrics && subtitleTimeline.length === 0) {
+            const cues = parseLRC(cached.syncedLyrics);
+            if (cues && cues.length > 0) {
+              subtitleTimeline = cues;
+              lyricsFetchAttemptedVid = vid;
+              const badge = playerUI?.subStatusBadge || document.getElementById('linguaplay-sub-status');
+              if (badge) {
+                const provTag = cached.provider === 'kugou' ? ' [Kugou]' : (cached.isAi ? ' [AI]' : '');
+                badge.textContent = `🎵 ${cached.trackName || 'Lyrics'}${provTag} (${cues.length})`;
+              }
+              ensureYouTubeCCEnabled();
+            }
+          }
+          updateLyricsModalStatus();
+        });
+      } else {
+        timingOffset = 0.0;
+        updateOffsetDisplay();
+        updateLyricsModalStatus();
       }
 
       inspectAndSwitchPlayerTracks();
 
-      const cues = await fetchYouTubeCaptions(vid);
+      let cues = await fetchYouTubeCaptions(vid);
+      if (vid !== currentVideoId) return;
       if (cues && cues.length > 0) {
         subtitleTimeline = cues;
-        const statusBadge = document.getElementById('linguaplay-sub-status');
-        if (statusBadge) statusBadge.textContent = `Auto Sub (${cues.length})`;
+        lyricsFetchAttemptedVid = vid;
+        const badge = playerUI?.subStatusBadge || document.getElementById('linguaplay-sub-status');
+        if (badge) {
+          badge.textContent = `Auto Sub (${cues.length})`;
+        }
         ensureYouTubeCCEnabled();
-      } else {
-        subtitleTimeline = [];
-        const statusBadge = document.getElementById('linguaplay-sub-status');
-        if (statusBadge) statusBadge.textContent = '';
-        renderSentenceTokens('');
+        updateLyricsModalStatus();
+        return;
+      }
+    }
+
+    // If native subtitles are absent and we haven't fetched lyrics for this video yet:
+    if (currentVideoId && subtitleTimeline.length === 0 && lyricsFetchAttemptedVid !== currentVideoId && !isFetchingLyrics) {
+      const meta = getYouTubeVideoMetadata();
+      // Ensure YouTube SPA DOM has actually rendered the video title and is not a generic placeholder
+      if (meta && meta.title && !/^youtube$/i.test(meta.title)) {
+        const fetchVid = currentVideoId;
+        isFetchingLyrics = true;
+        const statusBadge = playerUI?.subStatusBadge || document.getElementById('linguaplay-sub-status');
+        if (statusBadge) statusBadge.textContent = '🎵 Searching lyrics...';
+
+        try {
+          const duration = activeVideoEl?.duration || 0;
+          const lyricsInfo = await fetchLrclibLyrics(meta.title, meta.channel, duration);
+          if (fetchVid !== currentVideoId) return;
+          if (lyricsInfo && lyricsInfo.cues && lyricsInfo.cues.length > 0) {
+            subtitleTimeline = lyricsInfo.cues;
+            if (statusBadge) {
+              const provTag = lyricsInfo.provider === 'kugou' ? ' [Kugou]' : (lyricsInfo.isAi ? ' [AI]' : '');
+              statusBadge.textContent = `🎵 ${lyricsInfo.trackName || 'Lyrics'}${provTag} (${lyricsInfo.cues.length})`;
+            }
+
+            // Cache to local storage so future views load instantly
+            if (fetchVid && chrome.storage?.local && lyricsInfo.syncedLyrics) {
+              chrome.storage.local.set({
+                [`lp_lyrics_cache_${fetchVid}`]: {
+                  trackName: lyricsInfo.trackName,
+                  artistName: lyricsInfo.artistName,
+                  provider: lyricsInfo.provider || 'lrclib',
+                  syncedLyrics: lyricsInfo.syncedLyrics,
+                  isAi: !!lyricsInfo.isAi,
+                  cachedAt: Date.now()
+                }
+              });
+            }
+          } else {
+            if (statusBadge) {
+              statusBadge.textContent = '🎵 No lyrics (Click)';
+            }
+          }
+        } catch (e) {
+          console.warn('[LinguaPlay] Auto lyrics fetch failed:', e);
+          if (fetchVid === currentVideoId && statusBadge) statusBadge.textContent = '🎵 No lyrics (Click)';
+        } finally {
+          if (fetchVid === currentVideoId) {
+            lyricsFetchAttemptedVid = fetchVid;
+            isFetchingLyrics = false;
+            updateLyricsModalStatus();
+          }
+        }
       }
     }
   }
 
+  function showOffsetHUD() {
+    let hud = document.getElementById('lp-offset-hud');
+    if (!hud) {
+      hud = document.createElement('div');
+      hud.id = 'lp-offset-hud';
+      hud.style.cssText = 'position:fixed; top:70px; left:50%; transform:translateX(-50%); background:rgba(15,23,42,0.92); color:#f59e0b; border:1px solid #f59e0b; padding:8px 16px; border-radius:20px; font-size:13px; font-weight:700; z-index:9999999; pointer-events:none; transition:opacity 0.3s; font-family:monospace; box-shadow:0 4px 12px rgba(0,0,0,0.5);';
+      document.body.appendChild(hud);
+    }
+    hud.textContent = `⏱️ Subtitle Offset: ${timingOffset >= 0 ? '+' : ''}${timingOffset.toFixed(1)}s`;
+    hud.style.opacity = '1';
+    clearTimeout(hud._timer);
+    hud._timer = setTimeout(() => { hud.style.opacity = '0'; }, 1500);
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA'].includes(e.target?.tagName) || e.target?.isContentEditable) return;
+    if (e.key === '[' || e.key === ']') {
+      const step = e.shiftKey ? 1.0 : 0.1;
+      const delta = e.key === ']' ? step : -step;
+      timingOffset = Math.round((timingOffset + delta) * 10) / 10;
+      updateOffsetDisplay();
+      const modalOffset = document.getElementById('lp-modal-offset-val');
+      if (modalOffset) modalOffset.textContent = `${timingOffset >= 0 ? '+' : ''}${timingOffset.toFixed(1)}s`;
+      const manualInp = document.getElementById('lp-offset-manual-input');
+      if (manualInp && document.activeElement !== manualInp) manualInp.value = timingOffset.toFixed(1);
+      if (currentVideoId && chrome.storage?.local) {
+        chrome.storage.local.set({ [`lp_offset_${currentVideoId}`]: timingOffset });
+      }
+      showOffsetHUD();
+    }
+  });
+
   setInterval(checkAndInitVideo, 1000);
   window.addEventListener('yt-navigate-finish', checkAndInitVideo);
   window.addEventListener('popstate', checkAndInitVideo);
+  window.addEventListener('resize', ensurePlayerControls);
+  document.addEventListener('fullscreenchange', ensurePlayerControls);
 
 })();
 """
