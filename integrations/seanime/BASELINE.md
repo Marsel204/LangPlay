@@ -54,3 +54,42 @@ the native APIs before dependent adapters/UI. M05–M08 may proceed while
 native platform access is pending. Revert feature commits and dependents
 in reverse order; preserve original media, diagnostic evidence and saved cards.
 No publishing, deployment or installation into an active player is authorized.
+
+## Build handoff — 2026-10-15
+
+Completed **M00, M01, M05–M08**: scoped build, SRT/VTT/ASS/SSA normalization,
+overlapping cue index/style filtering, strict UTF-8/UTF-16 BOM and injected
+Shift_JIS decoding, 10 MiB text cap, clock anchoring, single-application timing
+offsets, immutable UTF-16 clicked context and generation checks.
+
+**M02 remains OPEN.** The development probe now loads in the official
+Seanime 3.10.4 sidecar/Goja runtime, exchanges account-free JSON-string messages,
+reads a bounded generated ASS fixture, rejects oversize content and denies
+out-of-library reads. Native embedded libmpv windowed/fullscreen interaction,
+embedded ASS extraction, active-file discovery/status timing and Windows remain
+unverified. Production adapters, learning UI, Jimaku, persistence and Anki are
+not implemented. See [compatibility report](docs/compatibility.md) for observed
+APIs, reproduction steps, host bugs and a conditional host API proposal.
+
+Verification of implementation commit `1cb932e` (self-review, no independent
+review claimed):
+
+| Check | Result |
+| --- | --- |
+| Scoped `npm ci` | PASS; npm warns about unapproved optional esbuild postinstall; installed platform binary builds successfully |
+| Scoped `npm test` | PASS, 33 tests plus deterministic isolated-callback bundle smoke |
+| Scoped `npm run build` | PASS, generated local development probe manifest/payload |
+| Existing Node regression suite | PASS, 82 tests |
+| Existing Python regression suite | PASS, 22 tests |
+| Existing browser smoke | Original baseline failure, not repaired or counted as passing |
+| Actual Linux host probe | Limited PASS as described above; not native-player qualification |
+| Windows/native/full release acceptance | NOT RUN / incomplete |
+
+The application changes are confined to `integrations/seanime/` and scoped
+`.gitignore` additions. No existing tests or extension/companion implementation
+were changed. Local milestone commits provide rollback; nothing was pushed.
+The generated probe is a development artifact, not an M26 release package.
+
+After the native gate passes, resume at M03/M04, then M09 onward following the
+approved dependency order. If a host boundary change is necessary, review the
+specific proposed API and revise dependent milestones before implementing it.
