@@ -1,0 +1,14 @@
+{
+  "name": "@langplay/seanime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node build.mjs --test",
+    "test:build": "node build.mjs --self-test"
+  },
+  "dependencies": { "fflate": "0.8.3" },
+  "devDependencies": { "esbuild": "0.28.2" }
+}
