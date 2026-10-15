@@ -23,6 +23,13 @@ appears; then restore the previous subtitle using that menu. Record separately
 whether the test track was automatically selected. Until native evidence exists,
 discovery/setup/cache implementation remains gated; no host fork is introduced.
 
+The first live attempt revealed that the embedded adapter exposes renderer
+`mpv` and target `mpvcore`, rather than renderer `native`. The probe now accepts
+that exact combination; web playback and `mpv` with a different target remain
+rejected. A regression test reproduced the misleading local-playback error
+before the guard was corrected. Live diagnostics confirmed an active client,
+playback ID and local-file identity. The rejection did not indicate missing media.
+
 Checkpoint implementation checks: 35 scoped Seanime tests (including native
 command shape and stale-video rejection), 20 installer tests, 22 existing Python
 tests and 82 existing Node tests passed. The self-contained bundle built and

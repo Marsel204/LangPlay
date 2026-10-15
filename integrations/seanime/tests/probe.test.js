@@ -74,9 +74,20 @@ test('Native checkpoint sends generated Japanese text through the real host API 
   assert.match(probe.sent[0].instruction, /not proof/);
 });
 
+test('Denshi 3.10.4 embedded mpvcore renderer is accepted using its observed mpv identity', async () => {
+  const probe = nativeProbe({ renderer: 'mpv', info: {
+    id: 'playback-1', target: 'mpvcore', renderer: 'mpv',
+    localFile: { path: '/library/episode.mkv' },
+  } });
+  await probe.handlers['probe:native-subtitle']();
+  assert.equal(probe.added.length, 1, JSON.stringify(probe.sent));
+  assert.equal(probe.sent[0].nativeSubtitle, 'sent');
+});
+
 test('Native checkpoint refuses missing playback, other renderers and changed video identity', async () => {
   for (const options of [
     { client: '' }, { renderer: 'web' }, { info: { id: 'playback-1' } },
+    { renderer: 'mpv', info: { id: 'playback-1', target: 'videocore', localFile: { path: '/library/episode.mkv' } } },
     { nextInfo: { id: 'playback-1', localFile: { path: '/library/different.mkv' } } },
     { nextInfo: { id: 'playback-2', localFile: { path: '/library/episode.mkv' } } },
   ]) {
