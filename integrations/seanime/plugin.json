@@ -1,0 +1,21 @@
+{
+  "id": "langplay-probe",
+  "name": "LangPlay native feasibility probe",
+  "version": "0.1.0",
+  "manifestURI": "",
+  "language": "javascript",
+  "type": "plugin",
+  "description": "Development probe for native subtitles and contextual pause/resume. Not a qualified learning integration.",
+  "author": "LangPlay",
+  "icon": "",
+  "website": "https://github.com/Marsel204/LangPlay",
+  "readme": "",
+  "lang": "ja",
+  "plugin": {
+    "version": "1",
+    "permissions": {
+      "scopes": ["playback", "system"],
+      "allow": { "readPaths": ["$SEANIME_ANIME_LIBRARY", "$SEANIME_ANIME_LIBRARY/**"] }
+    }
+  }
+}
