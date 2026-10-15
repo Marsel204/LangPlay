@@ -46,3 +46,43 @@ test('Probe replies use JSON strings so the pinned host works without an AniList
   assert.equal(typeof sent[0].payload, 'string', 'Host drops object-valued replies when its AniList token is empty');
   assert.equal(JSON.parse(sent[0].payload).error, 'No active identified playback.');
 });
+
+function nativeProbe({ renderer = 'native', client = 'client-1', info, nextInfo } = {}) {
+  const handlers = {}, sent = [], added = [];
+  const initial = info || { id: 'playback-1', localFile: { path: '/library/episode.mkv' } };
+  let reads = 0;
+  start({
+    videoCore: { addEventListener() {}, getCurrentClientId: () => client,
+      getCurrentPlayerType: () => renderer,
+      getCurrentPlaybackInfo: () => nextInfo && ++reads >= 4 ? nextInfo : initial,
+      addExternalSubtitleTrack: track => added.push(track) },
+    newTray: () => ({ onClick() {} }),
+    newWebview: () => ({ channel: { on: (event, handler) => { handlers[event] = handler; },
+      send: (_, payload) => sent.push(JSON.parse(payload)) }, setContent() {} }),
+  });
+  return { handlers, sent, added };
+}
+
+test('Native checkpoint sends generated Japanese text through the real host API shape without claiming acknowledgment', async () => {
+  const probe = nativeProbe();
+  await probe.handlers['probe:native-subtitle']();
+  assert.equal(probe.added.length, 1);
+  assert.equal(probe.added[0].language, 'ja');
+  assert.equal(probe.added[0].type, 'srt');
+  assert.match(probe.added[0].content, /日本語/);
+  assert.equal(probe.sent[0].nativeSubtitle, 'sent');
+  assert.match(probe.sent[0].instruction, /not proof/);
+});
+
+test('Native checkpoint refuses missing playback, other renderers and changed video identity', async () => {
+  for (const options of [
+    { client: '' }, { renderer: 'web' }, { info: { id: 'playback-1' } },
+    { nextInfo: { id: 'playback-1', localFile: { path: '/library/different.mkv' } } },
+    { nextInfo: { id: 'playback-2', localFile: { path: '/library/episode.mkv' } } },
+  ]) {
+    const probe = nativeProbe(options);
+    await probe.handlers['probe:native-subtitle']();
+    assert.equal(probe.added.length, 0);
+    assert.ok(probe.sent[0].error);
+  }
+});

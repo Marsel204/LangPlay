@@ -1,5 +1,35 @@
 # Native compatibility checkpoint — M02 OPEN
 
+## Japanese-subtitle discovery checkpoint — 2026-10-15
+
+Before implementing Jimaku discovery, the approved incremental plan requires a
+generated Japanese SRT to appear and be selectable in the official native player.
+The probe now exposes **Load generated JP test subtitle**. During local native
+playback it calls `addExternalSubtitleTrack` with generated text, after checking
+client, playback ID and local-video path. It performs no download or media write.
+The probe only reports **sent**; this is not evidence of native rendering.
+
+In the pinned host source the native handler uses `sub-add` with `auto`, ignores
+the track's `default` flag, and does not acknowledge the new track ID. The plugin
+`getTextTracks()` getter resolves undefined, and `sendGetSubtitleTrack()` is a
+no-op. Therefore automatic selection and failed-replacement recovery cannot be
+qualified from a successful plugin call. Do not guess a numeric track ID.
+
+Native computer control is unavailable in this agent session. Manual checkpoint:
+play a local episode, open the LangPlay native feasibility probe from the plugin
+tray, press **Load generated JP test subtitle**, close the probe, and inspect the
+native CC menu. Select **LangPlay native test.ja.srt** and confirm Japanese text
+appears; then restore the previous subtitle using that menu. Record separately
+whether the test track was automatically selected. Until native evidence exists,
+discovery/setup/cache implementation remains gated; no host fork is introduced.
+
+Checkpoint implementation checks: 35 scoped Seanime tests (including native
+command shape and stale-video rejection), 20 installer tests, 22 existing Python
+tests and 82 existing Node tests passed. The self-contained bundle built and
+reloaded successfully in the running official 3.10.4 host, whose log recorded
+plugin initialization and reload. These are runtime-registration and regression
+checks, not native rendering acceptance. Windows and fullscreen remain untested.
+
 Target Seanime/Denshi **3.10.4**, source
 `4bdff7b27b6c043dc87c0ccad3ead54596133a05`. This report distinguishes
 source inspection, build checks and actual native observations. The full

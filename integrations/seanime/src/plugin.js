@@ -68,6 +68,25 @@ export function start(ctx) {
     panel.hide();
   }));
   panel.channel.on('probe:close', () => panel.hide());
+  panel.channel.on('probe:native-subtitle', guard(() => {
+    const expected = session();
+    const info = core.getCurrentPlaybackInfo();
+    const video = info && info.localFile && info.localFile.path;
+    if (!matches(expected) || !video || core.getCurrentPlayerType() !== 'native') {
+      throw new Error('Play a local episode in the native player before running this test.');
+    }
+    // Recheck the complete identity immediately before the host mutation.
+    const current = core.getCurrentPlaybackInfo();
+    if (!matches(expected) || !current || !current.localFile || current.localFile.path !== video) {
+      throw new Error('Playback changed; subtitle test rejected.');
+    }
+    core.addExternalSubtitleTrack({
+      label: 'LangPlay native test.ja.srt', language: 'ja', type: 'srt', default: true,
+      content: '1\n00:00:00,000 --> 23:59:59,000\n日本語の字幕テストです。\n',
+    });
+    reply({ nativeSubtitle: 'sent', session: expected,
+      instruction: 'Check the native CC menu for LangPlay native test.ja.srt and select it. Report whether Japanese text appears. Sending the command is not proof of loading or selection.' });
+  }));
   panel.channel.on('probe:read', guard(payload => reply({ file: boundedRead(payload && payload.path) })));
   panel.channel.on('probe:adjacent', guard(() => {
     const info = core.getCurrentPlaybackInfo();
@@ -93,6 +112,7 @@ export function start(ctx) {
 <style>:root{color-scheme:light dark}body{font:15px system-ui;margin:18px}button,input,textarea{font:inherit;margin:5px 0;padding:8px;max-width:100%;box-sizing:border-box}textarea,input{width:100%}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:220px;overflow:auto}button{cursor:pointer}</style>
 <h2>LangPlay native probe</h2><p>Development checks only. Paste text from your test subtitle; no automatic cue synchronization yet.</p>
 <button data-op="snapshot">Inspect active player</button><button data-op="adjacent">List adjacent subtitles</button>
+<button data-op="native-subtitle">Load generated JP test subtitle</button>
 <textarea id="line" rows="2" aria-label="Subtitle test line" placeholder="Paste a Japanese subtitle line"></textarea>
 <button data-op="select">Select line → pause</button><button data-op="close">Close (stay paused)</button><button data-op="resume">Explicit resume</button>
 <input id="path" aria-label="Absolute subtitle path" placeholder="Absolute subtitle path in anime library"><button data-op="read">Check bounded byte read</button>
