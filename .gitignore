@@ -2,3 +2,11 @@ __pycache__/
 *.pyc
 .venv/
 .DS_Store
+
+# Seanime integration: generated output, disposable profiles and local secrets
+integrations/seanime/node_modules/
+integrations/seanime/dist/
+integrations/seanime/.local/
+integrations/seanime/captures/
+integrations/seanime/.env*
+!integrations/seanime/.env.example
