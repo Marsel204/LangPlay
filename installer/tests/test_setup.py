@@ -15,7 +15,7 @@ class SetupTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="langplay setup '")
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
 
     def state(self, **changes):
         return dict(system="linux", library=str(self.root / "Anime library"),
@@ -74,10 +74,15 @@ class SetupTests(unittest.TestCase):
     def test_relative_cache_returns_a_package_usable_from_the_extraction_directory(self):
         content = b"verified"
         asset = {"url": "https://official.example/app", "sha256": hashlib.sha256(content).hexdigest()}
-        target = self.root / (asset["sha256"] + "-app")
+        cache = self.root / "cache"; cache.mkdir()
+        target = cache / (asset["sha256"] + "-app")
         target.write_bytes(content)
-        relative = Path(os.path.relpath(self.root, Path.cwd()))
-        package = core.fetch(asset, relative, lambda _: None)
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(self.root)
+            package = core.fetch(asset, Path("cache"), lambda _: None)
+        finally:
+            os.chdir(original_cwd)
         self.assertTrue(package.is_absolute())
 
     def test_other_profile_is_rejected_before_install_changes(self):

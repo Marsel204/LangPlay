@@ -367,6 +367,7 @@ class Installer:
         self.cache = Path(cache) if cache else self.root / "downloads"
         self.api = api or SeanimeAPI()
         self.owned = []
+        self.qbit_shutdown = None
 
     def spawn(self, args, env=None, log_name="setup-apps.log"):
         with (self.root / log_name).open("ab") as output:
@@ -376,6 +377,17 @@ class Installer:
         return child
 
     def stop_owned(self):
+        if self.qbit_shutdown:
+            client, child = self.qbit_shutdown
+            if child.poll() is None:
+                try:
+                    # qBittorrent buffers settings for five seconds. Its API shutdown
+                    # flushes them; TerminateProcess on Windows does not.
+                    client.call("app/shutdown", {})
+                    child.wait(timeout=10)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+            self.qbit_shutdown = None
         for child in reversed(self.owned):
             if child.poll() is None:
                 if sys.platform == "win32":
@@ -441,6 +453,7 @@ class Installer:
                 raise SetupError("The saved downloader port is used by another application.")
         else:
             child = self.spawn([state["qbittorrent"], "--confirm-legal-notice", "--no-splash"], env)
+            self.qbit_shutdown = (qbit, child)
             wait_for(qbit.login, child)
         if not state.get("complete"):
             qbit.call("app/setPreferences", {"json": json.dumps({"save_path": state["library"],
@@ -542,6 +555,7 @@ def launch(root: Path, log=print):
                 qbit.login()  # Never send actions to a foreign downloader.
             else:
                 child = runner.spawn([state["qbittorrent"], "--no-splash"], env, "qbittorrent.log")
+                runner.qbit_shutdown = (qbit, child)
                 wait_for(qbit.login, child)
             if port_busy(state["companionPort"]):
                 check_companion(state["companionPort"], root)

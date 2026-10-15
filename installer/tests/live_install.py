@@ -36,13 +36,19 @@ def main():
                 assert (executable.parent / "resources/binaries/seanime-server-windows.exe").is_file()
         return
     engine = core.Installer(root, cache=args.cache)
-    state = engine.install(root / "Anime library")
+    try:
+        state = engine.install(root / "Anime library")
+    except Exception:
+        log = root / "setup-apps.log"
+        if log.exists(): print(log.read_text(errors="replace")[-12000:], flush=True)
+        raise
     print("First install completed", flush=True)
     # Start only the isolated owned backend/downloader for verification; never native playback.
     try:
         env = core.runtime_environment(root)
         q = engine.spawn([state["qbittorrent"], "--no-splash"], env)
         qbit = core.QbitAPI(state)
+        engine.qbit_shutdown = (qbit, q)
         core.wait_for(qbit.login, q)
         server = engine.spawn([state["server"], "--desktop-sidecar"], env)
         core.wait_for(lambda: engine.api.call("status"), server)
