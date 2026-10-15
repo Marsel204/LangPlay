@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseSubtitles, SubtitleError } from '../src/core/subtitles.js';
 import { makeSubtitle, dialogue } from './fixtures.js';
+import { createCueIndex } from '../src/core/cues.js';
 
 for (const format of ['srt', 'vtt']) {
   test(`${format}: millisecond cues preserve Unicode, line breaks and original bytes as text`, () => {
@@ -59,4 +60,62 @@ test('SRT formatting is plain learning text; escaped literal markup is not execu
 
 test('Unsupported format produces an actionable typed error', () => {
   assert.throws(() => parseSubtitles('image', { format: 'pgs' }), { code: 'UNSUPPORTED_FORMAT' });
+});
+
+for (const format of ['ass', 'ssa']) {
+  test(`${format}: removes overrides/drawings and preserves metadata, commas and line breaks`, () => {
+    let original = makeSubtitle(format, [
+      { startMs: 0, endMs: 2000, text: '{\\k20}今日{\\i1}は{\\i0}、猫\\N来ない。', style: 'Dialogue' },
+      { startMs: 1000, endMs: 3000, text: '{\\pos(30,20)}駅, station', style: 'Sign', layer: 2 },
+      { startMs: 2000, endMs: 2500, text: '{\\p1}m 0 0 l 100 100{\\p0}読む' },
+      { startMs: 3000, endMs: 3500, text: '{\\p1}m 0 0 l 100 100' },
+    ], { bom: true, crlf: true });
+    if (format === 'ssa') original = original.replace('Format: Layer,', 'Format: Marked,').replaceAll('Dialogue: 0,', 'Dialogue: Marked=0,');
+    const parsed = parseSubtitles(original, { format });
+    assert.equal(parsed.original, original);
+    assert.equal(parsed.metadata.scriptInfo.Title, 'Generated corpus');
+    assert.deepEqual(parsed.cues.map(c => c.text), ['今日は、猫\n来ない。', '駅, station', '読む']);
+    assert.equal(parsed.cues[0].style, 'Dialogue');
+    assert.equal(parsed.cues[1].layer, 2);
+    assert.ok(parsed.cues[0].rawText.includes('\\k20'));
+    const index = createCueIndex(parsed.cues);
+    assert.deepEqual(index.at(1500).map(c => c.text), ['今日は、猫\n来ない。', '駅, station']);
+    assert.deepEqual(index.at(1500, { styles: ['Dialogue'] }).map(c => c.text), ['今日は、猫\n来ない。']);
+    assert.equal(index.at(3500).length, 0, 'Cue end is exclusive');
+  });
+}
+
+test('ASS honors event field order, actor/effect/styles and centisecond precision', () => {
+  const original = '[V4+ Styles]\nFormat: Name,Fontname\nStyle: Talk,Noto Sans\n[Events]\n' +
+    'Format: Start, End, Layer, Style, Actor, Effect, Text\n' +
+    'Comment: 0:00:00.00,0:00:01.00,0,Talk,,,ignored\n' +
+    'Dialogue: 0:00:00.01,0:00:01.99,3,Talk,太郎,Banner,猫\\hです';
+  const parsed = parseSubtitles(original, { format: 'ass' });
+  assert.equal(parsed.cues[0].startMs, 10);
+  assert.equal(parsed.cues[0].endMs, 1990);
+  assert.equal(parsed.cues[0].speaker, '太郎');
+  assert.equal(parsed.cues[0].effect, 'Banner');
+  assert.equal(parsed.cues[0].text, '猫\u00a0です');
+  assert.deepEqual(parsed.metadata.styleDefinitions, ['Talk,Noto Sans']);
+});
+
+test('ASS rejects missing event format, truncated columns, bad times/layers and bitmap formats', () => {
+  const valid = makeSubtitle('ass', [{ startMs: 0, endMs: 1000, text: '猫' }]);
+  for (const broken of [valid.replace(/^Format:.*\n/m, ''), valid.replace('0:00:01.00', '0:00:61.00'),
+    valid.replace('Dialogue: 0,', 'Dialogue: NaN,'), valid.replace('0,0,0,,猫', '猫'),
+    valid.replace('Effect, Text', 'Text, Effect')]) {
+    assert.throws(() => parseSubtitles(broken, { format: 'ass' }), SubtitleError);
+  }
+});
+
+test('Interval queries match a reference scan with long dialogue/sign overlaps and duplicate starts', () => {
+  const cues = Array.from({ length: 5000 }, (_, i) => ({ id: `cue:${i}`, sourceIndex: i,
+    startMs: Math.floor(i / 3) * 100, endMs: Math.floor(i / 3) * 100 + (i % 29 === 0 ? 20000 : 50), layer: i % 3 }));
+  const index = createCueIndex(cues.reverse());
+  for (let ms = -1; ms < 180000; ms += 997) {
+    assert.deepEqual(index.at(ms).map(c => c.id), index.cues.filter(c => c.startMs <= ms && ms < c.endMs).map(c => c.id));
+  }
+  assert.deepEqual(createCueIndex([]).at(0), []);
+  assert.throws(() => index.at(NaN), RangeError);
+  assert.throws(() => createCueIndex([{ startMs: -1, endMs: 10 }]), RangeError);
 });
