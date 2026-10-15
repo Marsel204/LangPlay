@@ -80,6 +80,7 @@ def digest(path: Path) -> str:
 
 def fetch(asset: dict, cache: Path, log=print) -> Path:
     """Use cache only after verification; failed downloads never become executables."""
+    cache = cache.expanduser().resolve()
     cache.mkdir(parents=True, exist_ok=True)
     target = cache / (asset["sha256"] + "-" + Path(urllib.parse.urlparse(asset["url"]).path).name)
     if target.exists() and digest(target) == asset["sha256"]:
@@ -377,7 +378,11 @@ class Installer:
     def stop_owned(self):
         for child in reversed(self.owned):
             if child.poll() is None:
-                child.terminate()
+                if sys.platform == "win32":
+                    subprocess.run(["taskkill", "/PID", str(child.pid), "/T", "/F"],
+                        capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                else:
+                    child.terminate()
                 try:
                     child.wait(timeout=10)
                 except subprocess.TimeoutExpired:
@@ -526,29 +531,38 @@ def launch(root: Path, log=print):
         if not state.get("complete"):
             raise SetupError("Setup is incomplete. Run the installer again.")
         api = SeanimeAPI()
-        if port_busy(BACKEND_PORT):
+        already_running = port_busy(BACKEND_PORT)
+        if already_running:
             assert_host_owner(api, root / "seanime")
         runner = Installer(root, log)
         env = runtime_environment(root)
         qbit = QbitAPI(state)
-        if port_busy(state["qbitPort"]):
-            qbit.login()  # Never send downloader actions to an unauthenticated/foreign service.
-        else:
-            child = runner.spawn([state["qbittorrent"], "--no-splash"], env, "qbittorrent.log")
-            wait_for(qbit.login, child)
-        if port_busy(state["companionPort"]):
-            check_companion(state["companionPort"], root)
-        else:
-            companion_env = os.environ.copy()
-            companion_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
-            child = runner.spawn(command_self("--companion", "--root", root),
-                                  companion_env, "companion.log")
-            wait_for(lambda: check_companion(state["companionPort"], root), child)
-        args = [state["seanime"], "--user-data-dir=" + str(root / "denshi")]
-        if state["system"] == "linux":
-            args.append("--gtk-version=3")
-        runner.spawn(args, env, "seanime-desktop.log")
-        log("Seanime is starting.")
+        try:
+            if port_busy(state["qbitPort"]):
+                qbit.login()  # Never send actions to a foreign downloader.
+            else:
+                child = runner.spawn([state["qbittorrent"], "--no-splash"], env, "qbittorrent.log")
+                wait_for(qbit.login, child)
+            if port_busy(state["companionPort"]):
+                check_companion(state["companionPort"], root)
+            else:
+                companion_env = os.environ.copy()
+                companion_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+                args = ["--companion", "--root", str(root)]
+                command = [state["runtime"], *args] if state.get("runtime") else command_self(*args)
+                child = runner.spawn(command, companion_env, "companion.log")
+                wait_for(lambda: check_companion(state["companionPort"], root), child)
+            args = [state["seanime"], "--user-data-dir=" + str(root / "denshi")]
+            if state["system"] == "linux":
+                args.append("--gtk-version=3")
+            child = runner.spawn(args, env, "seanime-desktop.log")
+            if not already_running:
+                wait_for(lambda: api.call("status"), child)
+                assert_host_owner(api, root / "seanime")
+            log("Seanime is ready.")
+        except Exception:
+            runner.stop_owned()
+            raise
 
 
 def check_companion(port: int, root: Path):

@@ -32,7 +32,8 @@ def main():
                     with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/langplay/health", timeout=2) as response:
                         data = json.load(response)
                     assert data["application"] == "langplay-companion"
-                    assert data["profile"] == str(root)
+                    # Windows TEMP may use an 8.3 name; resolve both to the same directory.
+                    assert os.path.samefile(data["profile"], root)
                     break
                 except OSError:
                     if child.poll() is not None or time.monotonic() > deadline:
@@ -47,7 +48,13 @@ def main():
             assert parsed["engine"] == "sudachi"
             print("PASS: packaged companion health and Japanese parsing outside the source folder")
         finally:
-            child.terminate()
+            if sys.platform == "win32":
+                # A one-file bootloader owns a Python child. Terminating only its parent
+                # leaves the test server and inherited log handle alive on Windows.
+                subprocess.run(["taskkill", "/PID", str(child.pid), "/T", "/F"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                child.terminate()
             try: child.wait(timeout=15)
             except subprocess.TimeoutExpired: child.kill(); child.wait(timeout=5)
 

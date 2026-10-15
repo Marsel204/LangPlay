@@ -16,6 +16,9 @@ on:
       - '.github/workflows/desktop-setup.yml'
 permissions:
   contents: read
+concurrency:
+  group: desktop-setup-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 jobs:
   package:
     strategy:

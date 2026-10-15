@@ -71,6 +71,15 @@ class SetupTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 core.fetch(asset, self.root, lambda _: None)
 
+    def test_relative_cache_returns_a_package_usable_from_the_extraction_directory(self):
+        content = b"verified"
+        asset = {"url": "https://official.example/app", "sha256": hashlib.sha256(content).hexdigest()}
+        target = self.root / (asset["sha256"] + "-app")
+        target.write_bytes(content)
+        relative = Path(os.path.relpath(self.root, Path.cwd()))
+        package = core.fetch(asset, relative, lambda _: None)
+        self.assertTrue(package.is_absolute())
+
     def test_other_profile_is_rejected_before_install_changes(self):
         class API:
             def call(self, *_args, **_kwargs):
@@ -163,15 +172,45 @@ class SetupTests(unittest.TestCase):
         with self.assertRaisesRegex(core.SetupError, "incomplete"):
             core.launch(self.root, log=lambda _: None)
 
+    def test_launch_uses_installed_runtime_and_waits_for_the_owned_backend(self):
+        state = self.state(companionPort=8766, runtime="/installed/LangPlay", seanime="/installed/Seanime", complete=True)
+        core.save_json(self.root / "installation.json", state)
+        calls = []
+        def spawn(_, command, *args, **kwargs):
+            calls.append(command)
+            return object()
+        with patch.object(core, "port_busy", side_effect=lambda port: port == 8082), \
+             patch.object(core, "QbitAPI"), patch.object(core.Installer, "spawn", spawn), \
+             patch.object(core, "wait_for", return_value=True) as wait, \
+             patch.object(core.SeanimeAPI, "call", return_value={"dataDir": str(self.root / "seanime")}):
+            core.launch(self.root, log=lambda _: None)
+        self.assertEqual(calls[0][0], state["runtime"])
+        self.assertIn("--companion", calls[0])
+        self.assertEqual(calls[1][0], state["seanime"])
+        self.assertEqual(wait.call_count, 2)
+
+    def test_startup_failure_cleans_new_processes_without_stopping_existing_services(self):
+        state = self.state(companionPort=8766, runtime="/installed/LangPlay", seanime="/installed/Seanime", complete=True)
+        core.save_json(self.root / "installation.json", state)
+        with patch.object(core, "port_busy", side_effect=lambda port: port == 8082), \
+             patch.object(core, "QbitAPI"), patch.object(core.Installer, "spawn"), \
+             patch.object(core, "wait_for", side_effect=core.SetupError("not ready")), \
+             patch.object(core.Installer, "stop_owned") as cleanup:
+            with self.assertRaisesRegex(core.SetupError, "not ready"):
+                core.launch(self.root, log=lambda _: None)
+        cleanup.assert_called_once()
+
     def test_failure_cleans_up_only_spawned_processes(self):
         class Child:
+            pid = 12345
             def __init__(self): self.terminated = False
             def poll(self): return None
             def terminate(self): self.terminated = True
-            def wait(self, timeout): return 0
+            def wait(self, timeout): self.terminated = True; return 0
         child = Child(); engine = core.Installer(self.root)
         engine.owned = [child]
-        engine.stop_owned()
+        with patch.object(core.subprocess, "run"):
+            engine.stop_owned()
         self.assertTrue(child.terminated)
         self.assertEqual(engine.owned, [])
 
