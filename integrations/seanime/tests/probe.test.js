@@ -84,6 +84,16 @@ test('Denshi 3.10.4 embedded mpvcore renderer is accepted using its observed mpv
   assert.equal(probe.sent[0].nativeSubtitle, 'sent');
 });
 
+test('Native target comparison accepts the boxed Go string enum observed in the live Goja host', async () => {
+  const probe = nativeProbe({ renderer: 'mpv', info: {
+    id: 'playback-1', target: new String('mpvcore'), renderer: new String('mpv'),
+    localFile: { path: '/library/episode.mkv' },
+  } });
+  await probe.handlers['probe:native-subtitle']();
+  assert.equal(probe.added.length, 1, JSON.stringify(probe.sent));
+  assert.equal(probe.sent[0].nativeSubtitle, 'sent');
+});
+
 test('Native checkpoint refuses missing playback, other renderers and changed video identity', async () => {
   for (const options of [
     { client: '' }, { renderer: 'web' }, { info: { id: 'playback-1' } },

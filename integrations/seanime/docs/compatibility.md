@@ -30,6 +30,20 @@ rejected. A regression test reproduced the misleading local-playback error
 before the guard was corrected. Live diagnostics confirmed an active client,
 playback ID and local-file identity. The rejection did not indicate missing media.
 
+A subsequent live browser-to-host test confirmed that `target` is a Goja-wrapped
+Go string enum (`typeof target === 'object'`, serialized value `mpvcore`). It
+must be normalized with `String(target)` before comparison. A boxed-enum
+regression reproduces the rejection; plain JavaScript fixture strings had hidden
+this host interoperability issue. The native acceptance checkpoint is still open.
+
+With enum normalization applied, a live browser UI click reached the existing
+plugin handler and the host logged `add-subtitle-track` addressed to the active
+native client. The actual Denshi process created the 69-byte Japanese SRT under
+its `/tmp/seanime-mpvcore` temporary directory. This establishes delivery through
+the native IPC path, not track-menu availability, selection or visible rendering.
+The scoped suite now passes 37 tests. The browser-side snapshot independently
+observed the active mpv client, playback ID, duration, time and pause status.
+
 Checkpoint implementation checks: 35 scoped Seanime tests (including native
 command shape and stale-video rejection), 20 installer tests, 22 existing Python
 tests and 82 existing Node tests passed. The self-contained bundle built and

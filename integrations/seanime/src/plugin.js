@@ -74,7 +74,7 @@ export function start(ctx) {
     const video = info && info.localFile && info.localFile.path;
     const renderer = core.getCurrentPlayerType();
     // Denshi 3.10.4's embedded libmpv adapter reports "mpv", not "native".
-    const embedded = renderer === 'native' || (renderer === 'mpv' && info && info.target === 'mpvcore');
+    const embedded = renderer === 'native' || (renderer === 'mpv' && info && String(info.target) === 'mpvcore');
     if (!matches(expected) || !video || !embedded) {
       throw new Error('Play a local episode in the native player before running this test.');
     }
