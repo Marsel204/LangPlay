@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-15T09:00:00Z",
+  "title": "Design System: LangPlay Setup",
+  "extensions": {},
+  "components": [],
+  "narrative": {
+    "northStar": "One clear setup task in a native desktop window",
+    "overview": "An operating utility that follows the desktop's ttk colors, controls and typography. The folder choice leads to installation, visible progress, and launching Seanime. Native widgets supply focus, hover and disabled states.",
+    "keyCharacteristics": ["Native controls", "Single folder choice", "Visible retry and launch states"],
+    "rules": [{"name": "Preserve operating state", "body": "Existing library configuration stays read-only during repeated setup. Worker threads report through a queue so the window remains responsive.", "section": "layout"}],
+    "dos": ["Wrap explanatory text and grow the minimum window height with font metrics."],
+    "donts": ["Do not describe the development probe as a complete learning integration."]
+  }
+}

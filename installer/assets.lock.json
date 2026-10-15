@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "seanimeVersion": "3.10.4",
+  "qbittorrentVersion": "5.2.4",
+  "linux": {
+    "seanime": {
+      "url": "https://github.com/5rahim/seanime/releases/download/v3.10.4/seanime-denshi-3.10.4_Linux_x86_64.AppImage",
+      "sha256": "bc1d3b5b045b1be1378f4501afc436bf282c052d5fb254513addf2e3af7014f5"
+    },
+    "qbittorrent": {
+      "url": "https://github.com/qbittorrent/qBittorrent/releases/download/release-5.2.4/qbittorrent-5.2.4_lt20_x86_64.AppImage",
+      "sha256": "eda6c0ca39f9befb0cd111b76a3d8b8bf3fd859323f2d4aac8c18f63766c2a1a"
+    }
+  },
+  "windows": {
+    "seanime": {
+      "url": "https://github.com/5rahim/seanime/releases/download/v3.10.4/seanime-denshi-3.10.4_Windows_x64.exe",
+      "sha256": "2de1096dcf6a04c636fe011b23b512498599bac6d2a6648fd862bb49935920ae"
+    },
+    "qbittorrent": {
+      "url": "https://github.com/qbittorrent/qBittorrent/releases/download/release-5.2.4/qbittorrent_5.2.4_lt20_x64_setup.exe",
+      "sha256": "28888fe5f2aa89b35d95c3a25b377755ce894fc08ac94030da9f11ccf3928cfa"
+    }
+  },
+  "provider": {
+    "manifest": {
+      "url": "https://raw.githubusercontent.com/faddix/seanime-animetosho-new/592623491dd37c7080db2abe13e8efbe3a34dbfe/animetosho-new.json",
+      "sha256": "60d01652f0a6bd9ef12fcb7f38e5b676c557a106fdbeb1bec33ffe1c78888286"
+    },
+    "payload": {
+      "url": "https://raw.githubusercontent.com/faddix/seanime-animetosho-new/592623491dd37c7080db2abe13e8efbe3a34dbfe/animetosho-new.ts",
+      "sha256": "c9d9823d6ace769978e448463cc37e3a45554cef24e1fdb7772febfa7c86b384"
+    }
+  }
+}

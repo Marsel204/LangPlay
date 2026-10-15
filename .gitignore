@@ -10,3 +10,9 @@ integrations/seanime/.local/
 integrations/seanime/captures/
 integrations/seanime/.env*
 !integrations/seanime/.env.example
+
+# Setup build products; profiles and downloads never belong in the repo.
+installer/.build/
+installer/dist/
+installer/7zip/
+.setup-venv/
