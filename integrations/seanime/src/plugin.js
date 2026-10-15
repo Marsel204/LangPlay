@@ -17,7 +17,9 @@ export function start(ctx) {
     return expected && expected.client && expected.playback &&
       expected.client === current.client && expected.playback === current.playback;
   };
-  const reply = value => panel.channel.send('probe:result', value);
+  // Target host drops object replies when its account token is empty. This
+  // probe sends no credentials; a JSON string also supports local-only hosts.
+  const reply = value => panel.channel.send('probe:result', JSON.stringify(value));
   const guard = fn => async payload => {
     try { await fn(payload); }
     catch (error) { reply({ error: String(error.message || error) }); }
@@ -95,7 +97,7 @@ export function start(ctx) {
 <button data-op="select">Select line → pause</button><button data-op="close">Close (stay paused)</button><button data-op="resume">Explicit resume</button>
 <input id="path" aria-label="Absolute subtitle path" placeholder="Absolute subtitle path in anime library"><button data-op="read">Check bounded byte read</button>
 <pre id="result" role="status">Waiting for host…</pre>
-<script>webview.channel.on('probe:result', value => { document.getElementById('result').textContent=JSON.stringify(value,null,2); });
-document.addEventListener('click',event=>{const op=event.target.dataset.op;if(!op)return;webview.channel.send('probe:'+op,{text:document.getElementById('line').value,path:document.getElementById('path').value});});
-document.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();webview.channel.send('probe:close',{});}});</script></html>`);
+<script>webview.on('probe:result', value => { const data=typeof value==='string'?JSON.parse(value):value; document.getElementById('result').textContent=JSON.stringify(data,null,2); });
+document.addEventListener('click',event=>{const op=event.target.dataset.op;if(!op)return;webview.send('probe:'+op,{text:document.getElementById('line').value,path:document.getElementById('path').value});});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();webview.send('probe:close',{});}});</script></html>`);
 }
