@@ -53,7 +53,8 @@ def main():
         server = engine.spawn([state["server"], "--desktop-sidecar"], env)
         core.wait_for(lambda: engine.api.call("status"), server)
         before = engine.api.call("settings")
-        assert before["library"]["libraryPath"] == str(root / "Anime library")
+        # Seanime normalizes Windows paths to forward slashes; compare directory identity.
+        assert os.path.samefile(before["library"]["libraryPath"], root / "Anime library")
         assert before["autoDownloader"]["enabled"] is False
         assert before["autoDownloader"]["downloadAutomatically"] is False
         assert json.loads(qbit.call("torrents/info")) == []

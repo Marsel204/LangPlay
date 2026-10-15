@@ -61,7 +61,7 @@ uninstaller; to remove it, quit these apps and remove its app-menu shortcut and
 installation folder, preserving any bookmarks/data you need. Your library lives
 outside the installation by default.
 
-Linux requires a graphical desktop with GTK 3, NSS, X11/Wayland and normal desktop
+Linux requires a graphical desktop with GTK 3, NSS, EGL/OpenGL, X11/Wayland and normal desktop
 libraries; older/minimal distributions may need packages from their own manager.
 Linux release builds target Ubuntu 22.04 or newer glibc-based desktops. ARM,
 32-bit Windows, macOS, Android and iOS are outside this package's current scope.

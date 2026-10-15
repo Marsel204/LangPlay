@@ -16,13 +16,15 @@ from installer.core import (VERSION, Installer, SetupError, companion, default_r
 
 def self_test():
     from japanese_parser import parse_japanese
+    import tkinter
+    tcl_version = tkinter.Tcl().eval("info patchlevel")
     lock = read_json(resources() / "installer/assets.lock.json")
     plugin = read_json(resources() / "integrations/seanime/dist/langplay-probe.json")
     assert plugin["id"] == "langplay-probe" and plugin["payload"]
     assert len(lock[system_key()]) == 2
     assert parse_japanese("日本語を勉強しています。")
     print(json.dumps({"status": "ok", "version": VERSION, "platform": system_key(),
-                      "parser": "sudachi", "plugin": plugin["version"]}))
+                      "parser": "sudachi", "plugin": plugin["version"], "tcl": tcl_version}))
 
 
 def gui(root: Path, error=None):
