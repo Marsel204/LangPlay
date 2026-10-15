@@ -2,7 +2,7 @@
 
 Local Linux checks performed on 2026-10-15:
 
-- 17 installer unit checks passed.
+- 20 installer unit checks passed.
 - Existing regressions: 22 Python, 82 Node and 33 Seanime integration checks passed.
 - Both Windows vendor packages matched pinned GitHub asset hashes. Their nested
   NSIS payloads extracted successfully; desktop/server/downloader binaries exist.
