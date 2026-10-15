@@ -22,6 +22,13 @@ def main():
     if not (ROOT / "integrations/seanime/dist/langplay-probe.json").exists():
         raise SystemExit("Build the plugin first: npm --prefix integrations/seanime run build")
     extras = []
+    if sys.platform.startswith("linux"):
+        # Standalone CPython can keep Tcl 9 beside libpython, outside ldconfig's
+        # search paths. PyInstaller 6.16 collects the scripts but misses these ELF libs.
+        for library in sorted((Path(sys.base_prefix) / "lib").glob("libtcl*.so*")):
+            extras += ["--add-binary", str(library) + ":."]
+        for library in sorted((Path(sys.base_prefix) / "lib").glob("libtk*.so*")):
+            extras += ["--add-binary", str(library) + ":."]
     if windows:
         helper = ROOT / "installer/7zip"
         helper.mkdir(exist_ok=True)

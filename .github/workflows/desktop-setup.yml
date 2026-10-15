@@ -43,7 +43,7 @@ jobs:
           cache-dependency-path: integrations/seanime/package-lock.json
       - name: Linux desktop libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y python3-tk libgtk-3-0 libnss3 libasound2 libgbm1 libegl1 libgl1 libxkbcommon0 xvfb
+        run: sudo apt-get update && sudo apt-get install -y python3-tk libgtk-3-0 libnss3 libasound2 libgbm1 libegl1 libgl1 libopengl0 libxkbcommon0 xvfb
       - run: python -m pip install -r installer/requirements-build.txt -r requirements-parser.txt
       - run: npm --prefix integrations/seanime ci
       - run: npm --prefix integrations/seanime test
