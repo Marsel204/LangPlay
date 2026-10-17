@@ -9,13 +9,15 @@ export function createServices({ fetch, save } = {}) {
     let response;
     try { response = await fetch(`${endpoint}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), timeout }); }
     catch { throw new Error(path.includes('/ai/') ? 'AI did not respond. Check your configured AI provider and try again. Japanese captions and local cards remain available.' : 'LangPlay companion unavailable at 127.0.0.1:8765.'); }
-    if (!response.ok) throw new Error(`Companion request failed (${response.status}).`);
+    if (!response.ok && path !== '/api/subtitles') throw new Error(`Companion request failed (${response.status}).`);
     const value = await response.json();
+    if (!response.ok) throw new Error(path === '/api/subtitles' && typeof value?.message === 'string' ? value.message : `Companion request failed (${response.status}).`);
     if (value?.status !== 'success') throw new Error('Companion could not complete this request.');
     return value;
   }
   const parser = parserModule.create({ wanakana, transport: text => post('/api/parse', { text }) });
   return {
+    savedSubtitles: data => post('/api/subtitles', data),
     async parse(text) {
       const result = await parser.request(text);
       if (!result) throw new Error('Japanese parser unavailable. Start the LangPlay companion and try again.');

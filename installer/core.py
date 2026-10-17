@@ -600,6 +600,7 @@ def companion(root: Path):
     data = root / "companion-data"
     data.mkdir(parents=True, exist_ok=True)
     Server.ANKI_FILE = str(data / "anki_cards.txt")
+    os.environ['LANGPLAY_SUBTITLE_DIR'] = str(root / 'subtitles')
     class Handler(Server.RequestHandler):
         def do_GET(self):
             if self.path == "/api/langplay/health":

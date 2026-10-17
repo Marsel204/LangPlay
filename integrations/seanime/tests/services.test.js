@@ -1,6 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServices } from '../src/services.js';
+import { validateMessage } from '../src/bridge.js';
+
+test('Saved subtitle requests use the local companion and surface recovery messages', async () => {
+  const calls = [];
+  const services = createServices({ fetch: async (url, options) => {
+    calls.push([url, JSON.parse(options.body)]);
+    return { ok: true, json: () => ({ status: 'success', files: [{ name: '日本語.srt' }] }) };
+  } });
+  assert.equal((await services.savedSubtitles({ action: 'list' })).files[0].name, '日本語.srt');
+  assert.deepEqual(calls, [['http://127.0.0.1:8765/api/subtitles', { action: 'list' }]]);
+  const unavailable = createServices({ fetch: async () => ({ ok: false, status: 404, json: () => ({ message: 'Refresh the list or choose another file.' }) }) });
+  await assert.rejects(() => unavailable.savedSubtitles({ action: 'read', name: 'missing.srt' }), /Refresh the list/);
+  for (const name of ['../secret.srt', 'folder\\secret.srt', '/tmp/sub.srt', 'file.json']) {
+    assert.throws(() => validateMessage({ v: 1, id: 1, op: 'saved-import', data: { name, encoding: 'auto', offsetMs: 0 } }), /Choose a saved/);
+  }
+  assert.equal(validateMessage({ v: 1, id: 1, op: 'saved-import', data: { name: '日本語.srt', encoding: 'auto', offsetMs: 0 } }).op, 'saved-import');
+});
 test('Services reuse the shared lossless parser and offline dictionary without implicit AI', async () => {
   const calls = [];
   const services = createServices({ fetch: async (url, options) => {

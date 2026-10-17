@@ -1,7 +1,9 @@
-const operations = new Set(['refresh', 'import', 'offset', 'select', 'close', 'resume', 'explain', 'chat', 'save', 'export', 'preferences', 'hide']);
+const operations = new Set(['refresh', 'import', 'saved-list', 'saved-import', 'saved-open', 'offset', 'select', 'close', 'resume', 'explain', 'chat', 'save', 'export', 'preferences', 'hide']);
 export function validateMessage(value) {
   if (!value || value.v !== 1 || !Number.isSafeInteger(value.id) || value.id < 0 || !operations.has(value.op)) throw new Error('Invalid LangPlay message.');
   const d = value.data || {};
+  if (value.op === 'saved-import' && (typeof d.name !== 'string' || !d.name.length || d.name.length > 256 || /[/\\\x00]/.test(d.name) ||
+      !/\.(srt|vtt|ass|ssa)$/i.test(d.name) || !['auto', 'shift_jis'].includes(d.encoding) || !Number.isSafeInteger(d.offsetMs) || Math.abs(d.offsetMs) > 3600000)) throw new Error('Choose a saved subtitle and a valid encoding and delay.');
   if (value.op === 'import' && (typeof d.content !== 'string' || !d.content.length || d.content.length > 10 * 1024 * 1024 ||
       typeof d.sourceId !== 'string' || !d.sourceId.length || d.sourceId.length > 256 || !['srt', 'vtt', 'ass', 'ssa'].includes(d.format) ||
       !Number.isSafeInteger(d.offsetMs || 0))) throw new Error('Choose an SRT, VTT, ASS or SSA subtitle up to 10 MiB.');
