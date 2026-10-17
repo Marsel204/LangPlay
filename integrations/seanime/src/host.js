@@ -14,7 +14,7 @@ export function createHost(core) {
     const title = info.media?.title;
     return { ...identity, positionMs: Math.max(0, status.currentTime * 1000),
       durationMs: Math.max(0, Number(status.duration || 0) * 1000), paused: !!status.paused, rate: 1,
-      title: typeof title === 'string' ? title : (title?.userPreferred || title?.romaji || title?.english || ''),
+      title: String(typeof title === 'string' ? title : (title?.userPreferred || title?.romaji || title?.english || '')),
       episode: String(info.episode?.episodeNumber || info.onlinestreamParams?.episodeNumber || ''),
       association: info.media?.id ? `${info.media.id}:${info.episode?.episodeNumber || info.onlinestreamParams?.episodeNumber || ''}` : '',
     };

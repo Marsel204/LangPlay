@@ -24,3 +24,9 @@ test('Bridge rejects unknown operations and unbounded or malformed imports', () 
   assert.throws(() => validateMessage(message('select', { cueId: 'x', start: -1, end: 2 })));
   assert.throws(() => validateMessage({ v: 2, id: 1, op: 'refresh' }));
 });
+test('Host normalizes boxed Go title values before capturing a selection', () => {
+  const core = { getCurrentClientId: () => 'a', getCurrentPlayerType: () => 'web',
+    getCurrentPlaybackInfo: () => ({ id: 'b', media: { title: { romaji: new String('Japanese title') } } }),
+    getPlaybackStatus: () => ({ id: 'b', clientId: 'a', currentTime: 1, duration: 30, paused: true }) };
+  assert.equal(createHost(core).snapshot().title, 'Japanese title');
+});

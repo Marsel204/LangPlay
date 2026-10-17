@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 
-const root = process.env.LANGPLAY_SOURCE_ROOT || '/home/marsel/Projects/LangPlay';
+const root = process.env.LANGPLAY_SOURCE_ROOT || fileURLToPath(new URL('../../../', import.meta.url));
 const moduleUrl = pathToFileURL(path.join(root, 'integrations/seanime/src/learning-controller.js')).href;
 const subtitle = '1\n00:00:01,000 --> 00:00:04,000\n今日は日本語を勉強します。\n';
 

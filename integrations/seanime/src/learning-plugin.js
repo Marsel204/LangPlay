@@ -15,7 +15,7 @@ export function start(ctx) {
     style: 'left:auto;top:auto;right:12px;bottom:12px;width:min(540px,94vw)',
     maxWidth: '94vw', maxHeight: '88vh', zIndex: 200, window: { draggable: false, frameless: true } });
   const tray = ctx.newTray({ iconUrl: '', withContent: false });
-  tray.onClick(() => panel.isHidden() ? panel.show() : panel.hide());
+  tray.onClick(() => panel.show());
   let ticking = false;
   const parsing = new Set();
   const send = (event, value) => panel.channel.send(event, JSON.stringify(value));

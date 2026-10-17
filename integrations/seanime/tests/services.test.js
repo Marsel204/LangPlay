@@ -20,3 +20,18 @@ test('Invalid parser spans and failed AI responses fail honestly', async () => {
   const unavailable = createServices({ fetch: async () => ({ ok: false, status: 503 }) });
   await assert.rejects(() => unavailable.explain({ surface: '日本語', sentence: '日本語' }), /503/);
 });
+test('Explicit AI explanation is readable and chat keeps only the captured selection history', async () => {
+  const messages = [];
+  const services = createServices({ fetch: async (url, options) => {
+    messages.push(JSON.parse(options.body));
+    return { ok: true, json: () => url.endsWith('/analyze') ? { status: 'success', data: {
+      contextual_meaning: 'who', sentence_translation: { en: 'Is nobody here?' }, sentence_fit: { role_in_sentence: 'Interrogative pronoun with mo.' },
+    } } : { status: 'success', reply: 'Generated fixture reply' } };
+  } });
+  const context = { clientId: 'a', playbackId: 'b', generation: 1, surface: '誰', sentence: '誰もいない', question: 'Why mo?' };
+  const result = await services.explain(context);
+  assert.match(result.explanation, /Is nobody here\?/); assert.equal(result.explanation.includes('role_in_sentence'), false);
+  await services.chat(context); await services.chat({ ...context, question: 'And nai?' });
+  assert.equal(messages[2].messages.length, 3);
+  await services.chat({ ...context, generation: 2 }); assert.equal(messages[3].messages.length, 1);
+});

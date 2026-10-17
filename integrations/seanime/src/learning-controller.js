@@ -2,7 +2,9 @@ import { createLearningSession } from './core/session.js';
 import { parseSubtitles } from './core/subtitles.js';
 
 export function createLearningController({ host, services, now } = {}) {
-  const session = createLearningSession({ now });
+  // Seanime's status has no playback-rate or observation timestamp. Use its
+  // authoritative position instead of inventing elapsed playback between polls.
+  const session = createLearningSession({ now, maxExtrapolationMs: 0 });
   let playback = null, source = null, drawerOpen = false, reading = '', meaning = '', error = '';
   let baseForm = '', explanation = '', reply = '', busy = false;
   const reset = () => { drawerOpen = false; reading = meaning = baseForm = error = explanation = reply = ''; busy = false; };

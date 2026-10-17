@@ -4,10 +4,11 @@ import { JDICT } from '../../../extension/js/dict.js';
 
 const endpoint = 'http://127.0.0.1:8765';
 export function createServices({ fetch, save } = {}) {
+  let conversationKey = '', conversation = [];
   async function post(path, body, timeout = 8) {
     let response;
     try { response = await fetch(`${endpoint}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), timeout }); }
-    catch { throw new Error('LangPlay companion unavailable at 127.0.0.1:8765.'); }
+    catch { throw new Error(path.includes('/ai/') ? 'AI did not respond. Check your configured AI provider and try again. Japanese captions and local cards remain available.' : 'LangPlay companion unavailable at 127.0.0.1:8765.'); }
     if (!response.ok) throw new Error(`Companion request failed (${response.status}).`);
     const value = await response.json();
     if (value?.status !== 'success') throw new Error('Companion could not complete this request.');
@@ -21,14 +22,31 @@ export function createServices({ fetch, save } = {}) {
       return result;
     },
     cached: text => parser.cached(text),
-    async lookup({ surface, baseForm }) { return { meaning: JDICT[baseForm] || JDICT[surface] || '' }; },
+    async lookup({ surface, baseForm }) {
+      const entry = key => Object.prototype.hasOwnProperty.call(JDICT, key) ? JDICT[key] : '';
+      return { meaning: entry(baseForm) || entry(surface) };
+    },
     async explain(context) {
       const value = await post('/api/ai/analyze', { word: context.surface, sentence: context.sentence, romaji: context.reading || '', provider: 'antigravity' }, 60);
-      return { explanation: typeof value.data === 'string' ? value.data : JSON.stringify(value.data, null, 2) };
+      const data = value.data;
+      if (typeof data === 'string') return { explanation: data.slice(0, 24000) };
+      const parts = [data?.contextual_meaning, data?.sentence_translation?.en,
+        data?.sentence_fit?.phrase_connection, data?.sentence_fit?.role_in_sentence, data?.sentence_fit?.context_nuance,
+        data?.conjugation?.is_conjugated ? data.conjugation.explanation : ''];
+      if (Array.isArray(data?.word_by_word)) parts.push(data.word_by_word.slice(0, 100).map(w => `${w.word || ''} (${w.reading || w.romaji || ''}): ${w.meaning || ''}`).join('\n'));
+      const explanation = parts.filter(p => typeof p === 'string' && p.trim()).join('\n\n').slice(0, 24000);
+      if (!explanation) throw new Error('AI returned no explanation. Try again.');
+      return { explanation };
     },
     async chat(context) {
-      return post('/api/ai/chat', { word: context.surface, sentence: context.sentence, romaji: context.reading || '',
-        messages: [{ role: 'user', content: context.question }] }, 60);
+      const key = JSON.stringify([context.clientId, context.playbackId, context.generation, context.surface, context.sentence]);
+      if (key !== conversationKey) { conversationKey = key; conversation = []; }
+      const user = { role: 'user', content: context.question };
+      const value = await post('/api/ai/chat', { word: context.surface, sentence: context.sentence, romaji: context.reading || '',
+        messages: [...conversation.slice(-10), user] }, 60);
+      if (typeof value.reply !== 'string' || !value.reply.trim() || value.reply.length > 24000) throw new Error('AI returned an invalid answer. Try again.');
+      if (key === conversationKey) conversation = [...conversation.slice(-10), user, { role: 'assistant', content: value.reply }];
+      return value;
     },
     save,
   };

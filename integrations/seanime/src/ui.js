@@ -1,7 +1,7 @@
 import { decodeSubtitle } from './core/encoding.js';
 
 const $ = id => document.getElementById(id);
-let sequence = 0, state = null, signature = '', selectedKey = '', setupOpen = false, downloadUrl;
+let sequence = 0, state = null, signature = '', selectedKey = '', setupOpen = false, offsetDirty = false;
 const pending = new Map();
 function send(op, data = {}) {
   const id = ++sequence;
@@ -32,6 +32,7 @@ function caption(view) {
       ? [...new Intl.Segmenter('ja', { granularity: 'word' }).segment(cue.text)].map(s => ({ surface: s.segment, start: s.index, end: s.index + s.segment.length }))
       : [{ surface: cue.text, start: 0, end: cue.text.length }]);
     for (const token of tokens) {
+      if (!token.surface.trim() || /^[\p{P}\p{S}\s]+$/u.test(token.surface)) { line.append(document.createTextNode(token.surface)); continue; }
       const button = document.createElement('button'); button.className = 'token'; button.lang = 'ja';
       const reading = view.preferences.readingMode === 'furigana' ? token.furigana : view.preferences.readingMode === 'romaji' ? token.romaji : '';
       if (reading && reading !== token.surface) {
@@ -48,7 +49,7 @@ function render(view) {
   state = view; caption(view);
   $('clock').textContent = timestamp(view.positionMs);
   $('source').textContent = view.source ? `${view.source.sourceId} · ${view.source.cueCount} cues` : view.association ? `Re-select subtitle: ${view.association.sourceId}` : 'SRT, VTT, ASS or SSA · up to 10 MiB';
-  if (document.activeElement !== $('offset')) $('offset').value = view.source?.offsetMs ?? view.association?.offsetMs ?? 0;
+  if (!offsetDirty && document.activeElement !== $('offset')) $('offset').value = view.source?.offsetMs ?? view.association?.offsetMs ?? 0;
   $('mode').value = view.preferences.readingMode;
   $('drawer').hidden = !view.drawerOpen;
   $('continue').hidden = !view.selected || view.drawerOpen;
@@ -75,7 +76,11 @@ $('settings').onclick = () => setup(!setupOpen);
 for (const op of ['close', 'resume', 'hide']) $(op).onclick = () => run(op);
 $('continue').onclick = () => run('resume');
 document.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); run('close'); } });
-$('offset').onchange = () => run('offset', { offsetMs: Number($('offset').value) });
+$('offset').oninput = () => { offsetDirty = true; };
+$('apply-offset').onclick = async () => {
+  const result = await run('offset', { offsetMs: Number($('offset').value) });
+  if (result) { offsetDirty = false; notice('Subtitle delay applied. Positive values show captions later.'); }
+};
 $('mode').onchange = () => run('preferences', { readingMode: $('mode').value });
 $('import-paste').onclick = async () => {
   const sourceId = $('paste-name').value.trim(), content = $('paste-text').value;
@@ -105,8 +110,8 @@ $('chat').onsubmit = async event => {
 };
 $('export').onclick = async () => {
   const value = await run('export'); if (!value) return;
-  if (downloadUrl) URL.revokeObjectURL(downloadUrl);
-  downloadUrl = URL.createObjectURL(new Blob([value.tsv], { type: 'text/tab-separated-values;charset=utf-8' }));
-  $('download').href = downloadUrl; $('download').hidden = false; notice(`${value.count} local cards ready to download.`);
+  $('cards-tsv').value = value.tsv; $('card-export').hidden = false;
+  notice(`${value.count} local card${value.count === 1 ? '' : 's'} ready to export.`);
 };
+$('select-tsv').onclick = () => { $('cards-tsv').focus(); $('cards-tsv').select(); };
 run('refresh');
