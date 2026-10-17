@@ -1,0 +1,334 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-15T04:03:55.723047Z",
+  "title": "Design System: LangPlay UI study",
+  "extensions": {
+    "colorMeta": {
+      "page": {
+        "role": "neutral",
+        "displayName": "Near-black page",
+        "tonalRamp": [
+          "oklch(15.00% 0.0028 247.09)",
+          "oklch(26.43% 0.0028 247.09)",
+          "oklch(37.86% 0.0028 247.09)",
+          "oklch(49.29% 0.0028 247.09)",
+          "oklch(60.71% 0.0028 247.09)",
+          "oklch(72.14% 0.0028 247.09)",
+          "oklch(83.57% 0.0028 247.09)",
+          "oklch(95.00% 0.0028 247.09)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Charcoal drawer",
+        "tonalRamp": [
+          "oklch(15.00% 0.0067 258.37)",
+          "oklch(26.43% 0.0067 258.37)",
+          "oklch(37.86% 0.0067 258.37)",
+          "oklch(49.29% 0.0067 258.37)",
+          "oklch(60.71% 0.0067 258.37)",
+          "oklch(72.14% 0.0067 258.37)",
+          "oklch(83.57% 0.0067 258.37)",
+          "oklch(95.00% 0.0067 258.37)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Control surface",
+        "tonalRamp": [
+          "oklch(15.00% 0.0103 260.70)",
+          "oklch(26.43% 0.0103 260.70)",
+          "oklch(37.86% 0.0103 260.70)",
+          "oklch(49.29% 0.0103 260.70)",
+          "oklch(60.71% 0.0103 260.70)",
+          "oklch(72.14% 0.0103 260.70)",
+          "oklch(83.57% 0.0103 260.70)",
+          "oklch(95.00% 0.0103 260.70)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Warm white text",
+        "tonalRamp": [
+          "oklch(15.00% 0.0054 95.10)",
+          "oklch(26.43% 0.0054 95.10)",
+          "oklch(37.86% 0.0054 95.10)",
+          "oklch(49.29% 0.0054 95.10)",
+          "oklch(60.71% 0.0054 95.10)",
+          "oklch(72.14% 0.0054 95.10)",
+          "oklch(83.57% 0.0054 95.10)",
+          "oklch(95.00% 0.0054 95.10)"
+        ]
+      },
+      "secondary": {
+        "role": "neutral",
+        "displayName": "Secondary gray",
+        "tonalRamp": [
+          "oklch(15.00% 0.0044 271.36)",
+          "oklch(26.43% 0.0044 271.36)",
+          "oklch(37.86% 0.0044 271.36)",
+          "oklch(49.29% 0.0044 271.36)",
+          "oklch(60.71% 0.0044 271.36)",
+          "oklch(72.14% 0.0044 271.36)",
+          "oklch(83.57% 0.0044 271.36)",
+          "oklch(95.00% 0.0044 271.36)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted metadata",
+        "tonalRamp": [
+          "oklch(15.00% 0.0075 268.52)",
+          "oklch(26.43% 0.0075 268.52)",
+          "oklch(37.86% 0.0075 268.52)",
+          "oklch(49.29% 0.0075 268.52)",
+          "oklch(60.71% 0.0075 268.52)",
+          "oklch(72.14% 0.0075 268.52)",
+          "oklch(83.57% 0.0075 268.52)",
+          "oklch(95.00% 0.0075 268.52)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Slate divider",
+        "tonalRamp": [
+          "oklch(15.00% 0.0112 264.42)",
+          "oklch(26.43% 0.0112 264.42)",
+          "oklch(37.86% 0.0112 264.42)",
+          "oklch(49.29% 0.0112 264.42)",
+          "oklch(60.71% 0.0112 264.42)",
+          "oklch(72.14% 0.0112 264.42)",
+          "oklch(83.57% 0.0112 264.42)",
+          "oklch(95.00% 0.0112 264.42)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Provisional warm amber",
+        "tonalRamp": [
+          "oklch(15.00% 0.0859 76.61)",
+          "oklch(26.43% 0.0859 76.61)",
+          "oklch(37.86% 0.0859 76.61)",
+          "oklch(49.29% 0.0859 76.61)",
+          "oklch(60.71% 0.0859 76.61)",
+          "oklch(72.14% 0.0859 76.61)",
+          "oklch(83.57% 0.0859 76.61)",
+          "oklch(95.00% 0.0859 76.61)"
+        ]
+      },
+      "accent-ink": {
+        "role": "neutral",
+        "displayName": "Amber action ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.0209 69.66)",
+          "oklch(26.43% 0.0209 69.66)",
+          "oklch(37.86% 0.0209 69.66)",
+          "oklch(49.29% 0.0209 69.66)",
+          "oklch(60.71% 0.0209 69.66)",
+          "oklch(72.14% 0.0209 69.66)",
+          "oklch(83.57% 0.0209 69.66)",
+          "oklch(95.00% 0.0209 69.66)"
+        ]
+      },
+      "host-accent-comparison": {
+        "role": "primary",
+        "displayName": "Host-violet comparison",
+        "tonalRamp": [
+          "oklch(15.00% 0.1013 293.57)",
+          "oklch(26.43% 0.1013 293.57)",
+          "oklch(37.86% 0.1013 293.57)",
+          "oklch(49.29% 0.1013 293.57)",
+          "oklch(60.71% 0.1013 293.57)",
+          "oklch(72.14% 0.1013 293.57)",
+          "oklch(83.57% 0.1013 293.57)",
+          "oklch(95.00% 0.1013 293.57)"
+        ]
+      },
+      "host-accent-ink-comparison": {
+        "role": "neutral",
+        "displayName": "Violet comparison ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.0489 293.01)",
+          "oklch(26.43% 0.0489 293.01)",
+          "oklch(37.86% 0.0489 293.01)",
+          "oklch(49.29% 0.0489 293.01)",
+          "oklch(60.71% 0.0489 293.01)",
+          "oklch(72.14% 0.0489 293.01)",
+          "oklch(83.57% 0.0489 293.01)",
+          "oklch(95.00% 0.0489 293.01)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "subtitle": {
+        "displayName": "Japanese subtitle",
+        "purpose": "Default desktop line; adjustable 24–44px. Ruby is 0.42em; open narrow sheet caps the line at 26px."
+      },
+      "lookup-word": {
+        "displayName": "Selected word",
+        "purpose": "Dictionary-first lookup heading; 31px in the narrow layout."
+      },
+      "definition": {
+        "displayName": "Dictionary meaning",
+        "purpose": "Concise selected-word meaning; 18px in the narrow layout."
+      },
+      "title": {
+        "displayName": "Drawer title",
+        "purpose": "Accessible contextual heading; focus moves here when a panel opens."
+      },
+      "body": {
+        "displayName": "Supporting body",
+        "purpose": "Metadata/supporting paragraphs. Explanation and translation content uses 14px."
+      },
+      "label": {
+        "displayName": "Functional label",
+        "purpose": "Minimum functional label/timecode size in this preview; timestamps are tabular."
+      }
+    },
+    "shadows": [
+      {
+        "name": "status-toast",
+        "value": "0 12px 28px rgb(0 0 0 / .35)",
+        "purpose": "Transient status toast only; drawer depth comes from opaque fill and a divider."
+      },
+      {
+        "name": "subtitle-legibility",
+        "value": "0 1px 3px #000, 0 2px 9px #000",
+        "purpose": "Text shadow supplements, rather than replaces, the subtitle backing."
+      }
+    ],
+    "motion": [
+      {
+        "name": "drawer-enter-duration",
+        "value": "180ms",
+        "purpose": "Drawer entry only; close hides immediately."
+      },
+      {
+        "name": "drawer-enter-easing",
+        "value": "cubic-bezier(.16,1,.3,1)",
+        "purpose": "Entry moves from translateX(20px), opacity .6 to translateX(0), opacity 1."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "Disable all animations/transitions and use scroll-behavior:auto. CSS inspected; OS preference untested."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "wide-min",
+        "value": "1600px"
+      },
+      {
+        "name": "compact-max",
+        "value": "1100px"
+      },
+      {
+        "name": "sheet-max",
+        "value": "760px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary learning action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Save/apply action. Save is explicitly a demo; this snippet has no integration.",
+      "html": "<button class=\"ds-primary\" type=\"button\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 5v14M5 12h14\"/></svg><span>Save to Anki</span><span class=\"ds-primary-note\">Demo</span></button>",
+      "css": ".ds-primary{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:42px;padding:10px 12px;border-radius:7px;font:13px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;cursor:pointer;background:var(--accent,#eac38a);color:var(--accent-ink,#20180f);border:0;font-weight:600;}.ds-primary:hover{filter:brightness(1.08)}.ds-primary:focus-visible{outline:2px solid var(--accent,#eac38a);outline-offset:3px;}.ds-primary:disabled{cursor:wait;opacity:.65}.ds-primary svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;width:17px;height:17px}.ds-primary-note{margin-left:auto;font-size:12px;font-weight:500;border-left:1px solid rgb(0 0 0 / .3);padding-left:10px}"
+    },
+    {
+      "name": "Secondary learning action",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Bordered optional explanation or local-import action.",
+      "html": "<button class=\"ds-secondary\" type=\"button\">Explain this line<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m6 6 9 6-9 6ZM18 5v14\"/></svg></button>",
+      "css": ".ds-secondary{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:42px;padding:10px 12px;border-radius:7px;font:13px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;cursor:pointer;justify-content:space-between;background:transparent;border:1px solid #50535b;color:var(--text,#f2f1ed)}.ds-secondary:hover{background:var(--surface,#22252a);border-color:#7a7d84}.ds-secondary:focus-visible{outline:2px solid var(--accent,#eac38a);outline-offset:3px;}.ds-secondary:disabled{cursor:wait;opacity:.65}.ds-secondary svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;width:17px;height:17px}"
+    },
+    {
+      "name": "Explicit resume action",
+      "kind": "button",
+      "refersTo": "button-resume",
+      "description": "The drawer footer provides an explicit return to watching; close alone stays paused.",
+      "html": "<button class=\"ds-resume\" type=\"button\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m8 5 11 7-11 7Z\"/></svg>Resume watching</button>",
+      "css": ".ds-resume{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:42px;padding:10px 12px;border-radius:7px;font:13px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;cursor:pointer;border:0;background:transparent;color:var(--secondary,#b9babd);margin-top:6px}.ds-resume:hover{background:var(--surface,#22252a);color:var(--text,#f2f1ed)}.ds-resume:focus-visible{outline:2px solid var(--accent,#eac38a);outline-offset:3px;}.ds-resume svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;width:15px;height:15px}"
+    },
+    {
+      "name": "Contextual question field",
+      "kind": "input",
+      "refersTo": "question-field",
+      "description": "Labelled question input with accent focus-within border and a named sample-tutor action.",
+      "html": "<label class=\"ds-question-label\" for=\"ds-question-input\">Ask about this sentence</label><div class=\"ds-question\"><input id=\"ds-question-input\" type=\"text\" maxlength=\"400\" placeholder=\"Why does 来る become 来ない?\"><button type=\"button\" aria-label=\"Ask sample tutor\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m3 3 18 9-18 9 4-9Zm4 9h14\"/></svg></button></div>",
+      "css": ".ds-question-label{display:block;margin-bottom:10px;color:var(--secondary,#b9babd);font:12px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif}.ds-question{display:flex;align-items:center;border:1px solid #50535b;border-radius:7px;padding:3px 3px 3px 11px;background:#101214}.ds-question:focus-within{border-color:var(--accent,#eac38a)}.ds-question input{min-width:0;width:100%;padding:8px 0;border:0;background:transparent;color:var(--text,#f2f1ed);font:12px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;caret-color:var(--accent,#eac38a)}.ds-question input:focus{outline:none}.ds-question input::placeholder{color:var(--muted,#a4a6ab);opacity:1}.ds-question button{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;flex-shrink:0;padding:7px;border:0;border-radius:6px;background:transparent;color:var(--text,#f2f1ed);cursor:pointer}.ds-question button:hover{background:rgb(255 255 255 / .12)}.ds-question button:focus-visible{outline:2px solid var(--accent,#eac38a);outline-offset:3px;}.ds-question svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}"
+    },
+    {
+      "name": "Reading-mode selector",
+      "kind": "nav",
+      "refersTo": "segmented-control",
+      "description": "Compact pressed-state button group, not a permanent navigation system. Static example.",
+      "html": "<div class=\"ds-segmented\" role=\"group\" aria-label=\"Reading mode\"><button type=\"button\" aria-pressed=\"true\">Furigana</button><button type=\"button\" aria-pressed=\"false\">Romaji</button><button type=\"button\" aria-pressed=\"false\">Plain</button></div>",
+      "css": ".ds-segmented{display:flex;gap:3px;padding:3px;border:1px solid var(--line,#36393f);border-radius:7px;background:#0d0f11}.ds-segmented button{flex:1;min-height:36px;padding:10px 5px;border:0;border-radius:4px;background:transparent;color:var(--muted,#a4a6ab);font:12px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;cursor:pointer}.ds-segmented button[aria-pressed=\"true\"]{background:#32353a;color:var(--text,#f2f1ed)}.ds-segmented button:focus-visible{outline:2px solid var(--accent,#eac38a);outline-offset:3px;}"
+    },
+    {
+      "name": "Subtitle candidate row",
+      "kind": "custom",
+      "refersTo": "subtitle-candidate",
+      "description": "Native radio selection with filename wrapping and explicit timing uncertainty.",
+      "html": "<label class=\"ds-candidate\"><input type=\"radio\" name=\"ds-candidate\" checked><span><strong>The Way Home - 03.ja.ass</strong><span>ASS · Blu-ray · 42 KB</span><span class=\"ds-match\">Episode matches · check timing</span></span></label>",
+      "css": ".ds-candidate{display:flex;gap:11px;padding:15px 10px;border:1px solid transparent;border-bottom-color:var(--line,#36393f);border-radius:5px;color:var(--text,#f2f1ed);font-family:Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;cursor:pointer}.ds-candidate:has(input:checked){background:#2c2a25;border-color:#756349}.ds-candidate:hover{background:var(--surface,#22252a)}.ds-candidate:has(input:focus-visible){outline:2px solid var(--accent,#eac38a);outline-offset:3px;}.ds-candidate input{width:15px;height:15px;flex-shrink:0;margin:3px 0 0;accent-color:var(--accent,#eac38a)}.ds-candidate>span{display:flex;flex-direction:column;gap:7px;min-width:0}.ds-candidate strong{font-size:12px;line-height:1.6;font-weight:500;overflow-wrap:anywhere}.ds-candidate span span{font-size:12px;line-height:1.6;color:var(--muted,#a4a6ab)}.ds-candidate span .ds-match{color:var(--accent,#eac38a)}"
+    },
+    {
+      "name": "Contextual drawer",
+      "kind": "custom",
+      "refersTo": "learning-drawer",
+      "description": "Square opaque container, divided header, scrollable body, nonshrinking footer. Static sample.",
+      "html": "<aside class=\"ds-drawer\" aria-labelledby=\"ds-drawer-title\"><header class=\"ds-drawer-header\"><h2 id=\"ds-drawer-title\">Word lookup</h2><button type=\"button\" aria-label=\"Close panel; keep paused\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m6 6 12 12M6 18 18 6\"/></svg></button></header><div class=\"ds-drawer-body\"><p>Paused at 07:42</p><h3 lang=\"ja\">来ない</h3><p>hasn’t come; isn’t coming</p></div><footer class=\"ds-drawer-footer\">Sample learning content</footer></aside>",
+      "css": ".ds-drawer{display:flex;flex-direction:column;width:374px;max-width:100%;height:360px;background:var(--panel,#17191c);color:var(--text,#f2f1ed);border-left:1px solid var(--line,#36393f);font:13px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif}.ds-drawer-header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:19px 22px 15px;border-bottom:1px solid var(--line,#36393f)}.ds-drawer-header h2{margin:0;font-size:16px;font-weight:550}.ds-drawer-header button{display:inline-flex;justify-content:center;align-items:center;width:36px;height:36px;padding:7px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer}.ds-drawer-header button:hover{background:rgb(255 255 255 / .12)}.ds-drawer-header button:focus-visible{outline:2px solid var(--accent,#eac38a);outline-offset:3px;}.ds-drawer-header svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}.ds-drawer-body{padding:22px 24px 26px;overflow-y:auto;flex:1;min-height:0}.ds-drawer-body h3{margin:0;font-family:\"Noto Sans CJK JP\",\"Noto Sans JP\",\"Yu Gothic\",Meiryo,sans-serif;font-size:36px;line-height:1.5;font-weight:500}.ds-drawer-footer{flex-shrink:0;border-top:1px solid var(--line,#36393f);padding:16px 24px;color:var(--muted,#a4a6ab);font-size:12px}"
+    },
+    {
+      "name": "Japanese subtitle word",
+      "kind": "custom",
+      "refersTo": "subtitle-word",
+      "description": "Selected word uses ruby, accent color and underline; backing belongs to the whole subtitle line.",
+      "html": "<div class=\"ds-subtitle\" lang=\"ja\"><button class=\"ds-word ds-selected\" type=\"button\" aria-label=\"来ない — look up word\"><ruby>来ない<rt>こない</rt></ruby></button>。</div>",
+      "css": ".ds-subtitle{display:inline-block;max-width:95%;padding:2px 14px 3px;border-radius:5px;background:rgb(4 6 8 / .78);color:var(--text,#f2f1ed);font-family:\"Noto Sans CJK JP\",\"Noto Sans JP\",\"Yu Gothic\",Meiryo,sans-serif;font-size:var(--subtitle-size,34px);line-height:2;font-weight:500;text-shadow:0 1px 3px #000,0 2px 9px #000;overflow-wrap:anywhere}.ds-word{background:none;border:0;padding:0 1px;border-radius:3px;color:#fff;font:inherit;text-shadow:inherit;cursor:pointer}.ds-word:hover,.ds-word.ds-selected{color:var(--accent,#eac38a);text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:8px}.ds-word:focus-visible{outline:2px solid var(--accent,#eac38a);outline-offset:5px}.ds-word rt{font-size:.42em;font-weight:500;color:#f5f3ef}"
+    },
+    {
+      "name": "Player edge actions",
+      "kind": "custom",
+      "refersTo": "player-actions",
+      "description": "Compact named controls use outline icons; the player perimeter supplies their placement.",
+      "html": "<div class=\"ds-player-actions\"><button type=\"button\" aria-label=\"Find Japanese subtitles\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"3\" y=\"5\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M7 11h3m4 0h3M7 15h6m3 0h1\"/></svg><span>Subtitles</span></button><button type=\"button\" aria-label=\"Subtitle appearance settings\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 7h16M4 17h16\"/><circle cx=\"9\" cy=\"7\" r=\"3\"/><circle cx=\"15\" cy=\"17\" r=\"3\"/></svg></button></div>",
+      "css": ".ds-player-actions{display:flex;align-items:center;gap:8px;color:var(--text,#f2f1ed)}.ds-player-actions button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;min-width:36px;padding:7px 10px;border:0;border-radius:6px;background:transparent;color:inherit;font:12px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;cursor:pointer}.ds-player-actions button:hover{background:rgb(255 255 255 / .12)}.ds-player-actions button:focus-visible{outline:2px solid var(--accent,#eac38a);outline-offset:3px;}.ds-player-actions svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}@media(max-width:760px){.ds-player-actions button{min-width:44px;min-height:44px;height:44px}.ds-player-actions span{display:none}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Watch first, study on demand",
+    "overview": "This documents the isolated static study in `prototypes/langplay-ui/`, an ordinary addition to Seanime's inherited visual world. It is a record of the implemented preview, not a new global identity, an approved amber palette, or a production plugin theme. The frontmatter is normative only for this preview; production should inherit the host's live theme tokens, components, typography, and native player geometry.\n\nThe picture leads. Compact edge controls and one opaque contextual drawer make Japanese learning available after selection. The working description above comes from the existing direction brief, not a separate brand decision. Playback and dictionary, AI, provider, and Anki actions are fixtures; host library and tracking remain outside the study. The original generated platform still is illustrative, not video or a captured anime frame.",
+    "keyCharacteristics": [
+      "Near-black surroundings and solid charcoal content surfaces.",
+      "Large Japanese subtitles with subordinate readings and local contrast backing.",
+      "One contextual panel, dictionary first, explicit return to watching.",
+      "Provisional amber with a reversible host-violet comparison."
+    ],
+    "rules": [
+      {
+        "name": "The Host Inheritance Rule",
+        "body": "Treat preview values as reference measurements. Resolve production colors against Seanime's actual tokens and theme states before integration.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "**Do** inherit Seanime's actual theme and components when implementing the plugin.",
+      "**Do** preserve the selected sentence and require an explicit playback action to resume.",
+      "**Do** retain visible focus, local subtitle backing, wrapping content, and a reachable drawer footer.",
+      "**Do** identify fixture content and simulated results wherever they could imply a live service."
+    ],
+    "donts": [
+      "**Don't** treat amber, the comparison violet, or this study header as an approved global identity.",
+      "**Don't** reserve a permanent learning column before subtitle selection.",
+      "**Don't** interpret screenshots or browser fixtures as proof of native playback, fullscreen overlays, Windows compatibility, or service integration."
+    ]
+  }
+}

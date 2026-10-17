@@ -1,0 +1,154 @@
+✖ Imported Japanese subtitles synchronize without opening learning tools or calling AI (6.059852ms)
+✖ Word selection pauses the matching player and returns real parser/dictionary context (0.538079ms)
+✖ Closing the drawer stays paused; only explicit resume continues playback (0.415814ms)
+✖ Episode changes prevent an old selection from resuming a different playback (0.383935ms)
+✖ Late parsing cannot populate the drawer after an episode switch (0.369163ms)
+✖ Unavailable companion preserves captured text and does not resume playback (0.354948ms)
+✖ A malformed subtitle replacement preserves the previous working source (0.293305ms)
+✖ Positive subtitle offset delays the learning cue exactly once (0.303304ms)
+✖ Explicit explanation and local card save use the frozen word and sentence (0.414391ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 0
+ℹ fail 9
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 78.430138
+
+✖ failing tests:
+
+test at docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:54:1
+✖ Imported Japanese subtitles synchronize without opening learning tools or calling AI (6.059852ms)
+  AssertionError [ERR_ASSERTION]: The production learning controller is absent; the current integration is only a probe.
+      at fixture (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:21:14)
+      at async TestContext.<anonymous> (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:55:33)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'fail',
+    diff: 'simple'
+  }
+
+test at docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:62:1
+✖ Word selection pauses the matching player and returns real parser/dictionary context (0.538079ms)
+  AssertionError [ERR_ASSERTION]: The production learning controller is absent; the current integration is only a probe.
+      at fixture (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:21:14)
+      at async TestContext.<anonymous> (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:63:33)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'fail',
+    diff: 'simple'
+  }
+
+test at docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:77:1
+✖ Closing the drawer stays paused; only explicit resume continues playback (0.415814ms)
+  AssertionError [ERR_ASSERTION]: The production learning controller is absent; the current integration is only a probe.
+      at fixture (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:21:14)
+      at async TestContext.<anonymous> (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:78:33)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'fail',
+    diff: 'simple'
+  }
+
+test at docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:87:1
+✖ Episode changes prevent an old selection from resuming a different playback (0.383935ms)
+  AssertionError [ERR_ASSERTION]: The production learning controller is absent; the current integration is only a probe.
+      at fixture (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:21:14)
+      at async TestContext.<anonymous> (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:88:43)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'fail',
+    diff: 'simple'
+  }
+
+test at docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:98:1
+✖ Late parsing cannot populate the drawer after an episode switch (0.369163ms)
+  AssertionError [ERR_ASSERTION]: The production learning controller is absent; the current integration is only a probe.
+      at fixture (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:21:14)
+      at async TestContext.<anonymous> (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:100:36)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'fail',
+    diff: 'simple'
+  }
+
+test at docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:111:1
+✖ Unavailable companion preserves captured text and does not resume playback (0.354948ms)
+  AssertionError [ERR_ASSERTION]: The production learning controller is absent; the current integration is only a probe.
+      at fixture (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:21:14)
+      at async TestContext.<anonymous> (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:112:33)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'fail',
+    diff: 'simple'
+  }
+
+test at docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:120:1
+✖ A malformed subtitle replacement preserves the previous working source (0.293305ms)
+  AssertionError [ERR_ASSERTION]: The production learning controller is absent; the current integration is only a probe.
+      at fixture (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:21:14)
+      at async TestContext.<anonymous> (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:121:26)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'fail',
+    diff: 'simple'
+  }
+
+test at docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:126:1
+✖ Positive subtitle offset delays the learning cue exactly once (0.303304ms)
+  AssertionError [ERR_ASSERTION]: The production learning controller is absent; the current integration is only a probe.
+      at fixture (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:21:14)
+      at async TestContext.<anonymous> (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:127:36)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'fail',
+    diff: 'simple'
+  }
+
+test at docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:135:1
+✖ Explicit explanation and local card save use the frozen word and sentence (0.414391ms)
+  AssertionError [ERR_ASSERTION]: The production learning controller is absent; the current integration is only a probe.
+      at fixture (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:21:14)
+      at async TestContext.<anonymous> (file:///home/marsel/Documents/ChatGPT/LangPlay%20App/docs/proposals/langplay-live-learning-2026-10-17/learning-controller.test.mjs:136:43)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'fail',
+    diff: 'simple'
+  }

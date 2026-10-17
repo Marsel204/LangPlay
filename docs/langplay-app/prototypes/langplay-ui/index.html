@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>LangPlay — playback UI study</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <svg class="icon-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6M8 12h12"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+      <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M4 11a8 8 0 1 1 2 6M4 5v6h6"/></symbol>
+      <symbol id="i-next" viewBox="0 0 24 24"><path d="m6 6 9 6-9 6ZM18 5v14"/></symbol>
+      <symbol id="i-prev" viewBox="0 0 24 24"><path d="m18 6-9 6 9 6ZM6 5v14"/></symbol>
+      <symbol id="i-volume" viewBox="0 0 24 24"><path d="m11 5-6 5H2v4h3l6 5ZM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"/></symbol>
+      <symbol id="i-subtitles" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 11h3m4 0h3M7 15h6m3 0h1"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></symbol>
+      <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5m6 0h5v5m0 6v5h-5M9 20H4v-5"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M3 6h.1M3 12h.1M3 18h.1"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><path d="m3 3 18 9-18 9 4-9Zm4 9h14"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="study-header">
+    <a class="brand" href="./" aria-label="LangPlay UI study home"><span lang="ja" class="brand-mark">言</span><span>LangPlay <span class="brand-context">for Seanime</span></span></a>
+    <span class="study-label">UI study <span class="study-label-detail">· sample scene & simulated services</span></span>
+  </header>
+
+  <main>
+    <section class="player" aria-label="Interactive playback design preview">
+      <img class="scene" src="assets/platform-scene.png" alt="Original illustrated sample scene: an empty Japanese railway platform in warm evening light." width="1672" height="941">
+      <div class="top-scrim" aria-hidden="true"></div>
+      <div class="scene-heading">
+        <span class="series" lang="ja">帰り道 <span lang="en">The Way Home</span></span>
+        <h1>Episode 03 <span>The evening platform</span></h1>
+      </div>
+      <button class="learning-switch" id="learning-switch" type="button" aria-pressed="true"><span class="status-dot"></span>Learning on</button>
+
+      <div class="subtitle-position">
+        <p id="playback-state" class="playback-state" hidden>Paused for lookup</p>
+        <div class="subtitle-line" id="subtitle-line" lang="ja" aria-label="Japanese subtitle"></div>
+        <p class="subtitle-hint" id="subtitle-hint">Click a word to explore</p>
+      </div>
+
+      <div class="player-controls">
+        <label class="sr-only" for="timeline">Preview position</label>
+        <input class="timeline" id="timeline" type="range" min="0" max="1440" value="462">
+        <div class="control-row">
+          <div class="transport">
+            <button class="icon-button" id="play-toggle" type="button" aria-label="Pause preview" title="Play / pause · Space"><svg><use href="#i-pause"/></svg></button>
+            <button class="icon-button compact-control" id="previous-cue" type="button" aria-label="Previous subtitle" title="Previous subtitle"><svg><use href="#i-prev"/></svg></button>
+            <button class="icon-button" id="repeat-cue" type="button" aria-label="Repeat current subtitle" title="Repeat subtitle · R"><svg><use href="#i-repeat"/></svg></button>
+            <button class="icon-button compact-control" id="next-cue" type="button" aria-label="Next subtitle" title="Next subtitle"><svg><use href="#i-next"/></svg></button>
+            <span class="time"><span id="current-time">07:42</span><span class="time-divider">/</span>24:00</span>
+          </div>
+          <div class="player-actions">
+            <button class="text-button transcript-button" data-open="transcript" type="button"><svg><use href="#i-list"/></svg><span>Transcript</span></button>
+            <button class="text-button" data-open="subtitles" type="button" aria-label="Find Japanese subtitles"><svg><use href="#i-subtitles"/></svg><span>Subtitles</span></button>
+            <button class="icon-button" data-open="settings" type="button" aria-label="Subtitle appearance settings" title="Subtitle appearance"><svg><use href="#i-settings"/></svg></button>
+            <button class="icon-button fullscreen-button" id="fullscreen" type="button" aria-label="Enter fullscreen" title="Fullscreen"><svg><use href="#i-expand"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="drawer" id="drawer" aria-labelledby="drawer-title" hidden>
+        <header class="drawer-header"><h2 id="drawer-title" tabindex="-1">Word lookup</h2><button class="icon-button" id="close-drawer" type="button" aria-label="Close panel; keep paused" title="Close · Esc"><svg><use href="#i-close"/></svg></button></header>
+
+        <section class="panel-content" id="lookup-panel" hidden>
+          <div class="drawer-scroll">
+            <p class="muted pause-note">Paused at <span class="selected-time">07:42</span></p>
+            <div class="word-heading"><h3 id="lookup-word" lang="ja">来ない</h3><p id="lookup-reading">こない <span>konai</span></p></div>
+            <p class="definition" id="lookup-definition">hasn't come; isn't coming</p>
+            <p class="lemma">Dictionary form <strong lang="ja" id="lookup-lemma">来る</strong><span id="lookup-type">verb</span></p>
+            <div class="sentence-context"><p class="field-label">In this sentence</p><p id="captured-sentence" lang="ja">彼はまだ来ない。</p><button class="link-button" id="show-translation" type="button" aria-expanded="false">Show sentence meaning</button><p class="translation" id="sentence-translation" hidden>He hasn't come yet.</p></div>
+            <button class="secondary-button explain-button" id="explain" type="button">Explain this line<svg><use href="#i-next"/></svg></button>
+            <div class="explanation" id="explanation" hidden aria-live="polite"></div>
+            <form id="question-form" class="question-form"><label for="question">Ask about this sentence</label><div class="input-row"><input id="question" type="text" placeholder="Why does 来る become 来ない?" maxlength="400" required><button class="icon-button" type="submit" aria-label="Ask sample tutor"><svg><use href="#i-send"/></svg></button></div></form>
+            <p class="sample-answer" id="sample-answer" hidden aria-live="polite"></p>
+            <p class="fixture-note">Sample learning content. No AI request is sent.</p>
+          </div>
+          <footer class="drawer-footer"><p id="card-status" class="save-status" role="status">Word + sentence + episode context</p><button class="primary-button" id="save-card" type="button"><svg><use href="#i-plus"/></svg><span>Save to Anki</span><span class="button-note">Demo</span></button><button class="resume-button" data-resume type="button"><svg><use href="#i-play"/></svg>Resume watching</button></footer>
+        </section>
+
+        <section class="panel-content" id="subtitles-panel" hidden>
+          <div class="drawer-scroll">
+            <p class="muted">Japanese · Episode 03</p>
+            <div class="current-subtitle"><span class="field-label">Current subtitle</span><p id="current-subtitle">The Way Home - 03.ja.ass</p><span class="muted small" id="current-subtitle-meta">Local sample · ASS</span></div>
+            <div class="section-heading"><h3>Find a subtitle</h3><button class="link-button" id="refresh-results" type="button">Refresh</button></div>
+            <p class="muted small">Jimaku · sample results</p>
+            <fieldset class="candidate-list" id="candidate-list"><legend class="sr-only">Choose a Japanese subtitle</legend>
+              <label class="candidate"><input type="radio" name="candidate" value="0" checked><span><strong>The Way Home - 03.ja.ass</strong><span>ASS · Blu-ray · 42 KB</span><span class="candidate-match">Episode matches · check timing</span></span></label>
+              <label class="candidate"><input type="radio" name="candidate" value="1"><span><strong>Kaerimichi.S01E03.WEB.ja.srt</strong><span>SRT · Web release · 28 KB</span><span>Different release timing</span></span></label>
+              <label class="candidate"><input type="radio" name="candidate" value="2"><span><strong>帰り道 第03話 日本語字幕.ass</strong><span>ASS · Release unspecified · 39 KB</span><span>Preview before using</span></span></label>
+            </fieldset>
+            <p id="subtitle-results-status" class="small muted" role="status">3 sample files. No live search or download.</p>
+            <div class="subtitle-preview"><span class="field-label">Preview at 07:42</span><p lang="ja">彼はまだ来ない。</p><span class="small muted">This is fixture text, not a verified match.</span></div>
+            <label class="secondary-button import-button" for="subtitle-file"><svg><use href="#i-upload"/></svg>Import a local subtitle<input type="file" id="subtitle-file" accept=".ass,.ssa,.srt,.vtt" class="sr-only"></label>
+            <div class="timing"><div class="section-heading"><h3>Timing</h3><button class="link-button" id="reset-offset" type="button">Reset</button></div><p class="small muted">Positive values delay the subtitles.</p><div class="offset-controls"><button type="button" data-offset="-0.5" aria-label="Advance subtitles by 0.5 seconds">−0.5</button><button type="button" data-offset="-0.1" aria-label="Advance subtitles by 0.1 seconds">−0.1</button><output id="offset" aria-label="Subtitle offset">0.0 s</output><button type="button" data-offset="0.1" aria-label="Delay subtitles by 0.1 seconds">+0.1</button><button type="button" data-offset="0.5" aria-label="Delay subtitles by 0.5 seconds">+0.5</button></div></div>
+          </div>
+          <footer class="drawer-footer"><button class="primary-button" id="apply-subtitle" type="button">Use selected subtitles</button><p class="fixture-note">Applies the sample filename only.</p></footer>
+        </section>
+
+        <section class="panel-content" id="transcript-panel" hidden><div class="drawer-scroll"><p class="muted">Select a line to inspect it.</p><div class="transcript-list" id="transcript-list"></div></div><footer class="drawer-footer"><button class="resume-button" data-resume type="button"><svg><use href="#i-play"/></svg>Resume watching</button></footer></section>
+
+        <section class="panel-content" id="settings-panel" hidden><div class="drawer-scroll">
+          <div class="setting-group"><h3>Readings</h3><p class="small muted">Choose the support you want while watching.</p><div class="segmented" role="group" aria-label="Reading mode"><button type="button" data-reading="furigana" aria-pressed="true">Furigana</button><button type="button" data-reading="romaji" aria-pressed="false">Romaji</button><button type="button" data-reading="plain" aria-pressed="false">Plain</button></div></div>
+          <div class="setting-group"><label for="subtitle-size">Subtitle size <output id="size-value">34 px</output></label><input id="subtitle-size" type="range" min="24" max="44" step="2" value="34"></div>
+          <div class="setting-group"><label class="check-row"><input id="subtitle-backing" type="checkbox" checked>Dark backing behind subtitle text</label><p class="small muted">Keeps Japanese readable over bright scenes.</p></div>
+          <div class="setting-group"><h3>Learning accent</h3><p class="small muted">A provisional color comparison for this study.</p><div class="segmented" role="group" aria-label="Learning accent"><button type="button" data-accent="amber" aria-pressed="true">Warm amber</button><button type="button" data-accent="host" aria-pressed="false">Host violet</button></div></div>
+          <div class="setting-group"><h3>Try a recovery state</h3><p class="small muted">See how local learning works when a service is unavailable.</p><button class="secondary-button" id="toggle-offline" type="button" aria-pressed="false">Simulate AI unavailable</button><button class="secondary-button" id="no-results" type="button">Show no subtitle results</button></div>
+          <p class="fixture-note">Appearance preview only. Account and service settings belong in the installed plugin.</p>
+        </div><footer class="drawer-footer"><button class="resume-button" data-resume type="button"><svg><use href="#i-play"/></svg>Resume watching</button></footer></section>
+      </aside>
+      <div class="toast" id="toast" role="status" hidden></div>
+    </section>
+
+    <div class="study-footer"><span>Watch first. Explore a word when you need it.</span><span><kbd>Space</kbd> play / pause <span class="footer-separator">·</span> <kbd>Esc</kbd> close panel</span></div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,32 @@
+......................
+----------------------------------------------------------------------
+Ran 22 tests in 3.119s
+
+OK
+  🤖 Running Antigravity CLI for: 'Oregairu S2 OP - Harumodoki'...
+[16:38:08] "POST /api/ai/analyze HTTP/1.1" 200 -
+[16:38:08] "POST /api/ai/chat HTTP/1.1" 504 -
+[16:38:08] "POST /api/ai/chat HTTP/1.1" 500 -
+[16:38:08] "POST /api/ai/chat HTTP/1.1" 500 -
+[16:38:08] "POST /api/ai/chat HTTP/1.1" 400 -
+[16:38:08] "POST /api/ai/chat HTTP/1.1" 400 -
+[16:38:08] "POST /api/ai/chat HTTP/1.1" 400 -
+[16:38:08] "POST /api/ai/chat HTTP/1.1" 400 -
+[16:38:08] "POST /api/ai/chat HTTP/1.1" 400 -
+[16:38:08] "POST /api/ai/chat HTTP/1.1" 400 -
+[16:38:08] "POST /api/ai/chat HTTP/1.1" 400 -
+[16:38:08] "POST /api/ai/chat HTTP/1.1" 400 -
+[16:38:08] "POST /api/ai/chat HTTP/1.1" 200 -
+  🤖 Running Antigravity CLI for: '猫'...
+  🤖 Running Antigravity CLI for: '猫'...
+[16:38:09] "POST /api/parse HTTP/1.1" 400 -
+[16:38:09] "POST /api/parse HTTP/1.1" 400 -
+[16:38:09] "POST /api/parse HTTP/1.1" 400 -
+[16:38:09] "POST /api/parse HTTP/1.1" 400 -
+[16:38:09] "POST /api/parse HTTP/1.1" 400 -
+[16:38:09] "POST /api/parse HTTP/1.1" 400 -
+[16:38:09] "POST /api/parse HTTP/1.1" 400 -
+[16:38:09] "POST /api/parse HTTP/1.1" 400 -
+[16:38:09] "POST /api/parse HTTP/1.1" 200 -
+[16:38:09] "POST /api/parse HTTP/1.1" 503 -
+[16:38:09] "POST /api/parse HTTP/1.1" 500 -

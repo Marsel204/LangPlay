@@ -1,0 +1,22 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createServices } from '../src/services.js';
+test('Services reuse the shared lossless parser and offline dictionary without implicit AI', async () => {
+  const calls = [];
+  const services = createServices({ fetch: async (url, options) => {
+    calls.push(url); assert.equal(options.timeout, 8);
+    return { ok: true, json: () => ({ status: 'success', tokens: [{ surface: '日本語', start: 0, end: 3, reading: 'ニホンゴ', baseForm: '日本語', pos: '名詞' }] }) };
+  } });
+  const tokens = await services.parse('日本語');
+  assert.equal(tokens[0].furigana, 'にほんご'); assert.equal(tokens[0].romaji, 'nihongo');
+  await services.parse('日本語'); assert.equal(calls.length, 1);
+  assert.match((await services.lookup({ surface: '日本語' })).meaning, /Japanese/);
+  assert.equal((await services.lookup({ surface: '未登録架空語' })).meaning, '');
+  assert.equal(calls.some(x => x.includes('/ai/')), false);
+});
+test('Invalid parser spans and failed AI responses fail honestly', async () => {
+  const services = createServices({ fetch: async () => ({ ok: true, json: () => ({ status: 'success', tokens: [{ surface: '<bad>', start: 0, end: 4 }] }) }) });
+  await assert.rejects(() => services.parse('日本語'), /unavailable/);
+  const unavailable = createServices({ fetch: async () => ({ ok: false, status: 503 }) });
+  await assert.rejects(() => unavailable.explain({ surface: '日本語', sentence: '日本語' }), /503/);
+});

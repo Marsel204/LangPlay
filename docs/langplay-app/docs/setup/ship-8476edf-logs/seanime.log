@@ -1,0 +1,46 @@
+
+> @langplay/seanime@0.1.0 test
+> node build.mjs --test
+
+PASS: deterministic bundle and isolated callback smoke
+✔ UTF-8 portable decoder preserves Japanese, supplementary characters and literal replacement characters (2.927932ms)
+✔ BOM selects strict UTF-16 endianness without a browser decoder (3.017854ms)
+✔ Corrupt, overlong, truncated and surrogate UTF-8 never silently substitutes text (0.742494ms)
+✔ Malformed UTF-16 and UTF-32 BOMs fail explicitly (0.581679ms)
+✔ Shift_JIS is explicit and uses a strict injected runtime decoder (4.853289ms)
+✔ 10 MiB byte cap is inclusive and rejects oversize before invoking a decoder (258.008441ms)
+✔ Failed decoding leaves a caller’s previously selected text untouched (0.683933ms)
+✔ Probe iframe uses the pinned host browser bridge, distinct from the host-side channel (3.409491ms)
+✔ Probe replies use JSON strings so the pinned host works without an AniList token (7.403568ms)
+✔ Positive 500 ms offset delays both active and clickable cue times exactly once (9.064346ms)
+✔ Clock follows rate/pause/seek and bounds extrapolation during missing host updates (2.522095ms)
+✔ Clicked context is immutable UTF-16 text and survives pause acknowledgement and subsequent clock ticks (1.252542ms)
+✔ Invalid UTF-16 spans cannot split supplementary characters or refer beyond a cue (0.917665ms)
+✔ New word, seek, source, offset and playback generation reject obsolete async replies (2.344344ms)
+✔ Switching playback clears source, time and selection; same identity preserves them (0.480118ms)
+✔ Failed source replacement is atomic; duplicate cue IDs and invalid inputs fail explicitly (2.118146ms)
+✔ Dialogue style filter preserves selectable overlapping cues without mutating source times (0.603084ms)
+✔ srt: millisecond cues preserve Unicode, line breaks and original bytes as text (5.317818ms)
+✔ srt: boundary times, stable ordering and source-scoped IDs (0.710865ms)
+✔ srt: empty cue text is excluded, long lines are not truncated (5.33709ms)
+✔ srt: rejects malformed timing instead of partially replacing a source (2.439616ms)
+✔ vtt: millisecond cues preserve Unicode, line breaks and original bytes as text (0.930124ms)
+✔ vtt: boundary times, stable ordering and source-scoped IDs (0.289981ms)
+✔ vtt: empty cue text is excluded, long lines are not truncated (4.9066ms)
+✔ vtt: rejects malformed timing instead of partially replacing a source (0.358503ms)
+✔ WebVTT metadata, cue settings, ruby and comments remain separate from lookup text (1.088267ms)
+✔ SRT formatting is plain learning text; escaped literal markup is not executed (0.373664ms)
+✔ Unsupported format produces an actionable typed error (0.313837ms)
+✔ ass: removes overrides/drawings and preserves metadata, commas and line breaks (3.713972ms)
+✔ ssa: removes overrides/drawings and preserves metadata, commas and line breaks (0.618422ms)
+✔ ASS honors event field order, actor/effect/styles and centisecond precision (0.477255ms)
+✔ ASS rejects missing event format, truncated columns, bad times/layers and bitmap formats (1.701856ms)
+✔ Interval queries match a reference scan with long dialogue/sign overlaps and duplicate starts (111.252214ms)
+ℹ tests 33
+ℹ suites 0
+ℹ pass 33
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 385.767573
