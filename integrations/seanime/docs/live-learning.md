@@ -5,13 +5,15 @@ Verified locally on 17 October 2026 with Seanime Denshi 3.10.4's browser player.
 ## Use
 
 1. Play an episode in Seanime's **Online streaming** browser player and open **Tray Plugins → LangPlay**.
-2. Open **Subtitles** and import the matching Japanese SRT, VTT, ASS or SSA. Use the same file as Subtitle Engine. If the sandboxed file picker does not open, expand **Paste subtitle text instead**, paste the complete text, and enter its filename with the correct extension.
+2. Open **Subtitles**, choose a matching file under **Saved subtitles**, then press **Load subtitle**. **Open subtitle folder** opens the dedicated folder; add a downloaded Japanese SRT, VTT, ASS or SSA there and **Refresh list**. Saved files can be loaded again after a restart without a file picker. You can also **Choose another file** or expand **Paste subtitle text instead**.
 3. Choose Japanese, furigana or romaji. Edit **Delay (ms)** and click **Apply delay** if synchronization needs adjustment. Positive values show captions later; importing does not shift the original cue times.
 4. Click a word in the learning caption. Playback pauses, and the word drawer shows its reading, dictionary form where different, local definition where available, and the captured sentence/title/episode/time. Unknown dictionary entries are identified honestly.
 5. **Close**, Escape and **Hide** keep playback paused. **Resume watching** explicitly resumes the captured playback. After closing the drawer, Resume remains available below the caption. The drawer itself scrolls on short windows.
 6. **Save card** writes locally to Seanime's plugin storage. **Subtitles → Export cards (TSV)** provides selectable TSV; save it as UTF-8 and import into Anki. Seanime's iframe sandbox does not grant downloads, so no automatic browser download or AnkiConnect success is claimed.
 
-Subtitle Engine still handles Jimaku discovery and the original player subtitle track. Seanime's current public APIs do not expose the Japanese track added by that extension; this plugin therefore requires an explicit file/text import. No Jimaku key is copied into LangPlay's webview. A reload retains reading preferences, per-episode source filename/delay, and cards, but asks for the subtitle bytes again. It does not claim persistent browser filesystem access.
+Subtitle Engine still handles Jimaku discovery and the original player subtitle track. It streams the selected URL without saving a local copy. Seanime's current public APIs do not expose that track to LangPlay, so discovery-to-learning handoff remains explicit. No Jimaku key is copied into LangPlay's webview. LangPlay 0.2.1 can list and load files in its dedicated subtitle folder through the local companion; a reload retains preferences, per-episode source filename/delay, and cards, and preselects that saved filename when available. It never silently picks a different episode's subtitle.
+
+On Linux the default folder is `$XDG_DATA_HOME/langplay-seanime/subtitles` (normally `~/.local/share/langplay-seanime/subtitles`). On Windows it is `%LOCALAPPDATA%/LangPlay/subtitles`. The installer uses its own `<installation>/subtitles` folder. `LANGPLAY_SUBTITLE_DIR` can set a different fixed folder before starting the companion. File reads reject traversal and symlinks, accept only supported subtitle formats, and cap input at 10 MiB. The browser's ordinary **Choose another file** dialog remains controlled by the browser; **Saved subtitles** bypasses that dialog.
 
 ## Companion and failure behavior
 

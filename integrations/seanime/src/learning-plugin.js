@@ -54,12 +54,21 @@ export function start(ctx) {
       const { op, data } = message;
       let result = { ok: true };
       if (op === 'refresh') await controller.refresh();
-      else if (op === 'import') {
-        await controller.loadSubtitle(data);
+      else if (op === 'saved-list' || op === 'saved-open') result = await services.savedSubtitles({ action: op === 'saved-list' ? 'list' : 'open' });
+      else if (op === 'import' || op === 'saved-import') {
+        let subtitle = data;
+        if (op === 'saved-import') {
+          const before = host.snapshot();
+          if (!before) throw new Error('Start an episode before loading a saved subtitle.');
+          subtitle = { ...await services.savedSubtitles({ action: 'read', name: data.name, encoding: data.encoding }), offsetMs: data.offsetMs };
+          const after = host.snapshot();
+          if (!after || ['clientId', 'playbackId', 'videoIdentity'].some(key => before[key] !== after[key])) throw new Error('Episode changed. Choose the subtitle for the current episode.');
+        }
+        await controller.loadSubtitle(subtitle);
         const association = host.snapshot()?.association;
         if (association) {
           const sources = storage.read('sources', {});
-          sources[association] = { sourceId: data.sourceId, offsetMs: data.offsetMs || 0 };
+          sources[association] = { sourceId: subtitle.sourceId, offsetMs: subtitle.offsetMs || 0 };
           const entries = Object.entries(sources).slice(-100);
           storage.write('sources', Object.fromEntries(entries));
         }

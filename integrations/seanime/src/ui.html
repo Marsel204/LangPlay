@@ -4,8 +4,13 @@
 <main>
   <header><strong>LangPlay</strong><span id="clock"></span><button id="settings" aria-expanded="false">Subtitles</button><button id="hide">Hide</button></header>
   <section id="setup" hidden aria-label="Subtitle settings">
-    <p>Choose the same Japanese file used in Subtitle Engine. Learning works in Seanime’s windowed browser player.</p>
-    <label class="file">Japanese subtitle <input id="file" type="file" accept=".srt,.vtt,.ass,.ssa"></label>
+    <p>Load a saved Japanese subtitle for this episode. Use the same version you selected in Subtitle Engine.</p>
+    <label class="file" for="saved-subtitle">Saved subtitles</label>
+    <div class="saved-row"><select id="saved-subtitle"><option value="">Loading saved subtitles…</option></select><button id="load-saved" class="load-saved" disabled>Load subtitle</button></div>
+    <div class="folder-actions"><button id="open-folder">Open subtitle folder</button><button id="refresh-saved">Refresh list</button></div>
+    <p id="saved-folder" class="muted"></p>
+    <p id="saved-help" class="muted" role="status"></p>
+    <label class="file">Choose another file <input id="file" type="file" accept=".srt,.vtt,.ass,.ssa"></label>
     <details><summary>Paste subtitle text instead</summary><label>File name <input id="paste-name" value="Japanese.srt" maxlength="256"></label><label>Subtitle text <textarea id="paste-text" rows="4" maxlength="10485760" placeholder="Paste the full SRT, VTT, ASS or SSA file"></textarea></label><button id="import-paste">Import text</button></details>
     <div class="settings-row"><label>Encoding <select id="encoding"><option value="auto">UTF-8 / BOM</option><option value="shift_jis">Shift_JIS</option></select></label>
     <div class="delay"><label>Delay (ms) <input id="offset" type="number" step="100" min="-3600000" max="3600000" value="0"></label><button id="apply-offset">Apply delay</button></div>

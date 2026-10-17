@@ -23,6 +23,7 @@ import urllib.parse
 import urllib.request
 import webbrowser
 from japanese_parser import parse_japanese, ParserUnavailable
+from saved_subtitles import saved_subtitles
 
 # ── Configuration & Paths ──
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -340,6 +341,27 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed_path = urllib.parse.urlparse(self.path)
+
+        if parsed_path.path == "/api/subtitles":
+            # Host-side plugin fetches have no Origin. Only local browser origins
+            # may access the dedicated folder; general CORS stays unchanged.
+            origin = urllib.parse.urlparse(self.headers.get('Origin', ''))
+            if self.headers.get('Origin') and (origin.scheme != 'http' or origin.hostname not in ('127.0.0.1', 'localhost', '::1')):
+                self.send_json_response(403, {"status": "error", "message": "Use LangPlay from the local Seanime app."})
+                return
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                if not 0 < length <= 4096:
+                    raise ValueError('Saved subtitle request must be smaller than 4 KiB.')
+                body = json.loads(self.rfile.read(length).decode('utf-8'))
+                if not isinstance(body, dict):
+                    raise ValueError('Saved subtitle request must be an object.')
+                self.send_json_response(200, {"status": "success", **saved_subtitles(body)})
+            except ValueError as error:
+                self.send_json_response(400, {"status": "error", "message": str(error)})
+            except OSError:
+                self.send_json_response(404, {"status": "error", "message": "Saved subtitle or folder unavailable. Refresh the list or choose another file."})
+            return
 
         if parsed_path.path == "/api/parse":
             try:
