@@ -86,6 +86,15 @@ async function bundle() {
     await writeFile(path.join(output, 'langplay-probe.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   }
   console.log(`Built ${Buffer.byteLength(payload)} byte self-contained host payload in dist/`);
+  const learningEntry = path.join(root, 'src/learning-plugin.js');
+  if (await exists(learningEntry)) {
+    const learningPayload = await hostPayload(learningEntry, define);
+    const manifest = JSON.parse(await readFile(path.join(root, 'learning-plugin.json'), 'utf8'));
+    manifest.payload = learningPayload;
+    await writeFile(path.join(output, 'learning-plugin.js'), learningPayload);
+    await writeFile(path.join(output, 'langplay-learning.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    console.log(`Built ${Buffer.byteLength(learningPayload)} byte learning payload; native probe preserved.`);
+  }
 }
 
 if (process.argv.includes('--test')) await test();

@@ -1,0 +1,71 @@
+[
+  {
+    "check": "translation opt-in",
+    "pass": true
+  },
+  {
+    "check": "explicit fixture explanation",
+    "pass": true
+  },
+  {
+    "check": "honest demo Anki state",
+    "pass": true
+  },
+  {
+    "check": "escape pauses and returns focus",
+    "focus": "来ない — look up word",
+    "pass": true,
+    "typedValue": "Why this form "
+  },
+  {
+    "check": "subtitle offset positive delay",
+    "pass": true
+  },
+  {
+    "check": "candidate applies matching filename and format",
+    "pass": true
+  },
+  {
+    "check": "large plain subtitles remain contained",
+    "pass": true
+  },
+  {
+    "check": "AI failure preserves local lookup",
+    "pass": true
+  },
+  {
+    "check": "empty results retain import and refresh recovery",
+    "pass": true
+  },
+  {
+    "check": "status message cannot intercept subtitle selection",
+    "pass": true,
+    "evidence": {
+      "hitIsWord": true,
+      "pointerEvents": "none",
+      "toastVisible": true
+    }
+  },
+  {
+    "check": "explicit resume closes drawer",
+    "pass": true
+  },
+  {
+    "check": "1280 desktop containment",
+    "pass": true,
+    "viewport": [
+      1280,
+      800
+    ]
+  },
+  {
+    "check": "390 narrow sheet containment",
+    "drawerTop": 330.0249938964844,
+    "pass": true,
+    "subtitleBottom": 291.02500915527344,
+    "viewport": [
+      390,
+      844
+    ]
+  }
+]

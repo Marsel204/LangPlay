@@ -1,0 +1,21 @@
+{
+  "id": "langplay-learning",
+  "name": "LangPlay",
+  "version": "0.2.0",
+  "manifestURI": "",
+  "language": "javascript",
+  "type": "plugin",
+  "description": "Japanese learning captions, contextual word lookup and local cards for Seanime's browser player. Import the matching Japanese subtitle file.",
+  "author": "LangPlay",
+  "icon": "",
+  "website": "https://github.com/Marsel204/LangPlay",
+  "readme": "",
+  "lang": "ja",
+  "plugin": {
+    "version": "1",
+    "permissions": {
+      "scopes": ["playback", "storage"],
+      "allow": { "networkAccess": { "allowedDomains": ["http://127.0.0.1:8765"], "reasoning": "Use your local LangPlay companion for Japanese parsing and explicit AI requests." } }
+    }
+  }
+}

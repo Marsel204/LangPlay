@@ -1,5 +1,56 @@
 # Native compatibility checkpoint — M02 OPEN
 
+## Japanese-subtitle discovery checkpoint — 2026-10-15
+
+Before implementing Jimaku discovery, the approved incremental plan requires a
+generated Japanese SRT to appear and be selectable in the official native player.
+The probe now exposes **Load generated JP test subtitle**. During local native
+playback it calls `addExternalSubtitleTrack` with generated text, after checking
+client, playback ID and local-video path. It performs no download or media write.
+The probe only reports **sent**; this is not evidence of native rendering.
+
+In the pinned host source the native handler uses `sub-add` with `auto`, ignores
+the track's `default` flag, and does not acknowledge the new track ID. The plugin
+`getTextTracks()` getter resolves undefined, and `sendGetSubtitleTrack()` is a
+no-op. Therefore automatic selection and failed-replacement recovery cannot be
+qualified from a successful plugin call. Do not guess a numeric track ID.
+
+Native computer control is unavailable in this agent session. Manual checkpoint:
+play a local episode, open the LangPlay native feasibility probe from the plugin
+tray, press **Load generated JP test subtitle**, close the probe, and inspect the
+native CC menu. Select **LangPlay native test.ja.srt** and confirm Japanese text
+appears; then restore the previous subtitle using that menu. Record separately
+whether the test track was automatically selected. Until native evidence exists,
+discovery/setup/cache implementation remains gated; no host fork is introduced.
+
+The first live attempt revealed that the embedded adapter exposes renderer
+`mpv` and target `mpvcore`, rather than renderer `native`. The probe now accepts
+that exact combination; web playback and `mpv` with a different target remain
+rejected. A regression test reproduced the misleading local-playback error
+before the guard was corrected. Live diagnostics confirmed an active client,
+playback ID and local-file identity. The rejection did not indicate missing media.
+
+A subsequent live browser-to-host test confirmed that `target` is a Goja-wrapped
+Go string enum (`typeof target === 'object'`, serialized value `mpvcore`). It
+must be normalized with `String(target)` before comparison. A boxed-enum
+regression reproduces the rejection; plain JavaScript fixture strings had hidden
+this host interoperability issue. The native acceptance checkpoint is still open.
+
+With enum normalization applied, a live browser UI click reached the existing
+plugin handler and the host logged `add-subtitle-track` addressed to the active
+native client. The actual Denshi process created the 69-byte Japanese SRT under
+its `/tmp/seanime-mpvcore` temporary directory. This establishes delivery through
+the native IPC path, not track-menu availability, selection or visible rendering.
+The scoped suite now passes 37 tests. The browser-side snapshot independently
+observed the active mpv client, playback ID, duration, time and pause status.
+
+Checkpoint implementation checks: 35 scoped Seanime tests (including native
+command shape and stale-video rejection), 20 installer tests, 22 existing Python
+tests and 82 existing Node tests passed. The self-contained bundle built and
+reloaded successfully in the running official 3.10.4 host, whose log recorded
+plugin initialization and reload. These are runtime-registration and regression
+checks, not native rendering acceptance. Windows and fullscreen remain untested.
+
 Target Seanime/Denshi **3.10.4**, source
 `4bdff7b27b6c043dc87c0ccad3ead54596133a05`. This report distinguishes
 source inspection, build checks and actual native observations. The full

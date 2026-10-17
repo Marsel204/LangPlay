@@ -1,0 +1,21 @@
+{
+  "displayEvidence": {
+    "definitionContrast": 15.58,
+    "drawerFooterBottom": 660,
+    "drawerOpen": true,
+    "overflow": false,
+    "primaryButtonContrast": 10.57,
+    "secondaryContrast": 7.23,
+    "viewport": [
+      1280,
+      720
+    ],
+    "heading": "Word lookup"
+  },
+  "focusEvidence": {
+    "focused": "close-drawer",
+    "outlineStyle": "solid",
+    "outlineWidth": "1.6px"
+  },
+  "reducedMotion": "stylesheet media query inspected; OS preference not changed"
+}
