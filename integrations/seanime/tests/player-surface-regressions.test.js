@@ -160,3 +160,19 @@ test('automatic subtitle status, opt-out and retry are available in setup',async
  const status=h.nodes.find(n=>n.attributes['data-langplay']==='auto-status');assert.match(status.text,/No Japanese subtitle/);
  const retry=h.nodes.find(n=>n.attributes['data-langplay']==='auto-retry');await retry.handlers.get('click')();assert.equal(h.actions[1][0],'auto-retry');
 });
+
+test('study places sentence romaji and English with Japanese and exposes translation recovery',async()=>{
+  const h=fixture(), state={...view([]),drawerOpen:true,selected:{surface:'猫',sentence:'猫がいる',span:{start:0,end:1}},sentenceRomaji:'neko ga iru',sentenceTranslation:'A cat is here.'};
+  await h.surface.update(state);
+  const field=name=>h.nodes.find(n=>n.attributes['data-langplay']===name);
+  assert.equal(field('sentence-romaji').text,'neko ga iru');
+  assert.equal(field('sentence-romaji').attributes.lang,'ja-Latn');
+  assert.equal(field('sentence-translation').text,'A cat is here.');
+  assert.equal(field('sentence-translation').attributes.lang,'en');
+  assert.equal(field('sentence').parent,field('sentence-translation').parent);
+  await h.surface.update({...state,sentenceTranslation:'',translationError:'Check your AI provider.'});
+  assert.match(field('sentence-translation').text,/Check your AI/);
+  assert.equal('hidden' in field('translation-retry').attributes,false);
+  await field('translation-retry').handlers.get('click')();
+  assert.equal(h.actions.at(-1)[0],'translate');
+});

@@ -6,7 +6,7 @@ const pending = new Map();
 function send(op, data = {}) {
   const id = ++sequence;
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { pending.delete(id); reject(new Error('Seanime did not reply. Reopen LangPlay and try again.')); }, op === 'explain' || op === 'chat' ? 70000 : 15000);
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error('Seanime did not reply. Reopen LangPlay and try again.')); }, ['explain','chat','translate'].includes(op) ? 70000 : 15000);
     pending.set(id, { resolve, reject, timer }); webview.send('learning:request', { v: 1, id, op, data });
   });
 }
@@ -90,6 +90,11 @@ function render(view) {
     $('sentence').textContent = view.selected.sentence;
     $('context').textContent = `${view.selected.title} · Episode ${view.selected.episode} · ${timestamp(view.selected.videoTimeMs)}`;
   }
+  $('sentence-romaji').textContent = view.sentenceRomaji || '';
+  $('sentence-romaji').hidden = !view.sentenceRomaji;
+  $('sentence-translation').textContent = view.sentenceTranslation || (view.translationBusy ? 'Translating into English…' : view.translationError || '');
+  $('sentence-translation').hidden = !($('sentence-translation').textContent);
+  $('translation-retry').hidden = !view.translationError || !!view.translationBusy;
   for (const key of ['explanation', 'reply']) { $(key).textContent = view[key]; $(key).hidden = !view[key]; }
   if (view.error) notice(view.error);
   if (view.drawerOpen && selectedKey !== JSON.stringify(view.selected)) { setup(false); $('close').focus(); }
@@ -103,6 +108,7 @@ webview.on('learning:response', raw => {
 });
 $('auto-mode').onchange = () => run('preferences', {autoSubtitles:$('auto-mode').value === 'automatic'});
 $('auto-retry').onclick = () => run('auto-retry');
+$('translation-retry').onclick = () => run('translate');
 $('settings').onclick = () => setup(!setupOpen);
 $('refresh-saved').onclick = refreshSaved;
 $('open-folder').onclick = async () => {

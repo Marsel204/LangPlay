@@ -76,3 +76,27 @@ test('automatic subtitle search sends only episode identity through the local co
  assert.equal(validateMessage({v:1,id:1,op:'preferences',data:{autoSubtitles:false}}).data.autoSubtitles,false);
  assert.throws(()=>validateMessage({v:1,id:1,op:'preferences',data:{autoSubtitles:'false'}}));
 });
+
+test('English translation is sentence-scoped, deduplicated and cached across selected words',async()=>{
+  const calls=[];
+  const services=createServices({fetch:async(url,options)=>{
+    calls.push([url,JSON.parse(options.body)]);
+    return {ok:true,json:()=>({status:'success',data:{sentence_translation:{en:'A cat is here.'}}})};
+  }});
+  const context={surface:'猫',sentence:'猫がいる'};
+  const [a,b]=await Promise.all([services.translate(context),services.translate({...context,surface:'いる'})]);
+  assert.equal(a.translation,'A cat is here.');assert.deepEqual(a,b);
+  await services.translate(context);assert.equal(calls.length,1);
+  assert.equal(calls[0][0],'http://127.0.0.1:8765/api/ai/analyze');
+  assert.match(calls[0][1].prompt,/English/);
+  assert.match(calls[0][1].prompt,/猫がいる/);
+  assert.equal(calls[0][1].provider,undefined);
+});
+
+test('invalid English replies are not cached and allow retry',async()=>{
+  let english='';
+  const services=createServices({fetch:async()=>({ok:true,json:()=>({status:'success',data:{sentence_translation:{en:english}}})})});
+  await assert.rejects(()=>services.translate({sentence:'猫がいる'}),/translation/i);
+  english='A cat is here.';
+  assert.equal((await services.translate({sentence:'猫がいる'})).translation,english);
+});

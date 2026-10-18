@@ -20,7 +20,7 @@ function fixture({ saved = false } = {}) {
     drawerOpen: false, selected: null, playback: { title: 'Generated fixture' }, positionMs: 1000, explanation: '', reply: '' };
   if (saved) { state.source = null; state.association = { sourceId: 'Japanese.srt' }; }
   const render = () => listeners['learning:state'](JSON.stringify(state));
-  render(); return { get, sent, render };
+  render(); return { get, sent, render, state };
 }
 test('Incoming clock updates preserve an edited delay until explicit Apply', async () => {
   const ui = fixture(); ui.get('offset').value = '1000'; ui.get('offset').oninput(); ui.render();
@@ -43,4 +43,15 @@ test('TSV export remains copyable when the host sandbox blocks downloads', async
   const ui = fixture(); await ui.get('export').onclick();
   assert.equal(ui.get('cards-tsv').value, 'surface\tmeaning\n誰\twho');
   assert.equal(ui.get('card-export').hidden, false);
+});
+
+test('tray study displays sentence romaji, English and an actionable translation error',async()=>{
+  const ui=fixture();
+  Object.assign(ui.state,{drawerOpen:true,selected:{surface:'猫',sentence:'猫がいる'},sentenceRomaji:'neko ga iru',sentenceTranslation:'A cat is here.'});ui.render();
+  assert.equal(ui.get('sentence-romaji').textContent,'neko ga iru');
+  assert.equal(ui.get('sentence-translation').textContent,'A cat is here.');
+  assert.equal(ui.get('sentence-translation').hidden,false);
+  Object.assign(ui.state,{sentenceTranslation:'',translationError:'Check your AI provider.'});ui.render();
+  assert.equal(ui.get('translation-retry').hidden,false);
+  await ui.get('translation-retry').onclick();assert.equal(ui.sent.at(-1).op,'translate');
 });

@@ -1,4 +1,4 @@
-const operations = new Set(['refresh', 'import', 'saved-list', 'saved-import', 'saved-open', 'offset', 'select', 'close', 'resume', 'explain', 'chat', 'save', 'export', 'preferences', 'auto-retry', 'hide']);
+const operations = new Set(['refresh', 'import', 'saved-list', 'saved-import', 'saved-open', 'offset', 'select', 'close', 'resume', 'explain', 'translate', 'chat', 'save', 'export', 'preferences', 'auto-retry', 'hide']);
 export function validateMessage(value) {
   if (!value || value.v !== 1 || !Number.isSafeInteger(value.id) || value.id < 0 || !operations.has(value.op)) throw new Error('Invalid LangPlay message.');
   const d = value.data || {};

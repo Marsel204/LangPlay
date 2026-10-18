@@ -24,7 +24,9 @@
   <button id="continue" hidden>Resume watching</button>
   <section id="drawer" hidden aria-label="Selected word">
     <div class="drawer-top"><div><h1 id="word" lang="ja"></h1><p id="reading" lang="ja"></p></div><button id="close">Close</button></div>
-    <p id="base" class="muted"></p><p id="meaning"></p><blockquote id="sentence" lang="ja"></blockquote><p id="context" class="muted"></p>
+    <p id="base" class="muted"></p><p id="meaning"></p>
+    <div class="sentence-context"><blockquote id="sentence" lang="ja"></blockquote><p id="sentence-romaji" lang="ja-Latn" aria-label="Sentence romaji" hidden></p><p id="sentence-translation" lang="en" aria-label="English translation" aria-live="polite" hidden></p><button id="translation-retry" hidden>Retry translation</button></div>
+    <p id="context" class="muted"></p>
     <div class="actions"><button id="save">Save card</button><button id="explain">Explain this sentence</button></div>
     <div id="explanation" class="answer" hidden></div>
     <form id="chat"><label for="question">Ask about this sentence</label><div class="question"><input id="question" maxlength="2000" placeholder="Why is this form used?"><button type="submit">Ask</button></div></form>

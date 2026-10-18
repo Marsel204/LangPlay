@@ -188,7 +188,15 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     fields.source = await make('p', 'source', fields.setup);
     show(fields.setup, false);
     fields.study = await make('div', 'study', drawer);
-    for (const [tag, name] of [['h2', 'word'], ['p', 'reading'], ['p', 'base'], ['p', 'meaning'], ['p', 'sentence'], ['p', 'context']]) fields[name] = await make(tag, name, fields.study);
+    for (const [tag, name] of [['h2', 'word'], ['p', 'reading'], ['p', 'base'], ['p', 'meaning']]) fields[name] = await make(tag, name, fields.study);
+    const sentence = await make('div','sentence-context',fields.study);
+    for (const [name,lang,label] of [['sentence','ja','Japanese sentence'],['sentence-romaji','ja-Latn','Sentence romaji'],['sentence-translation','en','English translation']]) {
+      fields[name] = await make('p',name,sentence);
+      fields[name].setAttribute('lang',lang); fields[name].setAttribute('aria-label',label);
+    }
+    fields['sentence-translation'].setAttribute('aria-live','polite');
+    fields.translationRetry = await button(sentence,'translation-retry','Retry translation',() => action('translate'));
+    fields.context = await make('p','context',fields.study);
     fields.word.setAttribute('lang', 'ja'); fields.reading.setAttribute('lang', 'ja'); fields.sentence.setAttribute('lang', 'ja');
     const actions = await make('div', 'actions', fields.study);
     await button(actions, 'save', 'Save card', async () => {
@@ -283,7 +291,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       catch (error) { await reset(); await sweep(true); throw error; }
     }
     if (!mounted) return;
-    const key = JSON.stringify([view.playback.title, view.playback.episode, view.drawerOpen, view.selected, view.reading, view.romaji, view.meaning, view.baseForm, view.explanation, view.reply, view.error, view.busy, view.source, view.preferences, view.autoSubtitles]);
+    const key = JSON.stringify([view.playback.title, view.playback.episode, view.drawerOpen, view.selected, view.reading, view.romaji, view.meaning, view.baseForm, view.explanation, view.reply, view.error, view.busy, view.source, view.preferences, view.autoSubtitles, view.sentenceRomaji, view.sentenceTranslation, view.translationBusy, view.translationError]);
     if (key !== renderKey) {
       renderKey = key;
       const nextWord = identity(view);
@@ -292,6 +300,11 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       text('base', view.baseForm && view.baseForm !== view.selected?.surface ? `Dictionary form: ${view.baseForm}` : '');
       text('meaning', view.meaning || (view.busy ? 'Looking up this word…' : 'No local definition yet.'));
       text('sentence', view.selected?.sentence);
+      text('sentence-romaji',view.sentenceRomaji);
+      show(fields['sentence-romaji'],!!view.sentenceRomaji);
+      text('sentence-translation',view.sentenceTranslation || (view.translationBusy ? 'Translating into English…' : view.translationError));
+      show(fields['sentence-translation'],!!(view.sentenceTranslation || view.translationBusy || view.translationError));
+      show(fields.translationRetry,!!view.translationError && !view.translationBusy);
       text('context', view.selected ? `${view.selected.title} · Episode ${view.selected.episode} · ${clock(view.selected.videoTimeMs)}` : '');
       text('explanation', view.explanation); text('reply', view.reply);
       text('source', `${view.playback.title} · Episode ${view.playback.episode}\n${view.source ? `${view.source.sourceId} · ${view.source.cueCount} cues` : 'Choose a matching Japanese subtitle.'}`);
