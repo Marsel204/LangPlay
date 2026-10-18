@@ -1,13 +1,13 @@
 # Browser learning in Seanime
 
-Version 0.4.1 was verified locally on 18 October 2026 with Seanime Denshi 3.10.4's browser player. The independent `langplay-learning` plugin preserves `langplay-probe` and the existing provider/subtitle extensions. Native desktop and Windows UI remain unverified.
+Version 0.4.4 was installed and its lookup/translation service verified locally on 18 October 2026 with Seanime Denshi 3.10.4. Browser playback qualification below comes from the preceding 0.4.1 verification. The independent `langplay-learning` plugin preserves `langplay-probe` and the existing provider/subtitle extensions. Native desktop and Windows UI remain unverified.
 
 ## Use
 
 1. Play an episode in Seanime's **Online streaming** browser player. Japanese subtitles now search and load automatically through the local companion.
 2. Open **Subtitles** to see the automatic match or change **Japanese subtitle loading** to **Choose manually**. A manual replacement can be selected under **Saved subtitles**, then **Load subtitle**. **Open subtitle folder** opens the dedicated folder; add a downloaded Japanese SRT, VTT, ASS or SSA there and **Refresh list**. Saved files can be loaded again after a restart without a file picker. You can also **Choose another file** or expand **Paste subtitle text instead**.
 3. Choose Japanese, furigana or romaji. Edit **Delay (ms)** and click **Apply delay** if synchronization needs adjustment. Positive values show captions later; importing does not shift the original cue times.
-4. Click a word in the learning caption. Playback pauses, and the word drawer shows its reading, dictionary form where different, local definition where available, and the captured sentence/title/episode/time. Unknown dictionary entries are identified honestly.
+4. Click a word in the learning caption. Playback pauses, and the word drawer shows its reading, dictionary form where different, offline-first definition with Google fallback, and the captured sentence/title/episode/time. Sentence romaji appears above Japanese words; English uses Google Translate. Explain and Ask invoke AI explicitly.
 5. **Close**, Escape and **Hide** keep playback paused. **Resume watching** explicitly resumes the captured playback. The tray panel also provides Resume. The drawer itself scrolls on short windows.
 6. **Save card** writes locally to Seanime's plugin storage. **Subtitles → Export cards (TSV)** provides selectable TSV; save it as UTF-8 and import into Anki. Seanime's iframe sandbox does not grant downloads, so no automatic browser download or AnkiConnect success is claimed.
 
@@ -17,13 +17,15 @@ On Linux the default folder is `$XDG_DATA_HOME/langplay-seanime/subtitles` (norm
 
 ## Companion and failure behavior
 
-Parsing reuses LangPlay's shared Japanese parser client and the companion at `http://127.0.0.1:8765/api/parse`; definitions reuse the existing offline dictionary. Caption parsing never calls AI. Selecting a word requests an English sentence translation through the configured AI companion; the local parser supplies full-sentence romaji. Results appear directly beneath the Japanese sentence in both study panels. Matching sentences reuse a bounded translation cache, and failures offer **Retry translation**. Explain and Ask explicitly request additional help through the companion's existing AI endpoints. DeepSeek Explain, Ask and a contextual follow-up succeeded through the production service and companion using generated Japanese context. This verifies the service path; native AI UI behavior is unqualified. Errors leave captions and local cards available.
+Parsing reuses LangPlay's shared Japanese parser client and the companion at `http://127.0.0.1:8765/api/parse`; definitions check the shared offline dictionary first. Version 0.4.2 includes the kanji spelling `面白い` and uses a word-only Google Translate fallback through `POST /api/dictionary` for missing entries, matching the extension's lookup order. Google fallback is online; known dictionary words do not need that request. Responses are plain text, successful lookups are bounded and cached, and failed lookups can be retried by selecting the word again. Caption parsing never calls AI. Since version 0.4.4, selecting a word requests English through a direct Google Translate request via `POST /api/translate`, with no generative AI request or AI fallback; the local parser supplies full-sentence romaji. Results appear directly beneath the Japanese sentence in both study panels. Matching sentences reuse a bounded translation cache, and failures offer **Retry translation**. Explain and Ask explicitly request additional help through the companion's existing AI endpoints. DeepSeek Explain, Ask and a contextual follow-up succeeded through the production service and companion using generated Japanese context. This verifies the service path; native AI UI behavior is unqualified. Errors leave captions and local cards available.
 
 There are no direct AnkiConnect writes in this increment. Port 8765 belongs to the companion. TSV is the supported export path.
 
 ## Verification evidence
 
-- Integration build and isolated callback smoke pass with **95 integration tests**. Existing application suites pass with **82 Node tests**, **41 Python tests**, and **20 installer tests**.
+- Integration build and isolated callback smoke pass with **101 integration tests**. Existing application suites pass with **82 Node tests**, **51 Python tests**, and **20 installer tests** (254 total).
+- Version 0.4.4 live service verification confirmed offline `面白い` lookup with no dictionary request, Google fallback for a missing word, and sentence translation through `/api/translate` without an `/ai/` request. The supplied sentence took 1.305 seconds on its first measured request; the next lookup used the plugin cache. These are one-run service timings, not a UI latency guarantee.
+- The production drawer renderer was inspected with real local parser tokens at 340 px and 280 px widths: romaji stayed above Japanese, punctuation/newlines were preserved, the separate romaji fallback was hidden once annotations were available, and no horizontal overflow occurred. This was a browser layout fixture, not native desktop interaction.
 - Live browser playback covers Horimiya episodes 1/2 and Re:Zero season 4 episodes 1/2, clickable parser readings, real dictionary lookup, pause/explicit resume, local card deduplication and TSV export.
 - Real automatic Jimaku discovery loaded Re:Zero episode 2's Japanese SRT (**418 cues**) without a picker. Switching to episode 1 restored its associated file (**452 cues**); switching back restored episode 2's cached file. Offline cache reuse and manual mode persistence were verified.
 - Actual browser fullscreen retained a single caption surface and drawer. At wide and narrow viewports, captions cleared the study drawer; windowed narrow placement moved study below the video. Original subtitle and media-caption tracks were switched Off once a learning source was ready.
@@ -57,3 +59,8 @@ Automatic work does not pause playback or block the clock. Episode/client change
 ## Sentence reading — 18 October 2026
 
 Version 0.4.1 groups Japanese, full-sentence romaji and English in the study drawer. Live browser verification selected a Re:Zero episode-two sentence and observed local romanization plus a successful DeepSeek translation. Sentence cache reuse and late-result rejection have regression coverage; live playback stayed paused. Narrow layout retained scrolling without horizontal overflow. English is requested on word selection, never automatically for every playing cue. Native desktop and Windows UI remain unverified.
+
+
+## Fast sentence English — 18 October 2026
+
+Version 0.4.4 replaces the earlier AI sentence translator with direct Google Translate through the local companion. It sends only the selected Japanese sentence, requests translation text without dictionary or explanation output, and uses a six-second socket timeout. Successful results are cached in the plugin and companion; concurrent matching requests share plugin work. A failed translation offers Retry translation and never falls back to AI. Sentence romanization stays local and aligned above Japanese words. Explain and Ask still use the configured AI provider only when requested. This is online machine translation, not offline sentence translation.

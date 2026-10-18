@@ -1,10 +1,10 @@
 # LangPlay for Seanime
 
-Version 0.4.1 provides clickable Japanese learning captions directly in the built-in VideoCore player.
+Version 0.4.4 provides clickable Japanese learning captions directly in the built-in VideoCore player.
 
 1. Start an episode. LangPlay automatically finds and loads Japanese subtitles using the existing Jimaku configuration. Matching files are cached for future playback.
 2. Open **Subtitles** to see the source, retry a failed search, switch to **Choose manually**, or load a different saved file.
-3. Click a word to pause and open its reading, local definition, and captured sentence in Japanese, full-sentence romaji, and English. Romaji is local; English loads through the configured AI companion and is reused for other words in the same sentence. **Retry translation** appears on failure. **Save card** stores it locally; **Explain sentence** and **Ask** request further help.
+3. Click a word to pause and open its reading, meaning, and captured sentence in Japanese with romaji above each word, followed by English. Word meanings use the built-in offline dictionary first, including `面白い`; missing words fall back to Google Translate through the local companion. Only the word is sent for that fallback, and successful results are cached. Romaji is local; sentence English uses a direct Google Translate request through the companion, with no generative AI call or AI fallback. Matching sentences reuse a cached result. The loading message says **Translating with Google…**. **Retry translation** appears on failure. **Save card** stores it locally; **Explain sentence** and **Ask** use your configured AI provider for additional help.
 4. **Close** keeps playback paused. **Resume watching** resumes the same session.
 
 The drawer sits beside a wide window, below a narrow video, and inside the player in fullscreen. Use the **Subtitle reading** selector beside the player buttons for **Japanese**, **Furigana**, or **Romaji**; the choice is saved. Word lookup shows kana and romaji together. Captions replace the ordinary subtitle line at the bottom of the displayed picture, including letterboxed video, and stay clear of the fullscreen study drawer. Loading a LangPlay file switches Seanime’s original subtitle and media-caption tracks to Off. The LangPlay toggle hides only learning captions; Seanime's CC controls can manually re-enable an original track; ordinary clock updates do not override that choice. Reading modes include Japanese, furigana and romaji.

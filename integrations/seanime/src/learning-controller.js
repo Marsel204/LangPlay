@@ -16,9 +16,11 @@ export function createLearningController({ host, services, now } = {}) {
   let playback = null, source = null, drawerOpen = false, reading = '', romaji = '', meaning = '', error = '';
   let baseForm = '', explanation = '', reply = '', busy = false;
   let sentenceRomaji = '', sentenceTranslation = '', translationError = '', translationBusy = false;
+  let sentenceTokens = [];
   const reset = () => {
     drawerOpen = false; reading = romaji = meaning = baseForm = error = explanation = reply = '';
     sentenceRomaji = sentenceTranslation = translationError = ''; busy = translationBusy = false;
+    sentenceTokens = [];
   };
   const current = selection => session.isCurrent(selection) && session.selected() === selection;
   async function refresh(options = {}) {
@@ -56,12 +58,13 @@ export function createLearningController({ host, services, now } = {}) {
       const tokens = Array.isArray(parsed) ? parsed : parsed?.tokens;
       if (!tokens) throw new Error('Companion parser unavailable. Captured text is still usable.');
       sentenceRomaji = romanizeSentence(tokens);
+      sentenceTokens = tokens.map(({ surface, romaji, pos }) => ({ surface, romaji, pos }));
       const token = tokens.find(t => t.start === selected.span.start && t.end === selected.span.end);
       reading = token?.reading || '';
       romaji = token?.romaji || '';
       baseForm = token?.baseForm || token?.base_form || selected.surface;
       const found = await services.lookup({ surface: selected.surface, baseForm });
-      if (current(selected)) meaning = found?.meaning || 'No entry in the local dictionary.';
+      if (current(selected)) meaning = found?.meaning || 'No definition available. Try selecting the word again or use Explain sentence.';
     } catch (e) { if (current(selected)) error = String(e.message || e); }
     finally { if (current(selected)) busy = false; }
     return view();
@@ -96,7 +99,7 @@ export function createLearningController({ host, services, now } = {}) {
   }
   function view() {
     return { activeCues: session.active(), drawerOpen, selected: session.selected(), reading, romaji, baseForm, meaning,
-      sentenceRomaji, sentenceTranslation, translationError, translationBusy,
+      sentenceRomaji, sentenceTokens, sentenceTranslation, translationError, translationBusy,
       error, explanation, reply, busy, source, positionMs: session.position(),
       playback: playback ? { title: playback.title, episode: playback.episode, paused: playback.paused } : null };
   }

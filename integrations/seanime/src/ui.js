@@ -1,12 +1,14 @@
 import { decodeSubtitle } from './core/encoding.js';
+import { sentenceParts } from './sentence-reading.js';
 
 const $ = id => document.getElementById(id);
 let sequence = 0, state = null, signature = '', selectedKey = '', setupOpen = false, offsetDirty = false;
 const pending = new Map();
+let sentenceKey = '';
 function send(op, data = {}) {
   const id = ++sequence;
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { pending.delete(id); reject(new Error('Seanime did not reply. Reopen LangPlay and try again.')); }, ['explain','chat','translate'].includes(op) ? 70000 : 15000);
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error('Seanime did not reply. Reopen LangPlay and try again.')); }, ['explain','chat'].includes(op) ? 70000 : 15000);
     pending.set(id, { resolve, reject, timer }); webview.send('learning:request', { v: 1, id, op, data });
   });
 }
@@ -87,12 +89,27 @@ function render(view) {
     $('word').textContent = view.selected.surface; $('reading').textContent = [view.reading, view.romaji].filter(Boolean).join(' · ');
     $('base').textContent = view.baseForm && view.baseForm !== view.selected.surface ? `Dictionary form: ${view.baseForm}` : '';
     $('meaning').textContent = view.meaning || (view.busy ? 'Looking up this word…' : 'No local definition yet.');
-    $('sentence').textContent = view.selected.sentence;
+    const parts = sentenceParts(view.selected.sentence, view.sentenceTokens);
+    const key = JSON.stringify([view.selected.sentence, parts]);
+    if (key !== sentenceKey) {
+      sentenceKey = key;
+      $('sentence').replaceChildren();
+      $('sentence').textContent = parts ? '' : view.selected.sentence;
+      $('sentence').setAttribute('data-reading', parts ? 'aligned' : 'plain');
+      if (parts) for (const part of parts) {
+        const word = document.createElement(part.romaji ? 'ruby' : 'span');
+        word.textContent = part.surface;
+        if (part.romaji) {
+          const rt = document.createElement('rt'); rt.textContent = part.romaji; word.append(rt);
+        }
+        $('sentence').append(word);
+      }
+    }
     $('context').textContent = `${view.selected.title} · Episode ${view.selected.episode} · ${timestamp(view.selected.videoTimeMs)}`;
   }
   $('sentence-romaji').textContent = view.sentenceRomaji || '';
-  $('sentence-romaji').hidden = !view.sentenceRomaji;
-  $('sentence-translation').textContent = view.sentenceTranslation || (view.translationBusy ? 'Translating into English…' : view.translationError || '');
+  $('sentence-romaji').hidden = !view.sentenceRomaji || !!sentenceParts(view.selected?.sentence, view.sentenceTokens);
+  $('sentence-translation').textContent = view.sentenceTranslation || (view.translationBusy ? 'Translating with Google…' : view.translationError || '');
   $('sentence-translation').hidden = !($('sentence-translation').textContent);
   $('translation-retry').hidden = !view.translationError || !!view.translationBusy;
   for (const key of ['explanation', 'reply']) { $(key).textContent = view[key]; $(key).hidden = !view[key]; }

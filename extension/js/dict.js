@@ -41,7 +41,7 @@ export const JDICT = {
   '強い': 'strong', '弱い': 'weak', '暖かい': 'warm', '暑い': 'hot (weather)', '寒い': 'cold (weather)', '冷たい': 'cold (to touch)',
   '美しい': 'beautiful', '可愛い': 'cute', '難しい': 'difficult', '易しい': 'easy', '楽しい': 'fun; enjoyable', '嬉しい': 'happy; glad',
   '悲しい': 'sad', '怖い': 'scary', '痛い': 'painful', 'すごい': 'amazing; incredible', 'やばい': 'dangerous; risky', 'おいしい': 'delicious',
-  'うれしい': 'happy; glad', '寂しい': 'lonely', 'つまらない': 'boring', 'おもしろい': 'interesting; funny', '忙しい': 'busy',
+  'うれしい': 'happy; glad', '寂しい': 'lonely', 'つまらない': 'boring', 'おもしろい': 'interesting; funny', '面白い': 'interesting; funny', '忙しい': 'busy',
   '元気': 'healthy; energetic', '有名': 'famous', '好き': 'liked; favorite', '嫌い': 'disliked', '上手': 'skilled; good at', '下手': 'unskilled; bad at',
   '素敵': 'wonderful; lovely', '大切': 'important; precious', '大丈夫': 'all right; OK', '簡単': 'easy; simple', '色々': 'various',
   '静か': 'quiet', '便利': 'convenient; handy', '不便': 'inconvenient', '危険': 'dangerous', '安全': 'safe',
