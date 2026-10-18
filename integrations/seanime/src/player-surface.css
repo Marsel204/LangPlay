@@ -20,7 +20,11 @@
 [data-langplay="drawer"] [data-langplay="reading"]{color:#d6c9f3;margin-top:0}
 [data-langplay="drawer"] [data-langplay="meaning"]{font-size:17px;line-height:1.6;margin:14px 0}
 [data-langplay="drawer"] [data-langplay="auto-status"],[data-langplay="drawer"] [data-langplay="context"],[data-langplay="drawer"] [data-langplay="source"],[data-langplay="drawer"] [data-langplay="notice"]{font-size:12px;line-height:1.5;color:#c2bec8;overflow-wrap:anywhere}
-[data-langplay="drawer"] [data-langplay="sentence"]{font:18px/1.9 "Noto Sans CJK JP",sans-serif;border-block:1px solid #36393f;padding:12px 0;margin:16px 0 4px}
+[data-langplay="drawer"] [data-langplay="sentence-context"]{border-block:1px solid #36393f;padding:12px 0;margin:16px 0 4px}
+[data-langplay="drawer"] [data-langplay="sentence"]{font:18px/1.9 "Noto Sans CJK JP",sans-serif;margin:0}
+[data-langplay="drawer"] [data-langplay="sentence-romaji"]{color:#d6c9f3;font-size:14px;line-height:1.6;margin:8px 0}
+[data-langplay="drawer"] [data-langplay="sentence-translation"]{font-size:15px;line-height:1.65;margin:8px 0 0}
+[data-langplay="drawer"] [data-langplay="translation-retry"]{margin-top:10px}
 [data-langplay="drawer"] [data-langplay="actions"]{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
 [data-langplay="drawer"] [data-langplay="actions"] :is(button,input[type="button"]){flex:1}
 [data-langplay="drawer"] label{display:block;color:#d4d0da;font-size:13px;margin:14px 0 6px}

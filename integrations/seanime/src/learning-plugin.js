@@ -88,6 +88,7 @@ export function start(ctx) {
       } else if (op === 'close') controller.close();
       else if (op === 'resume') await controller.resume();
       else if (op === 'explain') result = await controller.explain();
+      else if (op === 'translate') { const work = controller.translate(); await publish(); await work; }
       else if (op === 'chat') result = await controller.chat(data.question);
       else if (op === 'save') result = await controller.save();
       else if (op === 'export') result = { tsv: cards.tsv(), count: cards.list().length };

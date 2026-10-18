@@ -1,6 +1,6 @@
 # Browser learning in Seanime
 
-Version 0.4.0 was verified locally on 18 October 2026 with Seanime Denshi 3.10.4's browser player. The independent `langplay-learning` plugin preserves `langplay-probe` and the existing provider/subtitle extensions. Native desktop and Windows UI remain unverified.
+Version 0.4.1 was verified locally on 18 October 2026 with Seanime Denshi 3.10.4's browser player. The independent `langplay-learning` plugin preserves `langplay-probe` and the existing provider/subtitle extensions. Native desktop and Windows UI remain unverified.
 
 ## Use
 
@@ -17,13 +17,13 @@ On Linux the default folder is `$XDG_DATA_HOME/langplay-seanime/subtitles` (norm
 
 ## Companion and failure behavior
 
-Parsing reuses LangPlay's shared Japanese parser client and the companion at `http://127.0.0.1:8765/api/parse`; definitions reuse the existing offline dictionary. Caption parsing never calls AI. Explain and Ask explicitly use the companion's existing AI endpoints. DeepSeek Explain, Ask and a contextual follow-up succeeded through the production service and companion using generated Japanese context. This verifies the service path; native AI UI behavior is unqualified. Errors leave captions and local cards available.
+Parsing reuses LangPlay's shared Japanese parser client and the companion at `http://127.0.0.1:8765/api/parse`; definitions reuse the existing offline dictionary. Caption parsing never calls AI. Selecting a word requests an English sentence translation through the configured AI companion; the local parser supplies full-sentence romaji. Results appear directly beneath the Japanese sentence in both study panels. Matching sentences reuse a bounded translation cache, and failures offer **Retry translation**. Explain and Ask explicitly request additional help through the companion's existing AI endpoints. DeepSeek Explain, Ask and a contextual follow-up succeeded through the production service and companion using generated Japanese context. This verifies the service path; native AI UI behavior is unqualified. Errors leave captions and local cards available.
 
 There are no direct AnkiConnect writes in this increment. Port 8765 belongs to the companion. TSV is the supported export path.
 
 ## Verification evidence
 
-- Integration build and isolated callback smoke pass with **87 integration tests**. Existing application suites pass with **82 Node tests**, **41 Python tests**, and **20 installer tests**.
+- Integration build and isolated callback smoke pass with **95 integration tests**. Existing application suites pass with **82 Node tests**, **41 Python tests**, and **20 installer tests**.
 - Live browser playback covers Horimiya episodes 1/2 and Re:Zero season 4 episodes 1/2, clickable parser readings, real dictionary lookup, pause/explicit resume, local card deduplication and TSV export.
 - Real automatic Jimaku discovery loaded Re:Zero episode 2's Japanese SRT (**418 cues**) without a picker. Switching to episode 1 restored its associated file (**452 cues**); switching back restored episode 2's cached file. Offline cache reuse and manual mode persistence were verified.
 - Actual browser fullscreen retained a single caption surface and drawer. At wide and narrow viewports, captions cleared the study drawer; windowed narrow placement moved study below the video. Original subtitle and media-caption tracks were switched Off once a learning source was ready.
@@ -53,3 +53,7 @@ Version 0.4.0 defaults to automatic loading when an identified anime episode sta
 The companion reads the existing Jimaku key from Subtitle Engine's private local configuration. Alternatively set `LANGPLAY_JIMAKU_API_KEY` in the companion environment, or `LANGPLAY_SEANIME_DIR` if Seanime uses a nonstandard profile directory. No key is copied into the plugin/webview; no Subtitle Engine patch or extra plugin network scope is needed. Auto requests accept only numeric anime/episode IDs, use same-host HTTPS downloads, cap bytes and time, and reject unsupported/non-Japanese data.
 
 Automatic work does not pause playback or block the clock. Episode/client changes, manual source changes and disabling automatic loading invalidate pending work. A source is rechecked against the playback again inside installation. Only a ready learning source triggers the existing original-track Off action. Failed discovery leaves original playback/subtitles usable; **Retry automatic search** or a saved/imported file is available in **Subtitles**. **Choose manually** persists across reloads. Matching a release's timing is not guaranteed; use the existing delay controls if necessary.
+
+## Sentence reading — 18 October 2026
+
+Version 0.4.1 groups Japanese, full-sentence romaji and English in the study drawer. Live browser verification selected a Re:Zero episode-two sentence and observed local romanization plus a successful DeepSeek translation. Sentence cache reuse and late-result rejection have regression coverage; live playback stayed paused. Narrow layout retained scrolling without horizontal overflow. English is requested on word selection, never automatically for every playing cue. Native desktop and Windows UI remain unverified.

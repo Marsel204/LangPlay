@@ -159,3 +159,56 @@ test('Selected romaji comes from the parser and clears with the old playback', a
   await controller.refresh();
   assert.equal(controller.view().romaji, '');
 });
+
+test('selected sentences show local romaji and English without requesting a grammar explanation', async () => {
+  const {controller,calls} = await fixture({
+    parse: async () => [
+      {surface:'今日は',start:0,end:3,romaji:'kyou wa'},
+      {surface:'日本語',start:3,end:6,romaji:'nihongo'},
+      {surface:'を勉強します',start:6,end:12,romaji:'o benkyou shimasu'},
+      {surface:'。',start:12,end:13,romaji:'kigou',pos:'補助記号'},
+    ],
+    translate: async context => { calls.push(['translate',context]); return {translation:'I will study Japanese today.'}; },
+  });
+  await controller.select(selection(controller));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(controller.view().sentenceRomaji,'kyou wa nihongo o benkyou shimasu。');
+  assert.equal(controller.view().sentenceTranslation,'I will study Japanese today.');
+  assert.equal(calls.filter(([op])=>op==='translate').length,1);
+  assert.equal(calls.some(([op])=>op==='explain'),false);
+});
+
+test('pending English does not block lookup and cannot leak into a different episode', async () => {
+  const pending=deferred();
+  const {controller,setState}=await fixture({translate:()=>pending.promise});
+  await controller.select(selection(controller));
+  assert.equal(controller.view().meaning,'Japanese language');
+  assert.equal(controller.view().translationBusy,true);
+  setState({playbackId:'different',videoIdentity:'different'});await controller.refresh();
+  pending.resolve({translation:'Old sentence'});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(controller.view().sentenceTranslation,'');
+  assert.equal(controller.view().sentenceRomaji,'');
+  assert.equal(controller.view().translationBusy,false);
+});
+
+test('translation failures preserve study and can be retried explicitly', async () => {
+  let fail=true;
+  const {controller}=await fixture({translate:async()=>{if(fail)throw Error('Configure your AI provider.');return {translation:'English recovered.'};}});
+  await controller.select(selection(controller));await new Promise(resolve=>setImmediate(resolve));
+  assert.match(controller.view().translationError,/Configure/);
+  assert.equal(controller.view().meaning,'Japanese language');
+  fail=false;await controller.translate();
+  assert.equal(controller.view().sentenceTranslation,'English recovered.');
+  assert.equal(controller.view().translationError,'');
+});
+
+test('a late translation cannot replace a newer selection or imported source',async()=>{
+  const old=deferred();let count=0;
+  const {controller}=await fixture({translate:()=>++count===1?old.promise:Promise.resolve({translation:'Current sentence'})});
+  await controller.select(selection(controller));
+  await controller.select(selection(controller));await new Promise(resolve=>setImmediate(resolve));
+  old.resolve({translation:'Stale sentence'});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(controller.view().sentenceTranslation,'Current sentence');
+  await controller.loadSubtitle({sourceId:'replacement',format:'srt',content:subtitle});
+  assert.equal(controller.view().sentenceTranslation,'');assert.equal(controller.view().sentenceRomaji,'');
+});
