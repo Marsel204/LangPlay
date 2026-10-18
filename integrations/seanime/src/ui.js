@@ -58,7 +58,7 @@ function caption(view) {
       ? [...new Intl.Segmenter('ja', { granularity: 'word' }).segment(cue.text)].map(s => ({ surface: s.segment, start: s.index, end: s.index + s.segment.length }))
       : [{ surface: cue.text, start: 0, end: cue.text.length }]);
     for (const token of tokens) {
-      if (!token.surface.trim() || /^[\p{P}\p{S}\s]+$/u.test(token.surface)) { line.append(document.createTextNode(token.surface)); continue; }
+      if (!token.surface.trim() || token.pos === '補助記号' || token.pos === '記号' || /^[\p{P}\p{S}\s]+$/u.test(token.surface)) { line.append(document.createTextNode(token.surface)); continue; }
       const button = document.createElement('button'); button.className = 'token'; button.lang = 'ja';
       const reading = view.preferences.readingMode === 'furigana' ? token.furigana : view.preferences.readingMode === 'romaji' ? token.romaji : '';
       if (reading && reading !== token.surface) {
@@ -77,11 +77,14 @@ function render(view) {
   $('source').textContent = view.source ? `${view.source.sourceId} · ${view.source.cueCount} cues` : view.association ? `Re-select subtitle: ${view.association.sourceId}` : 'SRT, VTT, ASS or SSA · up to 10 MiB';
   if (!offsetDirty && document.activeElement !== $('offset')) $('offset').value = view.source?.offsetMs ?? view.association?.offsetMs ?? 0;
   $('mode').value = view.preferences.readingMode;
+  $('auto-mode').value = view.preferences.autoSubtitles === false ? 'manual' : 'automatic';
+  $('auto-status').textContent = view.autoSubtitles?.message || '';
+  $('auto-retry').hidden = view.autoSubtitles?.state !== 'error';
   $('drawer').hidden = !view.drawerOpen;
   $('continue').hidden = !view.selected || view.drawerOpen;
   if (!view.source && !view.drawerOpen) setup(true);
   if (view.selected) {
-    $('word').textContent = view.selected.surface; $('reading').textContent = view.reading;
+    $('word').textContent = view.selected.surface; $('reading').textContent = [view.reading, view.romaji].filter(Boolean).join(' · ');
     $('base').textContent = view.baseForm && view.baseForm !== view.selected.surface ? `Dictionary form: ${view.baseForm}` : '';
     $('meaning').textContent = view.meaning || (view.busy ? 'Looking up this word…' : 'No local definition yet.');
     $('sentence').textContent = view.selected.sentence;
@@ -98,6 +101,8 @@ webview.on('learning:response', raw => {
   if (!request) return; pending.delete(value.id); clearTimeout(request.timer);
   if (value.error) request.reject(new Error(value.error)); else request.resolve(value.result);
 });
+$('auto-mode').onchange = () => run('preferences', {autoSubtitles:$('auto-mode').value === 'automatic'});
+$('auto-retry').onclick = () => run('auto-retry');
 $('settings').onclick = () => setup(!setupOpen);
 $('refresh-saved').onclick = refreshSaved;
 $('open-folder').onclick = async () => {

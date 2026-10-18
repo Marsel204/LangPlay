@@ -1,4 +1,4 @@
-const operations = new Set(['refresh', 'import', 'saved-list', 'saved-import', 'saved-open', 'offset', 'select', 'close', 'resume', 'explain', 'chat', 'save', 'export', 'preferences', 'hide']);
+const operations = new Set(['refresh', 'import', 'saved-list', 'saved-import', 'saved-open', 'offset', 'select', 'close', 'resume', 'explain', 'chat', 'save', 'export', 'preferences', 'auto-retry', 'hide']);
 export function validateMessage(value) {
   if (!value || value.v !== 1 || !Number.isSafeInteger(value.id) || value.id < 0 || !operations.has(value.op)) throw new Error('Invalid LangPlay message.');
   const d = value.data || {};
@@ -11,6 +11,6 @@ export function validateMessage(value) {
       !Number.isInteger(d.end) || d.start < 0 || d.end <= d.start || d.end > 4096)) throw new Error('Invalid word selection.');
   if (value.op === 'offset' && (!Number.isSafeInteger(d.offsetMs) || Math.abs(d.offsetMs) > 3600000)) throw new Error('Offset must be within one hour.');
   if (value.op === 'chat' && (typeof d.question !== 'string' || !d.question.trim() || d.question.length > 2000)) throw new Error('Ask a question of up to 2000 characters.');
-  if (value.op === 'preferences' && !['plain', 'furigana', 'romaji'].includes(d.readingMode)) throw new Error('Invalid reading mode.');
+  if (value.op === 'preferences' && (d.readingMode === undefined && d.autoSubtitles === undefined || d.readingMode !== undefined && !['plain', 'furigana', 'romaji'].includes(d.readingMode) || d.autoSubtitles !== undefined && typeof d.autoSubtitles !== 'boolean')) throw new Error('Invalid subtitle preferences.');
   return { v: 1, id: value.id, op: value.op, data: d };
 }

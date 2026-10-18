@@ -69,11 +69,11 @@ class SavedSubtitleTests(unittest.TestCase):
         thread = threading.Thread(target=http.serve_forever, daemon=True)
         thread.start()
         try:
-            def request(data, origin=None):
+            def request(data, origin=None, route="/api/subtitles"):
                 headers = {'Content-Type': 'application/json'}
                 if origin:
                     headers['Origin'] = origin
-                req = urllib.request.Request(f'http://127.0.0.1:{http.server_port}/api/subtitles', json.dumps(data).encode(), headers)
+                req = urllib.request.Request(f'http://127.0.0.1:{http.server_port}{route}', json.dumps(data).encode(), headers)
                 try:
                     response = urllib.request.urlopen(req, timeout=3)
                 except urllib.error.HTTPError as error:
@@ -87,6 +87,11 @@ class SavedSubtitleTests(unittest.TestCase):
             self.assertEqual(request([])[0], 400)
             self.assertEqual(request({'action': 'read', 'name': '../outside.srt'})[0], 400)
             self.assertEqual(request({'action': 'read', 'name': 'missing.srt'})[0], 404)
+            with patch.object(Server, 'automatic_subtitle', return_value={'sourceId':'auto.srt','format':'srt','content':self.text}) as automatic:
+                self.assertEqual(request({'mediaId':189046,'episode':2}, 'https://unrelated.example', '/api/subtitles/auto')[0],403)
+                automatic.assert_not_called()
+                self.assertEqual(request({'mediaId':189046,'episode':2}, 'http://127.0.0.1:43211', '/api/subtitles/auto')[0],200)
+                automatic.assert_called_once_with({'mediaId':189046,'episode':2})
         finally:
             http.shutdown()
             http.server_close()

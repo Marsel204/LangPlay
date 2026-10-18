@@ -52,3 +52,27 @@ test('Explicit AI explanation is readable and chat keeps only the captured selec
   assert.equal(messages[2].messages.length, 3);
   await services.chat({ ...context, generation: 2 }); assert.equal(messages[3].messages.length, 1);
 });
+
+test('Sensei uses the companion provider configuration and surfaces actionable AI errors', async () => {
+  const bodies=[];
+  const services=createServices({fetch:async(url,options)=>{
+    bodies.push(JSON.parse(options.body));
+    return {ok:true,json:()=>url.endsWith('/analyze')?{status:'success',data:{contextual_meaning:'cat'}}:{status:'success',reply:'A cat.'}};
+  }});
+  await services.explain({surface:'猫',sentence:'猫がいる',romaji:'neko'});
+  await services.chat({surface:'猫',sentence:'猫がいる',romaji:'neko',question:'Why ga?'});
+  assert.equal(bodies[0].provider,undefined,'the browser must not hardcode Antigravity');
+  assert.equal(bodies[0].romaji,'neko');
+  assert.equal(bodies[1].romaji,'neko');
+  const rejected=createServices({fetch:async()=>({ok:false,status:500,json:()=>({status:'error',message:'DeepSeek rejected the API key (HTTP 401).'})})});
+  await assert.rejects(()=>rejected.explain({surface:'猫'}),/DeepSeek.*401/);
+});
+
+test('automatic subtitle search sends only episode identity through the local companion',async()=>{
+ const calls=[];const services=createServices({fetch:async(url,options)=>{calls.push([url,JSON.parse(options.body),options.timeout]);return {ok:true,json:()=>({status:'success',sourceId:'automatic.srt',content:'Japanese'})};}});
+ assert.equal(typeof services.discoverSubtitles,'function','automatic discovery must be available without passing a remote URL or credential');
+ await services.discoverSubtitles({mediaId:189046,episode:2});
+ assert.deepEqual(calls,[['http://127.0.0.1:8765/api/subtitles/auto',{mediaId:189046,episode:2},55]]);
+ assert.equal(validateMessage({v:1,id:1,op:'preferences',data:{autoSubtitles:false}}).data.autoSubtitles,false);
+ assert.throws(()=>validateMessage({v:1,id:1,op:'preferences',data:{autoSubtitles:'false'}}));
+});

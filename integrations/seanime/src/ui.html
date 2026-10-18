@@ -4,7 +4,9 @@
 <main>
   <header><strong>LangPlay</strong><span id="clock"></span><button id="settings" aria-expanded="false">Subtitles</button><button id="hide">Hide</button></header>
   <section id="setup" hidden aria-label="Subtitle settings">
-    <p>Load a saved Japanese subtitle for this episode. Use the same version you selected in Subtitle Engine.</p>
+    <p>Japanese subtitles are found and loaded automatically for each episode. Use a saved file below to replace the automatic match.</p>
+    <label class="file" for="auto-mode">Japanese subtitle loading</label><select id="auto-mode"><option value="automatic">Find automatically</option><option value="manual">Choose manually</option></select>
+    <p id="auto-status" class="muted" role="status"></p><button id="auto-retry" hidden>Retry automatic search</button>
     <label class="file" for="saved-subtitle">Saved subtitles</label>
     <div class="saved-row"><select id="saved-subtitle"><option value="">Loading saved subtitles…</option></select><button id="load-saved" class="load-saved" disabled>Load subtitle</button></div>
     <div class="folder-actions"><button id="open-folder">Open subtitle folder</button><button id="refresh-saved">Refresh list</button></div>
