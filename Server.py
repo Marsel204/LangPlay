@@ -19,10 +19,13 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
 from japanese_parser import parse_japanese, ParserUnavailable
+from saved_subtitles import saved_subtitles
+from subtitle_discovery import automatic_subtitle
 
 # ── Configuration & Paths ──
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -204,6 +207,65 @@ def run_gemini_api_analysis(word, sentence, romaji, api_key, custom_prompt=""):
 
 
 
+def configured_ai_provider(requested=None):
+    provider = requested or os.environ.get("LANGPLAY_AI_PROVIDER", "antigravity")
+    if not isinstance(provider, str):
+        raise ValueError("AI provider must be a string")
+    return provider.strip().lower()
+
+
+def run_deepseek_completion(messages, api_key="", json_output=False):
+    # Credentials stay in the local companion, never in the plugin bundle.
+    key = (api_key or os.environ.get("LANGPLAY_DEEPSEEK_API_KEY", "")).strip()
+    if not key:
+        raise ValueError("Missing DeepSeek API key. Configure LANGPLAY_DEEPSEEK_API_KEY in the companion.")
+    payload = {
+        "model": os.environ.get("LANGPLAY_DEEPSEEK_MODEL", "deepseek-flash"),
+        "messages": messages, "thinking": {"type": "disabled"},
+        "max_tokens": 4096 if json_output else 1536,
+    }
+    if json_output:
+        payload["response_format"] = {"type": "json_object"}
+    request = urllib.request.Request("https://api.deepseek.com/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            raw = response.read(2 * 1024 * 1024 + 1)
+            if len(raw) > 2 * 1024 * 1024:
+                raise RuntimeError("DeepSeek returned an oversized response.")
+            data = json.loads(raw.decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        hints = {401: "API key rejected. Replace it and retry.", 402: "Insufficient API balance. Add credit and retry.",
+                 429: "Rate limit reached. Wait briefly and retry."}
+        # Never return the raw provider response or request headers.
+        raise RuntimeError(f"DeepSeek request failed (HTTP {error.code}). " + hints.get(error.code, "Please retry.")) from None
+    except (TimeoutError, urllib.error.URLError):
+        raise RuntimeError("DeepSeek did not respond. Check the connection and retry.") from None
+    choices = data.get("choices") or []
+    if not choices or choices[0].get("finish_reason") != "stop":
+        raise RuntimeError("DeepSeek returned an incomplete reply. Retry with a shorter question or sentence.")
+    content = choices[0].get("message", {}).get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("DeepSeek returned an empty reply. Please retry.")
+    return content.strip()
+
+
+def run_deepseek_analysis(word, sentence, romaji="", api_key="", custom_prompt=""):
+    prompt = custom_prompt or build_ai_prompt(word, sentence, romaji)
+    result = json.loads(run_deepseek_completion([{"role": "user", "content": prompt}], api_key, json_output=True))
+    if not isinstance(result, dict):
+        raise ValueError("DeepSeek returned an invalid explanation. Please retry.")
+    return result
+
+
+def run_deepseek_chat(messages, word="", sentence="", romaji="", api_key=""):
+    context = ("You are Sensei, a Japanese grammar tutor. Answer the latest question in concise, readable Markdown. "
+               "Use romaji alongside Japanese. Explain the captured sentence and word.\n\n"
+               f"Context Sentence: {sentence}\nTarget Word: {word} ({romaji})")
+    return run_deepseek_completion([{"role": "system", "content": context}, *messages], api_key)
+
+
 def http_get_backend(url, headers=None, data=None, timeout=8):
     req_headers = {"User-Agent": UA, "Accept-Language": "ja,en;q=0.8"}
     if headers:
@@ -341,6 +403,28 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
         parsed_path = urllib.parse.urlparse(self.path)
 
+        if parsed_path.path in ("/api/subtitles", "/api/subtitles/auto"):
+            # Host-side plugin fetches have no Origin. Only local browser origins
+            # may access the dedicated folder; general CORS stays unchanged.
+            origin = urllib.parse.urlparse(self.headers.get('Origin', ''))
+            if self.headers.get('Origin') and (origin.scheme != 'http' or origin.hostname not in ('127.0.0.1', 'localhost', '::1')):
+                self.send_json_response(403, {"status": "error", "message": "Use LangPlay from the local Seanime app."})
+                return
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                if not 0 < length <= 4096:
+                    raise ValueError('Saved subtitle request must be smaller than 4 KiB.')
+                body = json.loads(self.rfile.read(length).decode('utf-8'))
+                if not isinstance(body, dict):
+                    raise ValueError('Saved subtitle request must be an object.')
+                result = automatic_subtitle(body) if parsed_path.path.endswith("/auto") else saved_subtitles(body)
+                self.send_json_response(200, {"status": "success", **result})
+            except ValueError as error:
+                self.send_json_response(400, {"status": "error", "message": str(error)})
+            except OSError:
+                self.send_json_response(404, {"status": "error", "message": "Saved subtitle or folder unavailable. Refresh the list or choose another file."})
+            return
+
         if parsed_path.path == "/api/parse":
             try:
                 length = int(self.headers.get("Content-Length", 0))
@@ -378,7 +462,13 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 context = [body.get(key, "") for key in ("word", "sentence", "romaji")]
                 if not all(isinstance(value, str) for value in context):
                     raise ValueError("Word, sentence and romaji must be strings")
-                reply = run_antigravity_chat(messages, *context)
+                provider = configured_ai_provider(body.get("provider"))
+                if provider == "deepseek":
+                    reply = run_deepseek_chat(messages, *context, api_key=body.get("apiKey", ""))
+                elif provider in ("antigravity", "agy"):
+                    reply = run_antigravity_chat(messages, *context)
+                else:
+                    raise ValueError("Unsupported chat provider. Choose DeepSeek or Antigravity.")
                 self.send_json_response(200, {"status": "success", "reply": reply})
             except (ValueError, UnicodeError) as error:
                 self.send_json_response(400, {"status": "error", "message": str(error)})
@@ -399,7 +489,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 sentence = req_json.get("sentence", "").strip()
                 romaji = req_json.get("romaji", "").strip()
                 custom_prompt = req_json.get("prompt", "").strip()
-                provider = req_json.get("provider", "antigravity").lower()
+                provider = configured_ai_provider(req_json.get("provider"))
                 api_key = req_json.get("apiKey", "").strip()
 
                 if not word and not custom_prompt:
@@ -416,6 +506,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
                 if provider in ["antigravity", "agy"]:
                     ai_data = run_antigravity_analysis(word, sentence, romaji, custom_prompt)
+                elif provider == "deepseek":
+                    ai_data = run_deepseek_analysis(word, sentence, romaji, api_key, custom_prompt)
                 elif provider in ["gemini", "gemini_api"]:
                     ai_data = run_gemini_api_analysis(word, sentence, romaji, api_key, custom_prompt)
                 else:
@@ -502,7 +594,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 "status": "success",
                 "antigravity_available": agy_path is not None,
                 "antigravity_path": agy_path,
-                "default_provider": "antigravity" if agy_path else "gemini"
+                "default_provider": configured_ai_provider(),
+                "deepseek_configured": bool(os.environ.get("LANGPLAY_DEEPSEEK_API_KEY", "").strip()),
+                "deepseek_model": os.environ.get("LANGPLAY_DEEPSEEK_MODEL", "deepseek-flash")
             })
             return
 

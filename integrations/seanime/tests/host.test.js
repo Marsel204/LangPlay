@@ -30,3 +30,10 @@ test('Host normalizes boxed Go title values before capturing a selection', () =>
     getPlaybackStatus: () => ({ id: 'b', clientId: 'a', currentTime: 1, duration: 30, paused: true }) };
   assert.equal(createHost(core).snapshot().title, 'Japanese title');
 });
+
+test('automatic discovery gets a numeric anime ID and episode changes invalidate a reused stream ID',()=>{
+ let episode=1;
+ const core={getCurrentClientId:()=> 'a',getCurrentPlayerType:()=> 'web',getCurrentPlaybackInfo:()=>({id:'same-stream',media:{id:189046},episode:{episodeNumber:episode}}),getPlaybackStatus:()=>({id:'same-stream',clientId:'a',currentTime:0,paused:true})};
+ const host=createHost(core),first=host.snapshot();assert.equal(first.mediaId,189046);
+ episode=2;assert.notEqual(host.snapshot().videoIdentity,first.videoIdentity);
+});

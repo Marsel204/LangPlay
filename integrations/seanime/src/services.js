@@ -9,13 +9,15 @@ export function createServices({ fetch, save } = {}) {
     let response;
     try { response = await fetch(`${endpoint}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), timeout }); }
     catch { throw new Error(path.includes('/ai/') ? 'AI did not respond. Check your configured AI provider and try again. Japanese captions and local cards remain available.' : 'LangPlay companion unavailable at 127.0.0.1:8765.'); }
-    if (!response.ok) throw new Error(`Companion request failed (${response.status}).`);
-    const value = await response.json();
+    const value = await Promise.resolve().then(() => response.json()).catch(() => null);
+    if (!response.ok) throw new Error(typeof value?.message === 'string' ? value.message.slice(0,2000) : `Companion request failed (${response.status}).`);
     if (value?.status !== 'success') throw new Error('Companion could not complete this request.');
     return value;
   }
   const parser = parserModule.create({ wanakana, transport: text => post('/api/parse', { text }) });
   return {
+    discoverSubtitles: data => post('/api/subtitles/auto', data, 55),
+    savedSubtitles: data => post('/api/subtitles', data),
     async parse(text) {
       const result = await parser.request(text);
       if (!result) throw new Error('Japanese parser unavailable. Start the LangPlay companion and try again.');
@@ -27,7 +29,7 @@ export function createServices({ fetch, save } = {}) {
       return { meaning: entry(baseForm) || entry(surface) };
     },
     async explain(context) {
-      const value = await post('/api/ai/analyze', { word: context.surface, sentence: context.sentence, romaji: context.reading || '', provider: 'antigravity' }, 60);
+      const value = await post('/api/ai/analyze', { word: context.surface, sentence: context.sentence, romaji: context.romaji || context.reading || '' }, 60);
       const data = value.data;
       if (typeof data === 'string') return { explanation: data.slice(0, 24000) };
       const parts = [data?.contextual_meaning, data?.sentence_translation?.en,
@@ -42,7 +44,7 @@ export function createServices({ fetch, save } = {}) {
       const key = JSON.stringify([context.clientId, context.playbackId, context.generation, context.surface, context.sentence]);
       if (key !== conversationKey) { conversationKey = key; conversation = []; }
       const user = { role: 'user', content: context.question };
-      const value = await post('/api/ai/chat', { word: context.surface, sentence: context.sentence, romaji: context.reading || '',
+      const value = await post('/api/ai/chat', { word: context.surface, sentence: context.sentence, romaji: context.romaji || context.reading || '',
         messages: [...conversation.slice(-10), user] }, 60);
       if (typeof value.reply !== 'string' || !value.reply.trim() || value.reply.length > 24000) throw new Error('AI returned an invalid answer. Try again.');
       if (key === conversationKey) conversation = [...conversation.slice(-10), user, { role: 'assistant', content: value.reply }];

@@ -16,7 +16,33 @@ async function run(op, data) {
   catch (error) { notice(error.message); return null; }
 }
 const timestamp = ms => { const s = Math.floor((ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
-function setup(value) { setupOpen = value; $('setup').hidden = !value; $('settings').setAttribute('aria-expanded', String(value)); }
+function setup(value) {
+  const opening = value && !setupOpen;
+  setupOpen = value; $('setup').hidden = !value; $('settings').setAttribute('aria-expanded', String(value));
+  if (opening) refreshSaved();
+}
+let savedBusy = false;
+async function refreshSaved() {
+  if (savedBusy) return;
+  savedBusy = true; $('refresh-saved').disabled = true;
+  $('saved-help').textContent = 'Looking for saved subtitles…';
+  const value = await run('saved-list');
+  savedBusy = false; $('refresh-saved').disabled = false;
+  if (!value) { $('saved-help').textContent = 'Saved subtitles unavailable. Start the updated companion or choose another file below.'; return; }
+  const select = $('saved-subtitle'), previous = select.value || state?.association?.sourceId || state?.source?.sourceId;
+  select.replaceChildren();
+  const files = Array.isArray(value.files) ? value.files : [];
+  if (!files.length) {
+    const option = document.createElement('option'); option.value = ''; option.textContent = 'No saved subtitles yet'; select.append(option);
+  }
+  for (const file of files) {
+    const option = document.createElement('option'); option.value = file.name; option.textContent = file.name; select.append(option);
+  }
+  if (files.some(file => file.name === previous)) select.value = previous;
+  $('load-saved').disabled = !files.length;
+  $('saved-folder').textContent = value.folder;
+  $('saved-help').textContent = files.length ? 'Check the episode and release before loading. Saved files stay available after restarting.' : 'Subtitle Engine streams from a URL. Save the matching subtitle in this folder, then refresh the list.';
+}
 function caption(view) {
   const key = JSON.stringify([view.activeCues, view.tokens, view.preferences.readingMode, !!view.source, !!view.playback]);
   if (key === signature) return; signature = key;
@@ -32,7 +58,7 @@ function caption(view) {
       ? [...new Intl.Segmenter('ja', { granularity: 'word' }).segment(cue.text)].map(s => ({ surface: s.segment, start: s.index, end: s.index + s.segment.length }))
       : [{ surface: cue.text, start: 0, end: cue.text.length }]);
     for (const token of tokens) {
-      if (!token.surface.trim() || /^[\p{P}\p{S}\s]+$/u.test(token.surface)) { line.append(document.createTextNode(token.surface)); continue; }
+      if (!token.surface.trim() || token.pos === '補助記号' || token.pos === '記号' || /^[\p{P}\p{S}\s]+$/u.test(token.surface)) { line.append(document.createTextNode(token.surface)); continue; }
       const button = document.createElement('button'); button.className = 'token'; button.lang = 'ja';
       const reading = view.preferences.readingMode === 'furigana' ? token.furigana : view.preferences.readingMode === 'romaji' ? token.romaji : '';
       if (reading && reading !== token.surface) {
@@ -51,11 +77,14 @@ function render(view) {
   $('source').textContent = view.source ? `${view.source.sourceId} · ${view.source.cueCount} cues` : view.association ? `Re-select subtitle: ${view.association.sourceId}` : 'SRT, VTT, ASS or SSA · up to 10 MiB';
   if (!offsetDirty && document.activeElement !== $('offset')) $('offset').value = view.source?.offsetMs ?? view.association?.offsetMs ?? 0;
   $('mode').value = view.preferences.readingMode;
+  $('auto-mode').value = view.preferences.autoSubtitles === false ? 'manual' : 'automatic';
+  $('auto-status').textContent = view.autoSubtitles?.message || '';
+  $('auto-retry').hidden = view.autoSubtitles?.state !== 'error';
   $('drawer').hidden = !view.drawerOpen;
   $('continue').hidden = !view.selected || view.drawerOpen;
   if (!view.source && !view.drawerOpen) setup(true);
   if (view.selected) {
-    $('word').textContent = view.selected.surface; $('reading').textContent = view.reading;
+    $('word').textContent = view.selected.surface; $('reading').textContent = [view.reading, view.romaji].filter(Boolean).join(' · ');
     $('base').textContent = view.baseForm && view.baseForm !== view.selected.surface ? `Dictionary form: ${view.baseForm}` : '';
     $('meaning').textContent = view.meaning || (view.busy ? 'Looking up this word…' : 'No local definition yet.');
     $('sentence').textContent = view.selected.sentence;
@@ -72,7 +101,21 @@ webview.on('learning:response', raw => {
   if (!request) return; pending.delete(value.id); clearTimeout(request.timer);
   if (value.error) request.reject(new Error(value.error)); else request.resolve(value.result);
 });
+$('auto-mode').onchange = () => run('preferences', {autoSubtitles:$('auto-mode').value === 'automatic'});
+$('auto-retry').onclick = () => run('auto-retry');
 $('settings').onclick = () => setup(!setupOpen);
+$('refresh-saved').onclick = refreshSaved;
+$('open-folder').onclick = async () => {
+  const value = await run('saved-open');
+  if (value) notice('Subtitle folder opened. Add a subtitle there, then refresh the list.');
+};
+$('load-saved').onclick = async () => {
+  const name = $('saved-subtitle').value; if (!name) return;
+  $('load-saved').disabled = true; notice('Loading saved subtitle…');
+  const result = await run('saved-import', { name, encoding: $('encoding').value, offsetMs: Number($('offset').value) });
+  $('load-saved').disabled = false;
+  if (result) { setup(false); notice('Japanese subtitles ready. Select a word to pause and learn.'); }
+};
 for (const op of ['close', 'resume', 'hide']) $(op).onclick = () => run(op);
 $('continue').onclick = () => run('resume');
 document.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); run('close'); } });

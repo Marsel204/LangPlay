@@ -1,11 +1,11 @@
 {
   "id": "langplay-learning",
   "name": "LangPlay",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "manifestURI": "",
   "language": "javascript",
   "type": "plugin",
-  "description": "Japanese learning captions, contextual word lookup and local cards for Seanime's browser player. Import the matching Japanese subtitle file.",
+  "description": "Clickable Japanese captions directly in Seanime's player, with a study sidebar, fullscreen drawer and local cards. Automatically finds and caches Japanese subtitles for each episode using your configured Jimaku account.",
   "author": "LangPlay",
   "icon": "",
   "website": "https://github.com/Marsel204/LangPlay",

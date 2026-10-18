@@ -147,3 +147,15 @@ test('Explicit explanation and local card save use the frozen word and sentence'
     assert.equal(context.videoTimeMs, 1500);
   }
 });
+
+
+test('Selected romaji comes from the parser and clears with the old playback', async () => {
+  const { controller, setState } = await fixture({ parse: async () => [
+    {surface:'日本語',start:3,end:6,reading:'ニホンゴ',romaji:'nihongo',baseForm:'日本語'},
+  ] });
+  await controller.select(selection(controller));
+  assert.equal(controller.view().romaji, 'nihongo');
+  setState({playbackId:'new-playback', videoIdentity:'new-episode'});
+  await controller.refresh();
+  assert.equal(controller.view().romaji, '');
+});

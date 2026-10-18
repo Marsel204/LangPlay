@@ -18,6 +18,7 @@ async function hostPayload(entry, define = {}) {
     bundle: true, write: false, format: 'iife',
     globalName: 'LangPlay', platform: 'neutral', target: 'es2017',
     charset: 'utf8', legalComments: 'inline', minify: false, define,
+    loader: { '.css': 'text' },
   });
   return `function init() {\n  $ui.register(function(ctx) {\n${result.outputFiles[0].text}\nLangPlay.start(ctx);\n  });\n}\n`;
 }
