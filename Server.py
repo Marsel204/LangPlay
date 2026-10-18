@@ -46,6 +46,9 @@ caption_cache = {}   # video_id -> (timestamp, vtt_data)
 search_cache = {}    # query -> (timestamp, list_of_videos)
 stream_cache = {}    # video_id -> (timestamp, stream_url)
 ai_analysis_cache = {} # (word, sentence) -> (timestamp, parsed_json)
+dictionary_cache = {}  # word -> (timestamp, plain-text meaning)
+sentence_translation_cache = {}  # sentence -> (timestamp, English translation)
+dictionary_slots = threading.BoundedSemaphore(4)
 CACHE_TTL = 3600     # 1 hour
 ANTIGRAVITY_TIMEOUT_SECONDS = 90
 
@@ -79,6 +82,63 @@ def find_agy_binary():
         if os.path.isfile(p) and os.access(p, os.X_OK):
             return p
     return shutil.which("agy")
+
+
+def lookup_google_word(word):
+    """Extension-style fallback for a single missing word, never an AI request."""
+    return google_translate(word, dictionary=True)
+
+
+def google_translate(text, *, dictionary=False):
+    """Direct translation, with no generative explanation or AI fallback."""
+    limit = 256 if dictionary else 4096
+    label = 'word' if dictionary else 'sentence'
+    if not isinstance(text, str) or not text.strip() or len(text) > limit:
+        raise ValueError(f"Choose a {label} of 1 to {limit} characters.")
+    text = text.strip()
+    cache = dictionary_cache if dictionary else sentence_translation_cache
+    cached = get_from_cache(cache, text)
+    if cached is not None:
+        return cached
+    if not dictionary_slots.acquire(timeout=.1):
+        raise LookupError("Translation is busy. Retry shortly.")
+    try:
+        params = [
+            ('client', 'gtx'), ('sl', 'ja'), ('tl', 'en'),
+            ('dt', 't'), ('q', text),
+        ]
+        if dictionary:
+            params.append(('dt', 'bd'))
+        query = urllib.parse.urlencode(params)
+        request = urllib.request.Request(
+            'https://translate.googleapis.com/translate_a/single?' + query,
+            headers={'User-Agent': UA})
+        with urllib.request.urlopen(request, timeout=6) as response:
+            raw = response.read(65537)
+        if len(raw) > 65536:
+            raise ValueError('Oversized dictionary reply')
+        data = json.loads(raw.decode('utf-8'))
+        if not isinstance(data, list) or not data:
+            raise ValueError('Invalid dictionary reply')
+        segments = data[0] if isinstance(data[0], list) else []
+        translation = ''.join(row[0] for row in segments[:128]
+                              if isinstance(row, list) and row and isinstance(row[0], str)).strip()
+        senses = []
+        for row in (data[1] if dictionary and len(data) > 1 and isinstance(data[1], list) else [])[:8]:
+            if not isinstance(row, list) or len(row) < 2 or not isinstance(row[0], str) or not isinstance(row[1], list):
+                continue
+            definitions = [item for item in row[1][:4] if isinstance(item, str) and item.strip()]
+            if definitions:
+                senses.append(row[0] + ': ' + ', '.join(definitions))
+        meaning = ' — '.join(part for part in [translation, ' | '.join(senses)] if part)
+        if not meaning or len(meaning) > 8192:
+            raise ValueError('No usable dictionary meaning')
+        set_in_cache(cache, text, meaning)
+        return meaning
+    except Exception:
+        raise LookupError("Translation unavailable. Check the connection and retry.") from None
+    finally:
+        dictionary_slots.release()
 
 
 def build_ai_prompt(word, sentence, romaji=""):
@@ -402,6 +462,32 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed_path = urllib.parse.urlparse(self.path)
+
+        if parsed_path.path in ("/api/dictionary", "/api/translate"):
+            origin = urllib.parse.urlparse(self.headers.get('Origin', ''))
+            if self.headers.get('Origin') and (origin.scheme != 'http' or origin.hostname not in ('127.0.0.1', 'localhost', '::1')):
+                self.send_json_response(403, {"status": "error", "message": "Use LangPlay from the local Seanime app."})
+                return
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                translating_sentence = parsed_path.path == "/api/translate"
+                max_bytes = 65536 if translating_sentence else 4096
+                if not 0 < length <= max_bytes:
+                    raise ValueError('Translation request is empty or too large.')
+                body = json.loads(self.rfile.read(length).decode('utf-8'))
+                if not isinstance(body, dict):
+                    raise ValueError('Translation request must be an object.')
+                if translating_sentence:
+                    translation = google_translate(body.get('sentence'))
+                    self.send_json_response(200, {"status": "success", "translation": translation})
+                else:
+                    meaning = lookup_google_word(body.get('word'))
+                    self.send_json_response(200, {"status": "success", "meaning": meaning})
+            except (ValueError, UnicodeError) as error:
+                self.send_json_response(400, {"status": "error", "message": str(error)})
+            except LookupError as error:
+                self.send_json_response(502, {"status": "error", "message": str(error)})
+            return
 
         if parsed_path.path in ("/api/subtitles", "/api/subtitles/auto"):
             # Host-side plugin fetches have no Origin. Only local browser origins

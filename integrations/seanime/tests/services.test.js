@@ -77,25 +77,25 @@ test('automatic subtitle search sends only episode identity through the local co
  assert.throws(()=>validateMessage({v:1,id:1,op:'preferences',data:{autoSubtitles:'false'}}));
 });
 
-test('English translation is sentence-scoped, deduplicated and cached across selected words',async()=>{
+test('English uses fast sentence translation without AI and reuses results across selected words',async()=>{
   const calls=[];
   const services=createServices({fetch:async(url,options)=>{
-    calls.push([url,JSON.parse(options.body)]);
-    return {ok:true,json:()=>({status:'success',data:{sentence_translation:{en:'A cat is here.'}}})};
+    calls.push([url,JSON.parse(options.body),options.timeout]);
+    return {ok:true,json:()=>({status:'success',translation:'A cat is here.'})};
   }});
   const context={surface:'猫',sentence:'猫がいる'};
   const [a,b]=await Promise.all([services.translate(context),services.translate({...context,surface:'いる'})]);
   assert.equal(a.translation,'A cat is here.');assert.deepEqual(a,b);
   await services.translate(context);assert.equal(calls.length,1);
-  assert.equal(calls[0][0],'http://127.0.0.1:8765/api/ai/analyze');
-  assert.match(calls[0][1].prompt,/English/);
-  assert.match(calls[0][1].prompt,/猫がいる/);
-  assert.equal(calls[0][1].provider,undefined);
+  assert.equal(calls[0][0],'http://127.0.0.1:8765/api/translate');
+  assert.deepEqual(calls[0][1],{sentence:'猫がいる'});
+  assert.ok(calls[0][2]<=8,'ordinary translation must not wait on the AI timeout');
+  assert.equal(calls.some(([url])=>url.includes('/ai/')),false);
 });
 
 test('invalid English replies are not cached and allow retry',async()=>{
   let english='';
-  const services=createServices({fetch:async()=>({ok:true,json:()=>({status:'success',data:{sentence_translation:{en:english}}})})});
+  const services=createServices({fetch:async()=>({ok:true,json:()=>({status:'success',translation:english})})});
   await assert.rejects(()=>services.translate({sentence:'猫がいる'}),/translation/i);
   english='A cat is here.';
   assert.equal((await services.translate({sentence:'猫がいる'})).translation,english);

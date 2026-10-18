@@ -1,4 +1,5 @@
 import styles from './player-surface.css';
+import { sentenceParts } from './sentence-reading.js';
 
 const clock = ms => { const s = Math.floor(Math.max(0, ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const identity = view => view?.selected ? JSON.stringify([view.selected.clientId, view.selected.playbackId, view.selected.generation, view.selected.cueId, view.selected.span]) : '';
@@ -20,6 +21,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
   let generation = 0, captionKey = '', wordKey = '', renderKey = '', width = 1280;
   let listeners = [], tokenListeners = [], savedFiles = [], listing = false, updateQueued = false;
   let layoutOriginal = null, drawerInPlayer = false, insetKey = '', replacedSource = '';
+  let sentenceKey = '';
   const fields = {};
   let pending = Promise.resolve(), needsSweep = true;
   const enqueue = work => { const next = pending.catch(() => {}).then(work); pending = next; return next; };
@@ -282,6 +284,27 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     const position = Number(await read(video.getProperty('currentTime'))) * 1000;
     return Number.isFinite(position) && Math.abs(position - view.positionMs) <= 5000;
   }
+  async function renderSentence() {
+    const sentence = view.selected?.sentence || '';
+    const parts = sentenceParts(sentence, view.sentenceTokens);
+    const key = JSON.stringify([sentence, parts]);
+    if (key !== sentenceKey) {
+      sentenceKey = key;
+      for (const child of await read(fields.sentence.getChildren())) child.remove();
+      fields.sentence.setText(parts ? '' : sentence);
+      fields.sentence.setAttribute('data-reading', parts ? 'aligned' : 'plain');
+      if (parts) {
+        const words = await Promise.all(parts.map(async part => {
+          const word = await make(part.romaji ? 'ruby' : 'span', '', null, part.surface);
+          if (part.romaji) await make('rt', '', word, part.romaji);
+          return word;
+        }));
+        for (const word of words) fields.sentence.append(word);
+      }
+    }
+    text('sentence-romaji', view.sentenceRomaji);
+    show(fields['sentence-romaji'], !parts && !!view.sentenceRomaji);
+  }
   async function paint() {
     if (!view?.playback) { await reset(); await sweep(); return; }
     const nextPlayer = await read(dom.queryOne('[data-vc-element="container"]'));
@@ -291,7 +314,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       catch (error) { await reset(); await sweep(true); throw error; }
     }
     if (!mounted) return;
-    const key = JSON.stringify([view.playback.title, view.playback.episode, view.drawerOpen, view.selected, view.reading, view.romaji, view.meaning, view.baseForm, view.explanation, view.reply, view.error, view.busy, view.source, view.preferences, view.autoSubtitles, view.sentenceRomaji, view.sentenceTranslation, view.translationBusy, view.translationError]);
+    const key = JSON.stringify([view.playback.title, view.playback.episode, view.drawerOpen, view.selected, view.reading, view.romaji, view.meaning, view.baseForm, view.explanation, view.reply, view.error, view.busy, view.source, view.preferences, view.autoSubtitles, view.sentenceRomaji, view.sentenceTranslation, view.translationBusy, view.translationError, view.sentenceTokens?.map(token => [token.surface, token.romaji, token.pos])]);
     if (key !== renderKey) {
       renderKey = key;
       const nextWord = identity(view);
@@ -299,10 +322,8 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       text('word', view.selected?.surface); text('reading', [view.reading, view.romaji].filter(Boolean).join(' · '));
       text('base', view.baseForm && view.baseForm !== view.selected?.surface ? `Dictionary form: ${view.baseForm}` : '');
       text('meaning', view.meaning || (view.busy ? 'Looking up this word…' : 'No local definition yet.'));
-      text('sentence', view.selected?.sentence);
-      text('sentence-romaji',view.sentenceRomaji);
-      show(fields['sentence-romaji'],!!view.sentenceRomaji);
-      text('sentence-translation',view.sentenceTranslation || (view.translationBusy ? 'Translating into English…' : view.translationError));
+      await renderSentence();
+      text('sentence-translation',view.sentenceTranslation || (view.translationBusy ? 'Translating with Google…' : view.translationError));
       show(fields['sentence-translation'],!!(view.sentenceTranslation || view.translationBusy || view.translationError));
       show(fields.translationRetry,!!view.translationError && !view.translationBusy);
       text('context', view.selected ? `${view.selected.title} · Episode ${view.selected.episode} · ${clock(view.selected.videoTimeMs)}` : '');
@@ -370,7 +391,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     await restoreLayout();
     for (const node of [controls, captions, drawer, css]) if (node) node.remove();
     player = parent = controls = captions = drawer = css = null;
-    mounted = false; captionKey = renderKey = wordKey = insetKey = replacedSource = ''; setupOpen = false; drawerInPlayer = false;
+    mounted = false; captionKey = renderKey = wordKey = insetKey = replacedSource = sentenceKey = ''; setupOpen = false; drawerInPlayer = false;
   }
   const clear = () => enqueue(async () => { view = null; await reset(); await sweep(true); });
   const changeFullscreen = event => enqueue(async () => { fullscreen = !!event.fullscreen; await placeDrawer(); });
