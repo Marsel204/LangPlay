@@ -71,7 +71,7 @@ async function bundle() {
     const browser = await build({ entryPoints: [browserEntry], bundle: true, write: false,
       format: 'iife', platform: 'browser', target: 'es2020', charset: 'utf8', legalComments: 'inline' });
     const html = await readFile(path.join(root, 'src/ui.html'), 'utf8');
-    const css = await readFile(path.join(root, 'src/ui.css'), 'utf8');
+    const css = await readFile(path.join(root, 'src/ui.css'), 'utf8') + '\n' + await readFile(path.join(root, 'src/answer.css'), 'utf8');
     assert.ok(html.includes('<!-- LANGPLAY_ASSETS -->'), 'UI template requires its asset insertion marker');
     define.__LANGPLAY_UI_HTML__ = JSON.stringify(html.replace('<!-- LANGPLAY_ASSETS -->',
       `<style>${css}</style><script>${browser.outputFiles[0].text.replace(/<\/script/gi, '<\\/script')}</script>`));

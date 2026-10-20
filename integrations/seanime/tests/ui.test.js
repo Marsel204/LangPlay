@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
 const browser = await build({ entryPoints: [fileURLToPath(new URL('../src/ui.js', import.meta.url))], bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2020' });
 function fixture({ saved = false } = {}) {
   const nodes = new Map(), listeners = {}, sent = [];

@@ -1,0 +1,33 @@
+/* Shared by the player drawer and the import/export webview. */
+[data-answer]{font:13px/1.55 system-ui,"Noto Sans CJK JP",sans-serif;color:#e5e3e9;white-space:normal;overflow-wrap:anywhere;min-width:0}
+[data-answer] p{font:inherit;white-space:normal;margin:0 0 8px}
+[data-answer]>p:first-child{color:#f2f1ed}
+[data-answer] :is(strong,b){font-weight:650;color:#f5f3f8}
+[data-answer] em{font-style:italic;color:inherit}
+[data-answer] :is(ul,ol){margin:6px 0 10px;padding-left:18px;list-style-position:outside}
+[data-answer] ul{list-style-type:disc}[data-answer] ol{list-style-type:decimal}
+[data-answer] li{display:list-item;margin:3px 0;padding-left:2px}
+[data-answer] blockquote{margin:8px 0;padding:7px 10px;background:#22252a;border-radius:4px;white-space:normal;font:inherit;color:#d6c9f3}
+[data-answer] blockquote p:last-child{margin-bottom:0}
+[data-answer] details{margin:0;border-top:1px solid #36393f}
+[data-answer] summary{display:list-item;list-style:disclosure-closed;cursor:pointer;padding:9px 0;min-height:36px;font:600 13px/1.45 system-ui,sans-serif;color:#d6c9f3}
+[data-answer] details[open]>summary{list-style:disclosure-open;color:#eee7fc;padding-bottom:6px}
+[data-answer] summary:hover{color:#fff}
+[data-answer] summary:focus-visible{outline:2px solid #dfd3ff;outline-offset:2px;border-radius:3px}
+[data-answer] details>:last-child:not(summary){margin-bottom:10px}
+[data-answer] code{font:12px/1.5 ui-monospace,monospace;color:#e2d7ff;background:#292633;border-radius:3px;padding:1px 4px}
+[data-answer] pre{margin:8px 0;padding:8px;background:#22252a;border-radius:4px;overflow:auto;white-space:pre-wrap}
+[data-answer] pre code{padding:0;background:transparent}
+[data-answer-table]{overflow-x:auto;margin:8px 0}
+[data-answer] table{width:100%;border-collapse:collapse;font:12px/1.5 system-ui,sans-serif}
+[data-answer] :is(th,td){padding:5px 7px;border-bottom:1px solid #36393f;text-align:left;vertical-align:top;min-width:70px}
+[data-answer] th{font-weight:600;color:#d6c9f3}
+[data-answer] ::selection{background:#d6c9f3;color:#211b35}
+
+/* Native button inputs let Seanime keep Enter/Space out of playback shortcuts. */
+[data-answer] [data-answer-section]{border-top:1px solid #36393f}
+[data-answer] input[data-answer-toggle]{display:block;width:100%;border:0;border-radius:0;box-shadow:none;min-height:36px;padding:8px 20px 8px 0;text-align:left;font:600 13px/1.45 system-ui,sans-serif;color:#d6c9f3;background:transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23c2bec8' stroke-width='1.5'%3E%3Cpath d='m4.5 2.5 3.5 3.5-3.5 3.5'/%3E%3C/svg%3E") no-repeat right 2px center;cursor:pointer}
+[data-answer] input[data-answer-toggle][aria-expanded="true"]{color:#eee7fc;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23c2bec8' stroke-width='1.5'%3E%3Cpath d='m2.5 4.5 3.5 3.5 3.5-3.5'/%3E%3C/svg%3E")}
+[data-answer] input[data-answer-toggle]:hover{background-color:#22252a;color:#fff}
+[data-answer] [data-answer-body]>:last-child{margin-bottom:10px}
+[data-answer] [hidden]{display:none!important}

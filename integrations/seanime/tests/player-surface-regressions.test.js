@@ -187,6 +187,22 @@ test('study places sentence romaji and English with Japanese and exposes transla
   assert.equal(h.actions.at(-1)[0],'translate');
 });
 
+test('AI replies have safe formatted content and keyboard-compatible disclosure controls that retain their state', async()=>{
+  const h=fixture(), state={...view([]),drawerOpen:true,selected:{surface:'消す',sentence:'痛みを消す',span:{start:3,end:5}},reply:'**消す** means to relieve pain.\n\n### Grammar\n- A transitive verb.'};
+  await h.surface.update(state);
+  const reply=h.nodes.find(n=>n.attributes['data-langplay']==='reply');
+  const descendants=n=>[n,...n.children.flatMap(descendants)];
+  assert.ok(descendants(reply).some(n=>n.tagName==='strong'));
+  const toggle=descendants(reply).find(n=>'data-answer-toggle' in n.attributes);
+  assert.equal(toggle.tagName,'input');assert.equal(toggle.attributes.type,'button');
+  assert.equal(toggle.attributes['aria-expanded'],'false');
+  await toggle.handlers.get('click')();
+  assert.equal(toggle.attributes['aria-expanded'],'true');
+  await h.surface.update({...state,positionMs:2000,meaning:'erase'});
+  assert.ok(descendants(reply).includes(toggle));assert.equal(toggle.attributes['aria-expanded'],'true');
+});
+
+
 test('learning controls join the native transport row before settings and leave host children intact', async () => {
   const h = fixture({nativeBar:true}), state = {...view([]),source:{sourceId:'ja.srt',cueCount:36}};
   await h.surface.update(state);

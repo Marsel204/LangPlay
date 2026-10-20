@@ -32,10 +32,16 @@ Self-review, with no delegated review. Live browser checks cover Horimiya episod
 
 Each captured sentence word groups romaji above Japanese and a short dictionary meaning below, with wrapping between word groups and preserved original punctuation/newlines. Full dictionary text is available on hover. Definitions fill independently from cached or parsed tokens; pending words show Loading… and missing entries show No definition. Parsing and sentence English remain independent of dictionary requests.
 
+## Compact AI answers — 20 October 2026
+
+AI explanations and replies use the same restricted Markdown reader in the player and tray panel. Direct answers stay visible; contextual sections open first, while further grammar notes and examples can be expanded. Text, emphasis, lists, quotes, code and tables are rendered as safe DOM nodes. Raw provider HTML stays literal. Player disclosure controls use native button inputs to avoid Seanime's playback keyboard shortcuts.
+
+Study uses compact 13 px answer text with 1.55 line height, clear emphasis, restrained section dividers, a 16 px Japanese sentence, an inline question/action row, and sticky close/resume controls. Drawer updates preserve expanded sections when their answer text has not changed.
+
 ## Native player control row — 20 October 2026
 
 Version 0.4.9 replaces the separate toolbar with an unbacked inline group inserted after VideoCore's `control-bar-separator`, before native player settings. It inherits the host row's visibility, hover handling, and fullscreen ownership. The group contains an eye toggle, a green ready-state Auto Sub badge with the actual cue count, and a reading selector drawn as a language icon. Manual mode labels the badge Subtitles. Accessible labels and native select options remain available.
 
 When the transport is absent the group stays hidden; it never falls back to a floating panel. Host transport replacement recreates only plugin-owned controls and detaches their old listeners. Teardown leaves the native settings, spacer, and other controls intact. Captions now reserve 80 px above the contained picture bottom; the removed second toolbar no longer consumes a separate row.
 
-Self-review found no remaining material issue. All 112 integration tests, build callback smoke, production build, static detector and whitespace checks passed. Browser fixture verification covered row ownership, short/long dialogue, wide/narrow composition, eye toggle and reading selection. Native playback was not requalified.
+Self-review found no remaining material issue. All 118 integration tests, build callback smoke, production build, static detector and whitespace checks passed. Browser fixture verification covered row ownership, short/long dialogue, wide/narrow composition, eye toggle and reading selection. Native playback was not requalified.
