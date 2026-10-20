@@ -48,10 +48,15 @@ export function start(ctx) {
       if (!terminated) automatic?.update(preferences.autoSubtitles).catch(() => {});
       if (!panel.isHidden() || surface?.available) {
         await publish(false);
-        for (const cue of controller.view().activeCues.slice(0, 8)) {
+        for (const cue of controller.readingCues()) {
+          if (parsing.size >= 4) break;
           if (!services.cached(cue.text) && !parsing.has(cue.text)) {
             parsing.add(cue.text);
-            services.parse(cue.text).catch(() => {}).finally(() => parsing.delete(cue.text));
+            services.parse(cue.text).then(() => {
+              // A cold line (for example just after a seek) should gain its
+              // readings immediately, without another 250 ms polling delay.
+              if (controller.view().activeCues.some(active => active.text === cue.text)) return publish(false);
+            }).catch(() => {}).finally(() => parsing.delete(cue.text));
           }
         }
       }

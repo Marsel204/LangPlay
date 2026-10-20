@@ -1,6 +1,6 @@
 # Browser learning in Seanime
 
-Version 0.4.4 was installed and its lookup/translation service verified locally on 18 October 2026 with Seanime Denshi 3.10.4. Browser playback qualification below comes from the preceding 0.4.1 verification. The independent `langplay-learning` plugin preserves `langplay-probe` and the existing provider/subtitle extensions. Native desktop and Windows UI remain unverified.
+Version 0.4.5 fixes caption reading readiness and parser handling of normalized punctuation (20 October 2026). Version 0.4.4 lookup/translation was verified locally on 18 October 2026 with Seanime Denshi 3.10.4. Browser playback qualification below comes from the preceding 0.4.1 verification. The independent `langplay-learning` plugin preserves `langplay-probe` and the existing provider/subtitle extensions. Native desktop and Windows UI remain unverified.
 
 ## Use
 
@@ -64,3 +64,12 @@ Version 0.4.1 groups Japanese, full-sentence romaji and English in the study dra
 ## Fast sentence English — 18 October 2026
 
 Version 0.4.4 replaces the earlier AI sentence translator with direct Google Translate through the local companion. It sends only the selected Japanese sentence, requests translation text without dictionary or explanation output, and uses a six-second socket timeout. Successful results are cached in the plugin and companion; concurrent matching requests share plugin work. A failed translation offers Retry translation and never falls back to AI. Sentence romanization stays local and aligned above Japanese words. Explain and Ask still use the configured AI provider only when requested. This is online machine translation, not offline sentence translation.
+
+
+## Caption reading readiness — 20 October 2026
+
+Version 0.4.5 prepares the active dialogue and upcoming lines within 15 seconds, capped at eight candidate cues and four outstanding parser requests. It uses source time after the configured subtitle delay and recalculates after seeks. Successful parsing of visible text publishes immediately instead of waiting for the next 250 ms clock tick. Cache reuse and stale episode rejection remain in place. A newly loaded file or an uncached seek can still briefly show Japanese while its first parser request completes.
+
+The companion also skips Sudachi normalization artifacts with empty source spans. The supplied episode's `（農民）うっ… うう…` previously returned four empty tokens from expanded ellipses; the strict browser parser rejected the entire response and entered its two-second retry cooldown. Regression tests cover that exact text, repeated ellipses, astral characters and expanded compatibility characters without weakening client validation or changing source text/timing.
+
+Verification: 106 integration tests, 82 existing JavaScript tests and 52 Python tests pass (240 total). Both readiness failures and empty-token failures were reproduced before their fixes. The rebuilt 0.4.5 manifest exactly matches the installed file. The scoped external-extension reload returned HTTP 200, and Seanime logged successful plugin initialization/reload at 19:52 Asia/Jakarta. After restarting the companion with its existing environment, the production service parsed and cached the supplied episode's first four lines in 110 ms total, including the screenshot's ellipsis line, with no empty tokens. This verifies the live parser and plugin initialization; visual timing in the native player was not directly observed in this check.

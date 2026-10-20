@@ -49,6 +49,24 @@ class JapaneseParserTests(unittest.TestCase):
         self.assertEqual(again[0]['reading'], 'コナイ')
         self.assertEqual(again[0]['morphemes'][0]['baseForm'], '来る')
 
+    def test_expanded_punctuation_keeps_nonempty_source_spans(self):
+        # Sudachi normalizes one ellipsis into three stops. Extra normalized
+        # morphemes must not become empty tokens rejected by the JS client.
+        for text in ['（農民）うっ… うう…', 'えっ……？\n😀 そう…', '㍿で働く。']:
+            with self.subTest(text=text):
+                tokens = parser.parse_japanese(text)
+                self.assertEqual(''.join(t['surface'] for t in tokens), text)
+                utf16 = text.encode('utf-16-le')
+                offset = 0
+                for token in tokens:
+                    self.assertEqual(token['start'], offset)
+                    self.assertGreater(token['end'], token['start'])
+                    self.assertEqual(utf16[token['start'] * 2:token['end'] * 2].decode('utf-16-le'), token['surface'])
+                    for piece in token['morphemes']:
+                        self.assertGreater(piece['end'], piece['start'])
+                    offset = token['end']
+                self.assertEqual(offset, len(utf16) // 2)
+
     def test_parallel_requests_are_consistent(self):
         texts = ['学校へ行った。', '彼は来ない。', '食べられなかった'] * 12
         with ThreadPoolExecutor(max_workers=8) as pool:
