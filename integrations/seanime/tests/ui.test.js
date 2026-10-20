@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-const browser = await build({ entryPoints: [new URL('../src/ui.js', import.meta.url).pathname], bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2020' });
+const browser = await build({ entryPoints: [fileURLToPath(new URL('../src/ui.js', import.meta.url))], bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2020' });
 function fixture({ saved = false } = {}) {
   const nodes = new Map(), listeners = {}, sent = [];
   const node = () => ({ value: '', hidden: false, textContent: '', children: [], setAttribute() {}, replaceChildren() { this.children = []; this.value = ''; }, append(child) { this.children.push(child); if (!this.value) this.value = child.value; }, focus() {}, select() {} });
