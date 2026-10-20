@@ -31,3 +31,11 @@ Self-review, with no delegated review. Live browser checks cover Horimiya episod
 ## Per-word sentence meanings — 20 October 2026
 
 Each captured sentence word groups romaji above Japanese and a short dictionary meaning below, with wrapping between word groups and preserved original punctuation/newlines. Full dictionary text is available on hover. Definitions fill independently from cached or parsed tokens; pending words show Loading… and missing entries show No definition. Parsing and sentence English remain independent of dictionary requests.
+
+## Native player control row — 20 October 2026
+
+Version 0.4.9 replaces the separate toolbar with an unbacked inline group inserted after VideoCore's `control-bar-separator`, before native player settings. It inherits the host row's visibility, hover handling, and fullscreen ownership. The group contains an eye toggle, a green ready-state Auto Sub badge with the actual cue count, and a reading selector drawn as a language icon. Manual mode labels the badge Subtitles. Accessible labels and native select options remain available.
+
+When the transport is absent the group stays hidden; it never falls back to a floating panel. Host transport replacement recreates only plugin-owned controls and detaches their old listeners. Teardown leaves the native settings, spacer, and other controls intact. Captions now reserve 80 px above the contained picture bottom; the removed second toolbar no longer consumes a separate row.
+
+Self-review found no remaining material issue. All 112 integration tests, build callback smoke, production build, static detector and whitespace checks passed. Browser fixture verification covered row ownership, short/long dialogue, wide/narrow composition, eye toggle and reading selection. Native playback was not requalified.
