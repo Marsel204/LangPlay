@@ -35,6 +35,11 @@ def _parse(text):
         offsets.append(offsets[-1] + (2 if ord(char) > 0xffff else 1))
     tokens = []
     for m in _tokenizer().tokenize(text):
+        # Normalization can expand a single source character (e.g. … -> ...).
+        # Sudachi then emits extra morphemes with no source span. They carry
+        # no selectable text and invalidate the client's lossless token check.
+        if m.begin() == m.end():
+            continue
         pos = m.part_of_speech()
         token = dict(surface=m.surface(), reading=m.reading_form() or m.surface(),
                      baseForm=m.dictionary_form(), pos=pos[0], posDetail=pos[1],

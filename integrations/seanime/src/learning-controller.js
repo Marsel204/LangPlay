@@ -103,7 +103,7 @@ export function createLearningController({ host, services, now } = {}) {
       error, explanation, reply, busy, source, positionMs: session.position(),
       playback: playback ? { title: playback.title, episode: playback.episode, paused: playback.paused } : null };
   }
-  return Object.freeze({ refresh, loadSubtitle, select, resume, view,
+  return Object.freeze({ refresh, loadSubtitle, select, resume, view, readingCues: () => session.readingCues(),
     close() { drawerOpen = false; return view(); },
     setOffset(value) { session.setOffset(value); if (source) source.offsetMs = value; reset(); return view(); },
     explain: () => action('explain'), save: () => action('save'),
