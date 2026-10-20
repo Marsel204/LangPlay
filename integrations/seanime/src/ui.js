@@ -97,12 +97,19 @@ function render(view) {
       $('sentence').textContent = parts ? '' : view.selected.sentence;
       $('sentence').setAttribute('data-reading', parts ? 'aligned' : 'plain');
       if (parts) for (const part of parts) {
+        const group = document.createElement('span'); group.className = 'sentence-word';
         const word = document.createElement(part.romaji ? 'ruby' : 'span');
         word.textContent = part.surface;
         if (part.romaji) {
           const rt = document.createElement('rt'); rt.textContent = part.romaji; word.append(rt);
         }
-        $('sentence').append(word);
+        if (part.gloss) {
+          group.append(word);
+          const gloss = document.createElement('span'); gloss.className = 'word-gloss'; gloss.lang = 'en';
+          gloss.textContent = part.gloss;
+          if (part.meaning) gloss.setAttribute('title', part.meaning);
+          group.append(gloss); $('sentence').append(group);
+        } else $('sentence').append(word);
       }
     }
     $('context').textContent = `${view.selected.title} · Episode ${view.selected.episode} · ${timestamp(view.selected.videoTimeMs)}`;

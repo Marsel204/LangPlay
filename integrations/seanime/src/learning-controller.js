@@ -1,5 +1,6 @@
 import { createLearningSession } from './core/session.js';
 import { parseSubtitles } from './core/subtitles.js';
+import { isSentenceWord } from './sentence-reading.js';
 
 function romanizeSentence(tokens) {
   return tokens.map(token => {
@@ -53,21 +54,39 @@ export function createLearningController({ host, services, now } = {}) {
       await host.pause(selected);
       if (!current(selected)) return view();
       void translateSelection(selected);
+      // The clicked surface can be looked up before a cold parse completes.
+      // Cached cue tokens let all sentence definitions start immediately too.
+      const initial = Promise.resolve().then(() => services.lookup({ surface: selected.surface })).catch(() => ({ meaning: '' }));
+      initial.then(found => { if (current(selected) && !baseForm) meaning = found?.meaning || ''; });
+      const cached = services.cached?.(selected.sentence);
+      if (cached?.length) enrichSentence(selected, cached);
       const parsed = await services.parse(selected.sentence);
       if (!current(selected)) return view();
       const tokens = Array.isArray(parsed) ? parsed : parsed?.tokens;
       if (!tokens) throw new Error('Companion parser unavailable. Captured text is still usable.');
       sentenceRomaji = romanizeSentence(tokens);
-      sentenceTokens = tokens.map(({ surface, romaji, pos }) => ({ surface, romaji, pos }));
+      if (!cached?.length) enrichSentence(selected, tokens);
       const token = tokens.find(t => t.start === selected.span.start && t.end === selected.span.end);
       reading = token?.reading || '';
       romaji = token?.romaji || '';
       baseForm = token?.baseForm || token?.base_form || selected.surface;
-      const found = await services.lookup({ surface: selected.surface, baseForm });
+      const found = baseForm === selected.surface ? await initial : await services.lookup({ surface: selected.surface, baseForm });
       if (current(selected)) meaning = found?.meaning || 'No definition available. Try selecting the word again or use Explain sentence.';
     } catch (e) { if (current(selected)) error = String(e.message || e); }
     finally { if (current(selected)) busy = false; }
     return view();
+  }
+  function enrichSentence(selected, tokens) {
+    sentenceRomaji = romanizeSentence(tokens);
+    const records = tokens.map(({ surface, romaji, pos }) => ({ surface, romaji, pos, meaning: '', meaningBusy: isSentenceWord({surface, pos}) }));
+    sentenceTokens = records;
+    tokens.forEach((token, index) => {
+      if (!records[index].meaningBusy) return;
+      Promise.resolve().then(() => current(selected) ? services.lookup({ surface: token.surface, baseForm: token.baseForm || token.base_form }) : null)
+        .then(found => { if (current(selected) && sentenceTokens === records) records[index].meaning = found?.meaning || ''; })
+        .catch(() => {})
+        .finally(() => { if (current(selected) && sentenceTokens === records) records[index].meaningBusy = false; });
+    });
   }
   async function translateSelection(selected) {
     if (!selected || !current(selected) || !services.translate) return;

@@ -26,3 +26,8 @@ Loading a LangPlay subtitle selects Off for the host's original subtitle and med
 ## Finish review — 18 October 2026
 
 Self-review, with no delegated review. Live browser checks cover Horimiya episodes 1 and 2 and Re:Zero season 4 episodes 1 and 2: saved and automatic sources, dictionary results, click-to-pause, keyboard selection/close, card save, explicit resume, fullscreen relocation, and responsive placement. Checks also cover romaji/furigana switching, letterbox positioning, original tracks Off, automatic episode switching, cached reloads, and persisted manual mode. Native desktop and Windows UI remain outside this browser qualification. See [live-learning.md](docs/live-learning.md) for current verification and setup.
+
+
+## Per-word sentence meanings — 20 October 2026
+
+Each captured sentence word groups romaji above Japanese and a short dictionary meaning below, with wrapping between word groups and preserved original punctuation/newlines. Full dictionary text is available on hover. Definitions fill independently from cached or parsed tokens; pending words show Loading… and missing entries show No definition. Parsing and sentence English remain independent of dictionary requests.
