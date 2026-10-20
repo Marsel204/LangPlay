@@ -7,6 +7,15 @@ export function createServices({ fetch, save } = {}) {
   let conversationKey = '', conversation = [];
   const translations = new Map(), translating = new Map();
   const meanings = new Map(), lookingUp = new Map();
+  const dictionaryQueue = [];
+  let dictionaryActive = 0;
+  function drainDictionary() {
+    while (dictionaryActive < 4 && dictionaryQueue.length) {
+      const { run, resolve } = dictionaryQueue.shift();
+      dictionaryActive++;
+      run().then(resolve).finally(() => { dictionaryActive--; drainDictionary(); });
+    }
+  }
   async function post(path, body, timeout = 8) {
     let response;
     try { response = await fetch(`${endpoint}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), timeout }); }
@@ -35,8 +44,8 @@ export function createServices({ fetch, save } = {}) {
       if (!word) return { meaning: '' };
       if (meanings.has(word)) return { meaning: meanings.get(word) };
       if (lookingUp.has(word)) return lookingUp.get(word);
-      if (lookingUp.size >= 4) return { meaning: '' };
-      const work = (async () => {
+      if (lookingUp.size >= 256) return { meaning: '' };
+      const run = async () => {
         try {
           const value = await post('/api/dictionary', { word });
           if (typeof value.meaning !== 'string' || !value.meaning.trim() || value.meaning.length > 8192) return { meaning: '' };
@@ -45,8 +54,10 @@ export function createServices({ fetch, save } = {}) {
           while (meanings.size > 256) meanings.delete(meanings.keys().next().value);
           return { meaning };
         } catch { return { meaning: '' }; }
-      })();
+      };
+      const work = new Promise(resolve => dictionaryQueue.push({ run, resolve }));
       lookingUp.set(word, work);
+      drainDictionary();
       try { return await work; } finally { lookingUp.delete(word); }
     },
     async translate({sentence}) {

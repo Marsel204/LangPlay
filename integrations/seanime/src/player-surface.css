@@ -25,6 +25,8 @@
 [data-langplay="drawer"] [data-langplay="sentence"][data-reading="aligned"]{line-height:2.8;padding-top:8px}
 [data-langplay="drawer"] [data-langplay="sentence"] ruby{ruby-position:over;ruby-align:center;margin-inline:2px}
 [data-langplay="drawer"] [data-langplay="sentence"] rt{font:400 12px/1.2 system-ui,sans-serif;color:#d6c9f3;white-space:nowrap}
+[data-langplay="drawer"] [data-langplay="sentence-word"]{display:inline-flex;flex-direction:column;align-items:center;vertical-align:top;max-width:100%;margin:8px 5px 6px 0;line-height:1.8}
+[data-langplay="drawer"] [data-langplay="word-gloss"]{font:400 12px/1.4 system-ui,sans-serif;color:#c2bec8;max-width:14ch;white-space:normal;overflow-wrap:anywhere;text-align:center;margin-top:2px}
 [data-langplay="drawer"] [data-langplay="sentence-romaji"]{color:#d6c9f3;font-size:14px;line-height:1.6;margin:8px 0}
 [data-langplay="drawer"] [data-langplay="sentence-translation"]{font-size:15px;line-height:1.65;margin:8px 0 0}
 [data-langplay="drawer"] [data-langplay="translation-retry"]{margin-top:10px}

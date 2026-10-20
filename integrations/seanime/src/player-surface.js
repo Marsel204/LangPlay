@@ -297,7 +297,13 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
         const words = await Promise.all(parts.map(async part => {
           const word = await make(part.romaji ? 'ruby' : 'span', '', null, part.surface);
           if (part.romaji) await make('rt', '', word, part.romaji);
-          return word;
+          if (!part.gloss) return word;
+          const group = await make('span', 'sentence-word');
+          group.append(word);
+          const gloss = await make('span', 'word-gloss', group, part.gloss);
+          gloss.setAttribute('lang', 'en');
+          if (part.meaning) gloss.setAttribute('title', part.meaning);
+          return group;
         }));
         for (const word of words) fields.sentence.append(word);
       }
@@ -314,7 +320,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       catch (error) { await reset(); await sweep(true); throw error; }
     }
     if (!mounted) return;
-    const key = JSON.stringify([view.playback.title, view.playback.episode, view.drawerOpen, view.selected, view.reading, view.romaji, view.meaning, view.baseForm, view.explanation, view.reply, view.error, view.busy, view.source, view.preferences, view.autoSubtitles, view.sentenceRomaji, view.sentenceTranslation, view.translationBusy, view.translationError, view.sentenceTokens?.map(token => [token.surface, token.romaji, token.pos])]);
+    const key = JSON.stringify([view.playback.title, view.playback.episode, view.drawerOpen, view.selected, view.reading, view.romaji, view.meaning, view.baseForm, view.explanation, view.reply, view.error, view.busy, view.source, view.preferences, view.autoSubtitles, view.sentenceRomaji, view.sentenceTranslation, view.translationBusy, view.translationError, view.sentenceTokens?.map(token => [token.surface, token.romaji, token.pos, token.meaning, token.meaningBusy])]);
     if (key !== renderKey) {
       renderKey = key;
       const nextWord = identity(view);
