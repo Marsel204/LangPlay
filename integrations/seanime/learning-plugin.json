@@ -1,7 +1,7 @@
 {
   "id": "langplay-learning",
   "name": "LangPlay",
-  "version": "0.4.6",
+  "version": "0.4.8",
   "manifestURI": "",
   "language": "javascript",
   "type": "plugin",

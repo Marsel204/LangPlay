@@ -82,3 +82,13 @@ Version 0.4.6 adds a short dictionary meaning below each Japanese word in the ca
 The selected surface lookup starts alongside parsing. Cached cue tokens let all word lookups start immediately; a cold parse displays readings before definitions finish. Lookups use the existing offline dictionary and companion fallback, share pending requests, cache successful results, and queue up to 256 unique words with no more than four network requests active. Late results cannot populate another selection or episode. No implicit AI requests were added.
 
 Verification: 110 integration and 82 existing Node tests pass, plus deterministic bundle/callback smoke and whitespace checks. Real companion results supplied meanings for all 13 words in the example sentence. The production tray renderer was checked at 380 px and 280 px, with 13 glosses and no horizontal overflow at 280 px. This was a layout fixture using real service results; live video playback, native desktop and Windows were not requalified. Installed manifest bytes match the build, and Seanime reports version 0.4.6 after external-extension reload.
+
+## Compact AI answers — 20 October 2026
+
+Version 0.4.8 renders Markdown rather than showing raw asterisks, heading markers and quote prefixes. Direct answers remain visible; contextual explanation is expanded initially, and additional grammar/examples open on demand. The shared renderer supports paragraphs, emphasis, lists, quotes, code and tables without interpreting provider HTML or following embedded URLs. The player uses native button inputs for keyboard-safe section toggles; unchanged replies keep disclosure state across clock/dictionary updates.
+
+The study drawer has tighter spacing, smaller sentence/answer typography, an inline question field and Ask button, and sticky close/resume controls. Subtitle timing, source selection, word meanings, card storage and the configured AI provider are preserved.
+
+Verification: 116 integration tests pass, including formatting, inert HTML/URLs, tables/code, disclosure persistence and player Enter-compatible controls; deterministic bundle/callback smoke and whitespace checks pass. Production player DOM rendering was inspected in a browser fixture at 1280×900 and 390×844, with no horizontal overflow. Real questions about 消す reached the configured companion and returned contextual answers. These checks exercise the production component and service from a layout fixture; native desktop playback and Windows remain unqualified.
+
+The 0.4.8 manifest was installed with a recoverable backup and reloaded through the scoped external-extension endpoint (HTTP 200). Installed manifest bytes match the build; Seanime resumed subtitle/parser requests after reload.

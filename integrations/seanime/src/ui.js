@@ -1,4 +1,5 @@
 import { decodeSubtitle } from './core/encoding.js';
+import { renderAnswer } from './answer.js';
 import { sentenceParts } from './sentence-reading.js';
 
 const $ = id => document.getElementById(id);
@@ -119,7 +120,7 @@ function render(view) {
   $('sentence-translation').textContent = view.sentenceTranslation || (view.translationBusy ? 'Translating with Google…' : view.translationError || '');
   $('sentence-translation').hidden = !($('sentence-translation').textContent);
   $('translation-retry').hidden = !view.translationError || !!view.translationBusy;
-  for (const key of ['explanation', 'reply']) { $(key).textContent = view[key]; $(key).hidden = !view[key]; }
+  for (const key of ['explanation', 'reply']) renderAnswer($(key), view[key]);
   if (view.error) notice(view.error);
   if (view.drawerOpen && selectedKey !== JSON.stringify(view.selected)) { setup(false); $('close').focus(); }
   selectedKey = view.drawerOpen ? JSON.stringify(view.selected) : '';
