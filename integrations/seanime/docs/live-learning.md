@@ -86,3 +86,5 @@ Verification: 110 integration and 82 existing Node tests pass, plus deterministi
 ## Integrated transport controls — 20 October 2026
 
 Version 0.4.9 moves LangPlay into the native bottom player row, before player settings. Use the eye to show/hide Japanese, Auto Sub to open Japanese subtitle settings, and the language icon to choose Japanese, Furigana or Romaji. The green badge indicates a loaded source and displays its cue count. The separate floating toolbar has been removed. The group follows host control visibility/fullscreen and recovers after transport replacement without altering native controls. Verification: 112 integration tests, production build, detector, whitespace checks, and production-renderer browser fixtures passed. The installed manifest matches the build and its scoped external-extension reload returned HTTP 200. Native desktop and Windows playback were not requalified.
+
+The integration runner serializes test files because two production-bundle fixtures rebuild the same `dist/learning-plugin.js`; concurrent Windows reads could otherwise parse a partially written bundle. Test assertions and coverage remain unchanged.

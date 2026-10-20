@@ -51,7 +51,7 @@ async function test() {
     console.log('No core test files yet; build smoke is the only check.');
     return;
   }
-  const child = spawnSync(process.execPath, ['--test', ...files.map(name => path.join(dir, name))], {
+  const child = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...files.map(name => path.join(dir, name))], {
     cwd: root, stdio: 'inherit',
   });
   if (child.error) throw child.error;
