@@ -31,3 +31,9 @@ Self-review, with no delegated review. Live browser checks cover Horimiya episod
 ## Per-word sentence meanings — 20 October 2026
 
 Each captured sentence word groups romaji above Japanese and a short dictionary meaning below, with wrapping between word groups and preserved original punctuation/newlines. Full dictionary text is available on hover. Definitions fill independently from cached or parsed tokens; pending words show Loading… and missing entries show No definition. Parsing and sentence English remain independent of dictionary requests.
+
+## Compact AI answers — 20 October 2026
+
+AI explanations and replies use the same restricted Markdown reader in the player and tray panel. Direct answers stay visible; contextual sections open first, while further grammar notes and examples can be expanded. Text, emphasis, lists, quotes, code and tables are rendered as safe DOM nodes. Raw provider HTML stays literal. Player disclosure controls use native button inputs to avoid Seanime's playback keyboard shortcuts.
+
+Study uses compact 13 px answer text with 1.55 line height, clear emphasis, restrained section dividers, a 16 px Japanese sentence, an inline question/action row, and sticky close/resume controls. Drawer updates preserve expanded sections when their answer text has not changed.

@@ -1,4 +1,6 @@
 import styles from './player-surface.css';
+import answerStyles from './answer.css';
+import { parseAnswer } from './answer.js';
 import { sentenceParts } from './sentence-reading.js';
 
 const clock = ms => { const s = Math.floor(Math.max(0, ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -22,6 +24,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
   let listeners = [], tokenListeners = [], savedFiles = [], listing = false, updateQueued = false;
   let layoutOriginal = null, drawerInPlayer = false, insetKey = '', replacedSource = '';
   let sentenceKey = '';
+  const answerKeys = new Map(), answerListeners = new Map();
   const fields = {};
   let pending = Promise.resolve(), needsSweep = true;
   const enqueue = work => { const next = pending.catch(() => {}).then(work); pending = next; return next; };
@@ -125,7 +128,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       const classes = String(parent.attributes?.class || '').split(/\s+/);
       fullscreen = classes.includes('fixed') && classes.includes('inset-0');
     }
-    css = await make('style', 'styles', player, styles);
+    css = await make('style', 'styles', player, styles + '\n' + answerStyles);
     controls = await make('div', 'controls', player);
     controls.setAttribute('aria-label', 'LangPlay player controls');
     fields.toggle = await button(controls, 'toggle', 'LangPlay', async () => {
@@ -205,15 +208,24 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       const value = await action('save'); if (value) notice(value.duplicate ? 'Card already saved locally.' : 'Card saved locally.');
     });
     await button(actions, 'explain', 'Explain sentence', async () => { notice('Asking your configured AI companion…'); const value = await action('explain'); if (value) notice('Explanation ready.'); });
-    fields.explanation = await make('p', 'explanation', fields.study);
+    fields.explanation = await make('div', 'explanation', fields.study);
+    fields.explanation.setAttribute('aria-label', 'Sentence explanation');
+    fields.explanation.setAttribute('data-answer', '');
     const questionLabel = await make('label', '', fields.study, 'Ask about this sentence');
-    fields.question = await make('input', 'question', fields.study); questionLabel.setAttribute('for', fields.question.id);
+    const questionRow = await make('div', 'question-row', fields.study);
+    fields.question = await make('input', 'question', questionRow); questionLabel.setAttribute('for', fields.question.id);
     fields.question.setAttribute('maxlength', '2000'); fields.question.setAttribute('placeholder', 'Why is this form used?');
-    await button(fields.study, 'ask', 'Ask', async () => {
+    fields.ask = await button(questionRow, 'ask', 'Ask', async () => {
       const question = String(await read(fields.question.getProperty('value')) || '').trim();
-      if (question) { notice('Asking your configured AI companion…'); const value = await action('chat', { question }); if (value) notice('Answer ready.'); }
+      if (!question || await read(fields.ask.getProperty('disabled'))) return;
+      fields.ask.setProperty('disabled', true);
+      notice('Thinking…');
+      try { const value = await action('chat', { question }); if (value) notice('Answer ready.'); }
+      finally { fields.ask.setProperty('disabled', false); }
     });
-    fields.reply = await make('p', 'reply', fields.study);
+    fields.reply = await make('div', 'reply', fields.study);
+    fields.reply.setAttribute('aria-label', 'Answer');
+    fields.reply.setAttribute('data-answer', '');
     await button(fields.study, 'resume', 'Resume watching', () => action('resume'));
     await make('p', 'context', fields.study, 'Close keeps playback paused.');
     fields.notice = await make('p', 'notice', drawer); fields.notice.setAttribute('role', 'status'); fields.notice.setAttribute('aria-live', 'polite');
@@ -311,6 +323,39 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     text('sentence-romaji', view.sentenceRomaji);
     show(fields['sentence-romaji'], !parts && !!view.sentenceRomaji);
   }
+  async function renderAnswer(name, value) {
+    const source = String(value || '');
+    if (answerKeys.get(name) === source) return;
+    for (const off of answerListeners.get(name) || []) off();
+    const offHandlers = []; answerListeners.set(name, offHandlers);
+    const root = fields[name];
+    for (const child of await read(root.getChildren())) child.remove();
+    root.setText('');
+    const create = async item => {
+      if (item.tag === 'details') {
+        const section = await make('section'); section.setAttribute('data-answer-section', '');
+        const toggle = await make('input', '', section);
+        toggle.setAttribute('type', 'button'); toggle.setAttribute('data-answer-toggle', '');
+        const label = nodes => nodes.map(n => n.text || label(n.children)).join('');
+        toggle.setAttribute('value', label(item.children[0].children));
+        const body = await make('div', '', section); body.setAttribute('data-answer-body', '');
+        let open = Object.prototype.hasOwnProperty.call(item.attrs, 'open');
+        const reveal = () => { show(body, open); toggle.setAttribute('aria-expanded', String(open)); };
+        reveal();
+        const off = toggle.addEventListener('click', () => { open = !open; reveal(); });
+        if (typeof off === 'function') offHandlers.push(off);
+        for (const child of await Promise.all(item.children.slice(1).map(create))) body.append(child);
+        return section;
+      }
+      const el = await make(item.tag, '', null, item.text || undefined);
+      for (const [key, value] of Object.entries(item.attrs)) el.setAttribute(key, value);
+      for (const child of await Promise.all(item.children.map(create))) el.append(child);
+      return el;
+    };
+    for (const item of await Promise.all(parseAnswer(source).map(create))) root.append(item);
+    show(root, !!source);
+    answerKeys.set(name, source);
+  }
   async function paint() {
     if (!view?.playback) { await reset(); await sweep(); return; }
     const nextPlayer = await read(dom.queryOne('[data-vc-element="container"]'));
@@ -333,7 +378,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       show(fields['sentence-translation'],!!(view.sentenceTranslation || view.translationBusy || view.translationError));
       show(fields.translationRetry,!!view.translationError && !view.translationBusy);
       text('context', view.selected ? `${view.selected.title} · Episode ${view.selected.episode} · ${clock(view.selected.videoTimeMs)}` : '');
-      text('explanation', view.explanation); text('reply', view.reply);
+      await renderAnswer('explanation', view.explanation); await renderAnswer('reply', view.reply);
       text('source', `${view.playback.title} · Episode ${view.playback.episode}\n${view.source ? `${view.source.sourceId} · ${view.source.cueCount} cues` : 'Choose a matching Japanese subtitle.'}`);
       fields.mode.setProperty('value', view.preferences.readingMode);
       fields.autoMode.setProperty('value', view.preferences.autoSubtitles === false ? 'manual' : 'automatic');
@@ -397,6 +442,8 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     await restoreLayout();
     for (const node of [controls, captions, drawer, css]) if (node) node.remove();
     player = parent = controls = captions = drawer = css = null;
+    for (const handlers of answerListeners.values()) for (const off of handlers) off();
+    answerListeners.clear(); answerKeys.clear();
     mounted = false; captionKey = renderKey = wordKey = insetKey = replacedSource = sentenceKey = ''; setupOpen = false; drawerInPlayer = false;
   }
   const clear = () => enqueue(async () => { view = null; await reset(); await sweep(true); });
