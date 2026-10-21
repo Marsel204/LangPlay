@@ -5,7 +5,7 @@ import { buildSync } from 'esbuild';
 
 const bundle = buildSync({ entryPoints: ['src/player-surface.js'], bundle: true, write: false,
   format: 'iife', globalName: 'Surface', loader: { '.css': 'text' } }).outputFiles[0].text;
-function fixture() {
+function fixture({ nativeBar = false } = {}) {
   let serial = 0;
   const nodes = [], actions = [], tracks = [];
   class Element {
@@ -23,17 +23,27 @@ function fixture() {
     remove() { if (this.parent) this.parent.children = this.parent.children.filter(x => x !== this); this.parent = null; }
     async getParent() { return this.parent; }
     async getChildren() { return [...this.children]; }
-    async queryOne() { return null; }
+    after(child) { const owner = this.parent; if (!owner) return; child.remove(); child.parent = owner; owner.children.splice(owner.children.indexOf(this) + 1, 0, child); }
+    async queryOne(selector) {
+      const match = /^\[data-(?:vc-element|langplay)="([^"]+)"\]$/.exec(selector);
+      if (!match) return null;
+      const key = selector.includes('data-vc-element') ? 'data-vc-element' : 'data-langplay';
+      const find = node => { for (const child of node.children) { if (child.attributes[key] === match[1]) return child; const nested = find(child); if (nested) return nested; } return null; };
+      return find(this);
+    }
     addEventListener(name, fn) { this.handlers.set(name, fn); return () => this.handlers.delete(name); }
   }
   const parent = new Element('div'), player = new Element('div'); parent.append(player);
+  const bar = new Element('div'), spacer = new Element('div'), settings = new Element('button');
+  spacer.setAttribute('data-vc-element', 'control-bar-separator');
+  bar.append(spacer); bar.append(settings); if (nativeBar) player.append(bar);
   const ctx = { videoCore:{setSubtitleTrack:n=>tracks.push(['subtitle',n]),setMediaCaptionTrack:n=>tracks.push(['caption',n])}, dom: { queryOne: async () => player, query: async () => [], createElement: async tag => new Element(tag),
     viewport: { getSize: () => ({width:1280}) } } };
   const sandbox = {}; vm.runInNewContext(bundle, sandbox);
   const surface = sandbox.Surface.createPlayerSurface({ ctx, act: async (op, data) => { actions.push([op, data]); }, openPanel() {} });
   const connected = node => node === parent || !!node.parent && connected(node.parent);
   const token = () => nodes.find(n => connected(n) && n.attributes['data-langplay'] === 'token');
-  return { surface, token, actions, parent, player, nodes, tracks };
+  return { surface, token, actions, parent, player, nodes, tracks, bar, spacer, settings, Element };
 }
 function view(tokens) {
   return { playback: {title:'Horimiya', episode:'1'}, positionMs:1500, source:{sourceId:'ja.srt'},
@@ -111,13 +121,13 @@ test('word lookup shows romaji alongside the Japanese reading', async () => {
   assert.equal(reading.text, 'ニホンゴ · nihongo');
 });
 
-test('replacement captions use the ordinary bottom position inside the displayed picture', () => {
+test('captions clear the learning toolbar and transport inside the displayed picture', () => {
   const scope = {}; vm.runInNewContext(bundle, scope);
   const inset = scope.Surface.captionInset;
-  assert.ok(Math.abs(inset({width:1280,height:720,videoWidth:1920,videoHeight:1080}) - 32.4) < .001);
-  assert.ok(Math.abs(inset({width:774,height:633,videoWidth:1920,videoHeight:1080}) - 122.8125) < .001);
-  assert.equal(inset({width:640,height:360,videoWidth:1920,videoHeight:1080}), 24);
-  assert.equal(inset({width:0,height:0,videoWidth:0,videoHeight:0}), 32);
+  assert.ok(Math.abs(inset({width:1280,height:720,videoWidth:1920,videoHeight:1080}) - 80) < .001);
+  assert.ok(Math.abs(inset({width:774,height:633,videoWidth:1920,videoHeight:1080}) - 178.8125) < .001);
+  assert.equal(inset({width:640,height:360,videoWidth:1920,videoHeight:1080}), 80);
+  assert.equal(inset({width:0,height:0,videoWidth:0,videoHeight:0}), 80);
 });
 
 test('punctuation remains literal without fake romaji readings or word actions', async () => {
@@ -190,4 +200,40 @@ test('AI replies have safe formatted content and keyboard-compatible disclosure 
   assert.equal(toggle.attributes['aria-expanded'],'true');
   await h.surface.update({...state,positionMs:2000,meaning:'erase'});
   assert.ok(descendants(reply).includes(toggle));assert.equal(toggle.attributes['aria-expanded'],'true');
+});
+
+
+test('learning controls join the native transport row before settings and leave host children intact', async () => {
+  const h = fixture({nativeBar:true}), state = {...view([]),source:{sourceId:'ja.srt',cueCount:36}};
+  await h.surface.update(state);
+  const controls = await h.player.queryOne('[data-langplay="controls"]');
+  assert.deepEqual(h.bar.children, [h.spacer,controls,h.settings]);
+  assert.equal(controls.parent,h.bar);
+  assert.equal('hidden' in controls.attributes,false);
+  const field = name => controls.children.find(node => node.attributes['data-langplay'] === name);
+  assert.equal(field('subtitles').attributes.value,'Auto Sub (36)');
+  assert.equal(field('toggle').attributes['aria-label'],'Show Japanese subtitles');
+  assert.equal(field('toggle').attributes.value,'');
+  await h.surface.fullscreen({fullscreen:true});
+  assert.equal(controls.parent,h.bar,'fullscreen must inherit the native row ownership');
+  await h.surface.update({...state,preferences:{readingMode:'plain',autoSubtitles:false}});
+  assert.equal(field('subtitles').attributes.value,'Subtitles (36)');
+  await h.surface.clear();
+  assert.deepEqual(h.bar.children,[h.spacer,h.settings]);
+});
+
+test('transport replacement recreates owned controls without leaving a floating fallback', async () => {
+  const h = fixture({nativeBar:true}), state=view([]);
+  await h.surface.update(state);
+  const original=await h.player.queryOne('[data-langplay="controls"]');
+  h.bar.remove();
+  await h.surface.update(state);
+  assert.ok('hidden' in original.attributes,'missing native transport must not show an overlay toolbar');
+  const bar=new h.Element('div'),spacer=new h.Element('div'),settings=new h.Element('button');
+  spacer.setAttribute('data-vc-element','control-bar-separator');bar.append(spacer);bar.append(settings);h.player.append(bar);
+  await h.surface.update(state);
+  const replacement=await h.player.queryOne('[data-langplay="controls"]');
+  assert.notEqual(replacement,original);
+  assert.deepEqual(bar.children,[spacer,replacement,settings]);
+  assert.equal('hidden' in replacement.attributes,false);
 });

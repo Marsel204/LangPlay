@@ -92,3 +92,9 @@ The study drawer has tighter spacing, smaller sentence/answer typography, an inl
 Verification: 116 integration tests pass, including formatting, inert HTML/URLs, tables/code, disclosure persistence and player Enter-compatible controls; deterministic bundle/callback smoke and whitespace checks pass. Production player DOM rendering was inspected in a browser fixture at 1280×900 and 390×844, with no horizontal overflow. Real questions about 消す reached the configured companion and returned contextual answers. These checks exercise the production component and service from a layout fixture; native desktop playback and Windows remain unqualified.
 
 The 0.4.8 manifest was installed with a recoverable backup and reloaded through the scoped external-extension endpoint (HTTP 200). Installed manifest bytes match the build; Seanime resumed subtitle/parser requests after reload.
+
+## Integrated transport controls — 20 October 2026
+
+Version 0.4.9 moves LangPlay into the native bottom player row, before player settings. Use the eye to show/hide Japanese, Auto Sub to open Japanese subtitle settings, and the language icon to choose Japanese, Furigana or Romaji. The green badge indicates a loaded source and displays its cue count. The separate floating toolbar has been removed. The group follows host control visibility/fullscreen and recovers after transport replacement without altering native controls. Verification: 118 integration tests, production build, detector, whitespace checks, and production-renderer browser fixtures passed. The installed manifest matches the build and its scoped external-extension reload returned HTTP 200. Native desktop and Windows playback were not requalified.
+
+The integration runner serializes test files because two production-bundle fixtures rebuild the same `dist/learning-plugin.js`; concurrent Windows reads could otherwise parse a partially written bundle. Test assertions and coverage remain unchanged.

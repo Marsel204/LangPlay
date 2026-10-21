@@ -6,12 +6,12 @@ import { sentenceParts } from './sentence-reading.js';
 const clock = ms => { const s = Math.floor(Math.max(0, ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const identity = view => view?.selected ? JSON.stringify([view.selected.clientId, view.selected.playbackId, view.selected.generation, view.selected.cueId, view.selected.span]) : '';
 
-// Replace the ordinary subtitle position at the bottom of the contained
-// picture rather than the outer player (which can be letterboxed).
+// Keep the caption strip above the native player transport, measured
+// from the contained picture so letterboxed video retains the same safe area.
 export function captionInset({ width, height, videoWidth, videoHeight }) {
-  if (![width, height, videoWidth, videoHeight].every(value => Number.isFinite(value) && value > 0)) return 32;
+  if (![width, height, videoWidth, videoHeight].every(value => Number.isFinite(value) && value > 0)) return 80;
   const pictureHeight = Math.min(height, width * videoHeight / videoWidth);
-  return (height - pictureHeight) / 2 + Math.max(24, pictureHeight * .045);
+  return (height - pictureHeight) / 2 + Math.max(80, pictureHeight * .06);
 }
 
 // Use the supported host DOM bridge. Only plugin-owned elements are moved.
@@ -23,7 +23,8 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
   let generation = 0, captionKey = '', wordKey = '', renderKey = '', width = 1280;
   let listeners = [], tokenListeners = [], savedFiles = [], listing = false, updateQueued = false;
   let layoutOriginal = null, drawerInPlayer = false, insetKey = '', replacedSource = '';
-  let sentenceKey = '';
+  let sentenceKey = '', controlAnchor = '', controlLabelKey = '';
+  let controlListeners = [];
   const answerKeys = new Map(), answerListeners = new Map();
   const fields = {};
   let pending = Promise.resolve(), needsSweep = true;
@@ -52,12 +53,12 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     if (owner) owner.append(el);
     return el;
   }
-  async function button(owner, name, label, fn) {
+  async function button(owner, name, label, fn, bucket = listeners) {
     // Seanime reserves Enter/Space for transport except on native inputs.
     const el = await make('input', name, owner);
     el.setAttribute('type', 'button'); el.setAttribute('value', label);
     const off = el.addEventListener('click', () => Promise.resolve(fn()).catch(e => notice(e.message)));
-    if (typeof off === 'function') listeners.push(off);
+    if (typeof off === 'function') bucket.push(off);
     return el;
   }
   async function action(op, data = {}) {
@@ -73,6 +74,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
   async function placeDrawer() {
     if (!mounted || !drawer || !player || !parent) return;
     const open = !!view?.drawerOpen || setupOpen;
+    updateControlLabels();
     show(drawer, open);
     captions.setAttribute('data-mode', fullscreen ? 'fullscreen' : 'windowed');
     captions.setAttribute('data-study-open', String(open));
@@ -117,6 +119,64 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     fields.load.setProperty('disabled', !matched);
     notice(savedFiles.length ? 'Choose the file that matches this episode and release.' : 'Save a matching Japanese subtitle in your subtitle folder, then refresh.');
   }
+  async function createControls() {
+    for (const off of controlListeners) if (typeof off === 'function') off();
+    controlListeners = []; controlLabelKey = '';
+    if (controls) controls.remove();
+    controls = await make('div', 'controls', player);
+    controls.setAttribute('aria-label', 'LangPlay player controls');
+    show(controls, false);
+    fields.toggle = await button(controls, 'toggle', '', async () => {
+      enabled = !enabled; captionKey = '';
+      if (!enabled) { setupOpen = false; show(fields.setup, false); await action('close'); }
+      await enqueue(async () => { await renderCaptions(); await placeDrawer(); });
+    }, controlListeners);
+    fields.toggle.setAttribute('aria-label', 'Show Japanese subtitles');
+    fields.toggle.setAttribute('title', 'Show or hide Japanese subtitles');
+    fields.toggle.setAttribute('aria-pressed', String(enabled));
+    fields.subtitles = await button(controls, 'subtitles', 'Auto Sub', async () => {
+      setupOpen = !setupOpen;
+      show(fields.setup, setupOpen);
+      await placeDrawer();
+      if (setupOpen) await refreshSaved();
+    }, controlListeners);
+    fields.subtitles.setAttribute('aria-label', 'Japanese subtitle settings');
+    fields.mode = await make('select', 'mode', controls);
+    fields.mode.setAttribute('aria-label', 'Subtitle reading');
+    fields.mode.setAttribute('title', 'Subtitle reading');
+    for (const [value, label] of [['plain', 'Japanese'], ['furigana', 'Furigana'], ['romaji', 'Romaji']]) {
+      const option = await make('option', '', fields.mode, label); option.setAttribute('value', value);
+    }
+    controlListeners.push(fields.mode.addEventListener('change', async () => action('preferences', { readingMode: await read(fields.mode.getProperty('value')) })));
+    updateControlLabels();
+  }
+  function updateControlLabels() {
+    if (!controls) return;
+    const automatic = view?.preferences?.autoSubtitles !== false;
+    const count = Number(view?.source?.cueCount);
+    const label = automatic ? 'Auto Sub' : 'Subtitles';
+    const key = JSON.stringify([automatic,count,!!view?.source,view?.autoSubtitles?.message,setupOpen,view?.preferences?.readingMode,enabled]);
+    if (key === controlLabelKey) return;
+    controlLabelKey = key;
+    fields.subtitles.setAttribute('value', `${label}${count > 0 ? ` (${count})` : ''}`);
+    fields.subtitles.setAttribute('data-ready', String(!!view?.source));
+    fields.subtitles.setAttribute('title', view?.autoSubtitles?.message || 'Japanese subtitle settings');
+    fields.subtitles.setAttribute('aria-expanded', String(setupOpen));
+    fields.mode.setProperty('value', view?.preferences?.readingMode || 'plain');
+    fields.mode.setAttribute('title', `Subtitle reading: ${view?.preferences?.readingMode || 'plain'}`);
+    fields.toggle.setAttribute('aria-pressed', String(enabled));
+  }
+  async function placeControls() {
+    // The host owns visibility, pointer activity and fullscreen for this row.
+    // Insert only our group after its flexible spacer, before native settings.
+    const anchor = await read(player.queryOne('[data-vc-element="control-bar-separator"]'));
+    if (!anchor?.after) { show(controls, false); controlAnchor = ''; return; }
+    const liveControls = await read(player.queryOne('[data-langplay="controls"]'));
+    if (!liveControls) { await createControls(); controlAnchor = ''; }
+    if (controlAnchor !== anchor.id) { anchor.after(controls); controlAnchor = anchor.id; }
+    updateControlLabels();
+    show(controls, true);
+  }
   async function mount(nextPlayer) {
     await reset();
     await sweep(true);
@@ -129,27 +189,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       fullscreen = classes.includes('fixed') && classes.includes('inset-0');
     }
     css = await make('style', 'styles', player, styles + '\n' + answerStyles);
-    controls = await make('div', 'controls', player);
-    controls.setAttribute('aria-label', 'LangPlay player controls');
-    fields.toggle = await button(controls, 'toggle', 'LangPlay', async () => {
-      enabled = !enabled; captionKey = '';
-      if (!enabled) { setupOpen = false; show(fields.setup, false); await action('close'); }
-      await enqueue(async () => { await renderCaptions(); await placeDrawer(); });
-    });
-    fields.toggle.setAttribute('aria-pressed', String(enabled));
-    await button(controls, 'subtitles', 'Subtitles', async () => {
-      setupOpen = !setupOpen;
-      show(fields.setup, setupOpen);
-      await placeDrawer();
-      if (setupOpen) await refreshSaved();
-    });
-    fields.mode = await make('select', 'mode', controls);
-    fields.mode.setAttribute('aria-label', 'Subtitle reading');
-    fields.mode.setAttribute('title', 'Subtitle reading');
-    for (const [value, label] of [['plain', 'Japanese'], ['furigana', 'Furigana'], ['romaji', 'Romaji']]) {
-      const option = await make('option', '', fields.mode, label); option.setAttribute('value', value);
-    }
-    listeners.push(fields.mode.addEventListener('change', async () => action('preferences', { readingMode: await read(fields.mode.getProperty('value')) })));
+    await createControls();
     captions = await make('div', 'captions', player);
     captions.setAttribute('lang', 'ja'); captions.setAttribute('aria-label', 'Interactive Japanese subtitles');
     drawer = await make('section', 'drawer', parent);
@@ -389,6 +429,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       await placeDrawer();
     }
     await renderCaptions();
+    await placeControls();
     // The user wants LangPlay to replace the normal track. Select Off through
     // VideoCore once a learning source is ready, without hiding host DOM or
     // repeatedly overriding a later manual track choice on every clock tick.
@@ -436,8 +477,8 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
   }
   async function reset() {
     generation++;
-    for (const off of [...listeners, ...tokenListeners]) if (typeof off === 'function') off();
-    listeners = []; tokenListeners = [];
+    for (const off of [...listeners, ...tokenListeners, ...controlListeners]) if (typeof off === 'function') off();
+    listeners = []; tokenListeners = []; controlListeners = []; controlAnchor = '';
     if (player) player.removeAttribute('data-langplay-caption-active');
     await restoreLayout();
     for (const node of [controls, captions, drawer, css]) if (node) node.remove();
