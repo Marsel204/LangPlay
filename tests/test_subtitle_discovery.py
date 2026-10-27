@@ -1,5 +1,6 @@
 """Automatic subtitle matching, private cache, and bounded provider access."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import tempfile
@@ -82,6 +83,44 @@ class DiscoveryTests(unittest.TestCase):
         target.write_text('1\n00:00:01,000 --> 00:00:03,000\n違うファイル\n')
         self.assertEqual(self.fetch()['content'],TEXT)
         self.assertEqual(len(self.downloads),2)
+
+    def test_malformed_preferred_subtitle_falls_back_before_caching(self):
+        self.files = [
+            {'name': 'A.WEB.ja.srt', 'size': 100, 'url': 'https://jimaku.cc/entry/10/download/bad.srt'},
+            {'name': 'B.WEB.ja.srt', 'size': 100, 'url': 'https://jimaku.cc/entry/10/download/good.srt'},
+        ]
+        def download(url):
+            self.downloads.append(url)
+            return b'1\n00:00:01,000 --> not-a-time\n' + '日本語'.encode() if url.endswith('bad.srt') else TEXT.encode()
+        result = discovery.automatic_subtitle({'mediaId': 189046, 'episode': 2},
+                    get_json=self.api, download=download, key_reader=lambda: 'fixture')
+        self.assertEqual(result['originalName'], 'B.WEB.ja.srt')
+        self.assertEqual(result['content'], TEXT)
+        self.assertEqual(len(self.downloads), 2)
+
+    def test_legacy_malformed_cache_is_revalidated_even_with_a_matching_hash(self):
+        result = self.fetch()
+        malformed = '1\n00:00:01,000 --> not-a-time\n日本語\n'
+        (Path(self.temp.name) / result['sourceId']).write_text(malformed)
+        metadata = Path(self.temp.name) / '.langplay-auto/189046-2.json'
+        data = json.loads(metadata.read_text())
+        data['sha256'] = hashlib.sha256(malformed.encode()).hexdigest()
+        metadata.write_text(json.dumps(data))
+        self.assertEqual(self.fetch()['content'], TEXT)
+        self.assertEqual(len(self.downloads), 2)
+
+    def test_vtt_ass_and_ssa_validate_complete_timing_structure(self):
+        vtt = 'WEBVTT\n\nNOTE metadata\n日本語\n\ncue\n00:01.000 --> 00:03.000 align:start\n日本語\n'
+        ass = '[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,0:00:01.00,0:00:03.00,Default,日本語\n'
+        for extension, content in (('.vtt', vtt), ('.ass', ass), ('.ssa', ass)):
+            with self.subTest(extension=extension):
+                self.assertEqual(discovery._decode(content.encode(), extension), content)
+                with self.assertRaises(ValueError):
+                    discovery._decode(content.replace('00:03', '00:00').encode(), extension)
+        for extension, content in (('.vtt', vtt.replace('WEBVTT', 'invalid')),
+                                   ('.ass', ass.replace('End,', 'Missing,'))):
+            with self.subTest(extension=extension), self.assertRaises(ValueError):
+                discovery._decode(content.encode(), extension)
 
     def test_jimaku_credentials_are_read_from_existing_private_settings(self):
         profile=Path(self.temp.name)/'profile'

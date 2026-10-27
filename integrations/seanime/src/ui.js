@@ -5,7 +5,8 @@ import { sentenceParts } from './sentence-reading.js';
 const $ = id => document.getElementById(id);
 let sequence = 0, state = null, signature = '', selectedKey = '', setupOpen = false, offsetDirty = false;
 const pending = new Map();
-let sentenceKey = '';
+let sentenceKey = '', fileReadVersion = 0;
+const playbackKey = view => JSON.stringify(['clientId', 'playbackId', 'videoIdentity'].map(key => view?.playback?.[key]));
 function send(op, data = {}) {
   const id = ++sequence;
   return new Promise((resolve, reject) => {
@@ -75,6 +76,7 @@ function caption(view) {
   }
 }
 function render(view) {
+  if (playbackKey(state) !== playbackKey(view)) fileReadVersion++;
   state = view; caption(view);
   $('clock').textContent = timestamp(view.positionMs);
   $('source').textContent = view.source ? `${view.source.sourceId} · ${view.source.cueCount} cues` : view.association ? `Re-select subtitle: ${view.association.sourceId}` : 'SRT, VTT, ASS or SSA · up to 10 MiB';
@@ -142,6 +144,7 @@ $('open-folder').onclick = async () => {
 };
 $('load-saved').onclick = async () => {
   const name = $('saved-subtitle').value; if (!name) return;
+  fileReadVersion++;
   $('load-saved').disabled = true; notice('Loading saved subtitle…');
   const result = await run('saved-import', { name, encoding: $('encoding').value, offsetMs: Number($('offset').value) });
   $('load-saved').disabled = false;
@@ -157,20 +160,27 @@ $('apply-offset').onclick = async () => {
 };
 $('mode').onchange = () => run('preferences', { readingMode: $('mode').value });
 $('import-paste').onclick = async () => {
+  fileReadVersion++;
   const sourceId = $('paste-name').value.trim(), content = $('paste-text').value;
   const result = await run('import', { content, sourceId, format: sourceId.split('.').pop().toLowerCase(), offsetMs: Number($('offset').value) });
   if (result) { $('paste-text').value = ''; setup(false); notice('Japanese subtitles ready. Select a word to pause and learn.'); }
 };
 $('file').onchange = async () => {
+  const revision = ++fileReadVersion;
   const file = $('file').files[0]; if (!file) return;
+  const encoding = $('encoding').value, offsetMs = Number($('offset').value);
+  const expectedPlayback = state?.playback && Object.fromEntries(['clientId', 'playbackId', 'videoIdentity'].map(key => [key, state.playback[key]]));
+  $('file').value = '';
   if (!file.size || file.size > 10 * 1024 * 1024) { notice('Choose a subtitle between 1 byte and 10 MiB.'); return; }
   try {
-    const decoded = decodeSubtitle(new Uint8Array(await file.arrayBuffer()), { encoding: $('encoding').value,
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (revision !== fileReadVersion) return;
+    const decoded = decodeSubtitle(bytes, { encoding,
       decodeLegacy: (encoding, bytes) => new TextDecoder(encoding, { fatal: true }).decode(bytes) });
-    const result = await run('import', { content: decoded.text, sourceId: file.name, format: file.name.split('.').pop().toLowerCase(), offsetMs: Number($('offset').value) });
+    const result = await run('import', { content: decoded.text, sourceId: file.name, format: file.name.split('.').pop().toLowerCase(), offsetMs, expectedPlayback });
+    if (revision !== fileReadVersion) return;
     if (result) { setup(false); notice('Japanese subtitles ready. Select a word to pause and learn.'); }
-  } catch (e) { notice(e.message); }
-  $('file').value = '';
+  } catch (e) { if (revision === fileReadVersion) notice(e.message); }
 };
 for (const op of ['save', 'explain']) $(op).onclick = async () => {
   $(op).disabled = true; notice(op === 'explain' ? 'Asking your configured AI companion…' : 'Saving card…');

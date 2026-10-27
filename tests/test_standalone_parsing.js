@@ -18,7 +18,7 @@ function harness() {
     fetchGoogleTranslation: async () => 'fallback definition', requests: [] };
   for (const name of ['activeWord', 'activeRomaji', 'activePos', 'activeDef', 'aiTriggerSection', 'aiResponseContainer', 'aiCardsContainer', 'aiErrorDisplay', 'quickAnkiBtn', 'quickAnkiFeedback', 'placeholderState', 'activeState']) sandbox[name] = element();
   sandbox.parseSelectedWord = () => new Promise(resolve => sandbox.requests.push(resolve));
-  vm.runInNewContext(`let currentActiveToken=null; let wordSelectionVersion=0; let currentLastAiData=null; let refreshActiveWordParsing=()=>{};\n${source.slice(start,end)}\nglobalThis.click=handleTokenClick; globalThis.retry=()=>refreshActiveWordParsing();`, sandbox);
+  vm.runInNewContext(`let currentActiveToken=null; let currentSelection=null; let wordSelectionVersion=0; let currentLastAiData=null; let refreshActiveWordParsing=()=>{};\n${source.slice(start,end)}\nglobalThis.click=handleTokenClick; globalThis.retry=()=>refreshActiveWordParsing();`, sandbox);
   return { sandbox, token: word => ({ ...element(), dataset: {word,romaji:'fallback',baseform:word} }), tick: () => new Promise(resolve => setImmediate(resolve)) };
 }
 

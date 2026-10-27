@@ -57,7 +57,12 @@ def saved_subtitles(body):
     if path.is_symlink() or path.resolve().parent != folder:
         raise ValueError('Choose a subtitle stored directly in the subtitle folder.')
     descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
-    with os.fdopen(descriptor, 'rb') as source:
+    try:
+        source = os.fdopen(descriptor, 'rb')
+    except BaseException:
+        os.close(descriptor)
+        raise
+    with source:
         info = os.fstat(source.fileno())
         if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= MAX_BYTES:
             raise ValueError('Subtitle must be between 1 byte and 10 MiB.')
@@ -71,6 +76,8 @@ def saved_subtitles(body):
         encoding = 'utf-16'
     elif data.startswith(codecs.BOM_UTF8) or encoding == 'auto':
         encoding = 'utf-8-sig'
+    elif encoding == 'shift_jis':
+        encoding = 'cp932'
     try:
         content = data.decode(encoding)
     except UnicodeError as error:

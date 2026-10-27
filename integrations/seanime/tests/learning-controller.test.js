@@ -51,6 +51,18 @@ function selection(controller) {
   return { cueId: cue.id, start: 3, end: 6 };
 }
 
+test('reapplying the current delay preserves the selected study panel', async () => {
+  const { controller } = await fixture({ translate: async () => ({ translation: 'Study Japanese today.' }) });
+  await controller.select(selection(controller));
+  const before = controller.view();
+  const after = controller.setOffset(0);
+  assert.equal(after.selected, before.selected);
+  assert.equal(after.drawerOpen, true);
+  assert.equal(after.meaning, before.meaning);
+  assert.equal(after.sentenceTranslation, before.sentenceTranslation);
+  assert.equal(controller.setOffset(500).selected, null);
+});
+
 test('Imported Japanese subtitles synchronize without opening learning tools or calling AI', async () => {
   const { controller, calls } = await fixture();
   const view = controller.view();

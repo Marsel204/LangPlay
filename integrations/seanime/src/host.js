@@ -14,8 +14,9 @@ export function createHost(core) {
       identity = { clientId: `client-${serial}`, playbackId: `playback-${serial}`, videoIdentity: `video-${serial}` };
     }
     const title = info.media?.title;
+    const durationMs = Number(status.duration) * 1000;
     return { ...identity, positionMs: Math.max(0, status.currentTime * 1000),
-      durationMs: Math.max(0, Number(status.duration || 0) * 1000), paused: !!status.paused, rate: 1,
+      durationMs: Number.isFinite(durationMs) && durationMs > 0 ? durationMs : undefined, paused: !!status.paused, rate: 1,
       title: String(typeof title === 'string' ? title : (title?.userPreferred || title?.romaji || title?.english || '')),
       episode, mediaId,
       association: info.media?.id ? `${info.media.id}:${info.episode?.episodeNumber || info.onlinestreamParams?.episodeNumber || ''}` : '',

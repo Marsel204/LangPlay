@@ -2770,6 +2770,16 @@ Respond in JSON only:
       }
     });
 
+    function saveDrawerCard(card) {
+      return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ action: 'SAVE_CARD', card }, response => {
+          const error = chrome.runtime.lastError;
+          if (error || !response?.success) reject(new Error(error?.message || response?.error || 'Card storage unavailable.'));
+          else resolve(response.count);
+        });
+      });
+    }
+
     document.getElementById('lp-quick-anki-btn').addEventListener('click', async () => {
       const word = document.getElementById('lp-active-word').textContent;
       const romaji = document.getElementById('lp-active-romaji').textContent;
@@ -2778,19 +2788,12 @@ Respond in JSON only:
       const sentEn = document.getElementById('lp-sentence-en')?.textContent || '';
       const cleanSentEn = (sentEn && !sentEn.includes('Translating') && !sentEn.includes('unavailable')) ? sentEn : '';
 
-      chrome.storage.local.get(['linguaplay_cards'], (res) => {
-        const cards = res.linguaplay_cards || [];
-        cards.push({
-          word,
-          reading: word,
-          romaji,
-          meaning: def,
-          sentence,
-          sentence_en: cleanSentEn,
-          date: new Date().toISOString()
-        });
-        chrome.storage.local.set({ linguaplay_cards: cards });
-      });
+      try {
+        await saveDrawerCard({ word, reading: word, romaji, meaning: def, sentence, sentence_en: cleanSentEn });
+      } catch (error) {
+        document.getElementById('lp-quick-anki-btn').textContent = `Save failed: ${error.message}`;
+        return;
+      }
 
       let backHtml = `<div><strong>Meaning:</strong> ${def}</div>`;
       if (sentence) {
@@ -3248,7 +3251,7 @@ Respond with ONLY valid JSON:
       });
     });
 
-    document.getElementById('lp-ai-anki-btn').addEventListener('click', () => {
+    document.getElementById('lp-ai-anki-btn').addEventListener('click', async () => {
       if (!lastAiData) return;
       const word = document.getElementById('lp-active-word').textContent;
       const sentence = drawerContextSentence || document.getElementById('lp-sentence-jp')?.textContent || activeLiveSentence || '';
@@ -3257,17 +3260,12 @@ Respond with ONLY valid JSON:
       const sentenceFit = lastAiData.sentence_fit || {};
       const grammar = sentenceFit.role_in_sentence || lastAiData.grammar_role ? ` [Role: ${sentenceFit.role_in_sentence || lastAiData.grammar_role}]` : '';
 
-      chrome.storage.local.get(['linguaplay_cards'], (res) => {
-        const cards = res.linguaplay_cards || [];
-        cards.push({
-          word,
-          reading: target.reading || word,
-          meaning: `${meaning}${grammar}`,
-          sentence,
-          date: new Date().toISOString()
-        });
-        chrome.storage.local.set({ linguaplay_cards: cards });
-      });
+      try {
+        await saveDrawerCard({ word, reading: target.reading || word, meaning: `${meaning}${grammar}`, sentence });
+      } catch (error) {
+        document.getElementById('lp-ai-anki-btn').textContent = `Save failed: ${error.message}`;
+        return;
+      }
 
       const btn = document.getElementById('lp-ai-anki-btn');
       btn.textContent = '✓ AI Card Saved to Storage!';

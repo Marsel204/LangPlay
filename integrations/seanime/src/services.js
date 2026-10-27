@@ -5,16 +5,32 @@ import { JDICT } from '../../../extension/js/dict.js';
 const endpoint = 'http://127.0.0.1:8765';
 export function createServices({ fetch, save } = {}) {
   let conversationKey = '', conversation = [];
+  const chatting = new Set();
   const translations = new Map(), translating = new Map();
   const meanings = new Map(), lookingUp = new Map();
-  const dictionaryQueue = [];
-  let dictionaryActive = 0;
-  function drainDictionary() {
-    while (dictionaryActive < 4 && dictionaryQueue.length) {
-      const { run, resolve } = dictionaryQueue.shift();
-      dictionaryActive++;
-      run().then(resolve).finally(() => { dictionaryActive--; drainDictionary(); });
+  const translationQueue = [];
+  let translationActive = 0;
+  function drainTranslations() {
+    while (translationActive < 4 && translationQueue.length) {
+      const { run, resolve, reject } = translationQueue.shift();
+      translationActive++;
+      Promise.resolve().then(run).then(resolve, reject).finally(() => { translationActive--; drainTranslations(); });
     }
+  }
+  function scheduleTranslation(run, priority = false) {
+    let entry;
+    const work = new Promise((resolve, reject) => {
+      entry = { run, resolve, reject };
+      if (priority) translationQueue.unshift(entry); else translationQueue.push(entry);
+    });
+    drainTranslations();
+    return { work, cancel() {
+      const index = translationQueue.indexOf(entry);
+      if (index < 0) return false;
+      translationQueue.splice(index, 1);
+      entry.reject(new Error('Selection changed; translation skipped.'));
+      return true;
+    } };
   }
   async function post(path, body, timeout = 8) {
     let response;
@@ -35,7 +51,7 @@ export function createServices({ fetch, save } = {}) {
       return result;
     },
     cached: text => parser.cached(text),
-    async lookup({ surface, baseForm }) {
+    async lookup({ surface, baseForm, isCurrent = () => true }) {
       const valid = word => typeof word === 'string' && word.trim() && word.length <= 256;
       const entry = key => valid(key) && Object.prototype.hasOwnProperty.call(JDICT, key) ? JDICT[key] : '';
       const local = entry(baseForm) || entry(surface);
@@ -43,9 +59,13 @@ export function createServices({ fetch, save } = {}) {
       const word = valid(baseForm) ? baseForm.trim() : valid(surface) ? surface.trim() : '';
       if (!word) return { meaning: '' };
       if (meanings.has(word)) return { meaning: meanings.get(word) };
-      if (lookingUp.has(word)) return lookingUp.get(word);
+      if (lookingUp.has(word)) {
+        const pending = lookingUp.get(word); pending.interests.push(isCurrent); return pending.work;
+      }
       if (lookingUp.size >= 256) return { meaning: '' };
+      const interests = [isCurrent];
       const run = async () => {
+        if (!interests.some(check => check())) return { meaning: '' };
         try {
           const value = await post('/api/dictionary', { word });
           if (typeof value.meaning !== 'string' || !value.meaning.trim() || value.meaning.length > 8192) return { meaning: '' };
@@ -55,26 +75,35 @@ export function createServices({ fetch, save } = {}) {
           return { meaning };
         } catch { return { meaning: '' }; }
       };
-      const work = new Promise(resolve => dictionaryQueue.push({ run, resolve }));
-      lookingUp.set(word, work);
-      drainDictionary();
+      const { work } = scheduleTranslation(run);
+      lookingUp.set(word, { work, interests });
       try { return await work; } finally { lookingUp.delete(word); }
     },
-    async translate({sentence}) {
+    async translate({sentence, isCurrent = () => true}) {
       if (typeof sentence !== 'string' || !sentence.trim() || sentence.length > 4096) throw new Error('Select a sentence of up to 4096 characters.');
       if (translations.has(sentence)) return {translation:translations.get(sentence)};
-      if (translating.has(sentence)) return translating.get(sentence);
-      if (translating.size >= 4) throw new Error('Several translations are pending. Wait briefly and retry.');
-      const work = (async () => {
+      if (translating.has(sentence)) {
+        const pending = translating.get(sentence); pending.interests.push(isCurrent); return pending.work;
+      }
+      for (const [sentence, pending] of translating) {
+        if (!pending.interests.some(check => check()) && pending.cancel()) translating.delete(sentence);
+      }
+      if ([...translating.values()].filter(pending => pending.interests.some(check => check())).length >= 4) {
+        throw new Error('Several translations are pending. Wait briefly and retry.');
+      }
+      const interests = [isCurrent];
+      const { work, cancel } = scheduleTranslation(async () => {
+        if (!interests.some(check => check())) throw new Error('Selection changed; translation skipped.');
         const value = await post('/api/translate', {sentence});
         const translation = value.translation;
         if (typeof translation !== 'string' || !translation.trim() || translation.length > 8000) throw new Error('No usable English translation returned. Retry translation.');
         translations.set(sentence,translation.trim());
         while (translations.size > 128) translations.delete(translations.keys().next().value);
         return {translation:translation.trim()};
-      })();
-      translating.set(sentence,work);
-      try { return await work; } finally { translating.delete(sentence); }
+      }, true);
+      const pending = { work, interests, cancel };
+      translating.set(sentence, pending);
+      try { return await work; } finally { if (translating.get(sentence) === pending) translating.delete(sentence); }
     },
     async explain(context) {
       const value = await post('/api/ai/analyze', { word: context.surface, sentence: context.sentence, romaji: context.romaji || context.reading || '' }, 60);
@@ -90,13 +119,17 @@ export function createServices({ fetch, save } = {}) {
     },
     async chat(context) {
       const key = JSON.stringify([context.clientId, context.playbackId, context.generation, context.surface, context.sentence]);
-      if (key !== conversationKey) { conversationKey = key; conversation = []; }
-      const user = { role: 'user', content: context.question };
-      const value = await post('/api/ai/chat', { word: context.surface, sentence: context.sentence, romaji: context.romaji || context.reading || '',
-        messages: [...conversation.slice(-10), user] }, 60);
-      if (typeof value.reply !== 'string' || !value.reply.trim() || value.reply.length > 24000) throw new Error('AI returned an invalid answer. Try again.');
-      if (key === conversationKey) conversation = [...conversation.slice(-10), user, { role: 'assistant', content: value.reply }];
-      return value;
+      if (chatting.has(key)) throw new Error('An answer is still pending. Wait before asking another question.');
+      chatting.add(key);
+      try {
+        if (key !== conversationKey) { conversationKey = key; conversation = []; }
+        const user = { role: 'user', content: context.question };
+        const value = await post('/api/ai/chat', { word: context.surface, sentence: context.sentence, romaji: context.romaji || context.reading || '',
+          messages: [...conversation.slice(-10), user] }, 60);
+        if (typeof value.reply !== 'string' || !value.reply.trim() || value.reply.length > 24000) throw new Error('AI returned an invalid answer. Try again.');
+        if (key === conversationKey) conversation = [...conversation.slice(-10), user, { role: 'assistant', content: value.reply }];
+        return value;
+      } finally { chatting.delete(key); }
     },
     save,
   };

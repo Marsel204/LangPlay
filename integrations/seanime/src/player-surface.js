@@ -119,6 +119,15 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     fields.load.setProperty('disabled', !matched);
     notice(savedFiles.length ? 'Choose the file that matches this episode and release.' : 'Save a matching Japanese subtitle in your subtitle folder, then refresh.');
   }
+  async function closeStudy() {
+    if (!mounted || !setupOpen && !view?.drawerOpen) return;
+    setupOpen = false; show(fields.setup, false);
+    // Dismiss locally before the host bridge publishes the controller's view.
+    // A fullscreen press must not wait for click synthesis or another paint.
+    view = { ...view, drawerOpen: false };
+    await placeDrawer();
+    await action('close');
+  }
   async function createControls() {
     for (const off of controlListeners) if (typeof off === 'function') off();
     controlListeners = []; controlLabelKey = '';
@@ -196,9 +205,12 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     drawer.setAttribute('role', 'region'); drawer.setAttribute('aria-label', 'LangPlay word study');
     const header = await make('header', '', drawer);
     await make('strong', '', header, 'LangPlay');
-    await button(header, 'close', 'Close', async () => {
-      setupOpen = false; show(fields.setup, false); await action('close'); await placeDrawer();
+    const close = await button(header, 'close', 'Close', closeStudy);
+    const offClosePress = close.addEventListener('pointerdown', event => {
+      if (event.button !== undefined && event.button !== 0) return;
+      return closeStudy().catch(error => notice(error.message));
     });
+    if (typeof offClosePress === 'function') listeners.push(offClosePress);
     fields.setup = await make('div', 'setup', drawer);
     const autoLabel = await make('label', '', fields.setup, 'Japanese subtitle loading');
     fields.autoMode = await make('select', 'auto-mode', fields.setup);
@@ -270,7 +282,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     await make('p', 'context', fields.study, 'Close keeps playback paused.');
     fields.notice = await make('p', 'notice', drawer); fields.notice.setAttribute('role', 'status'); fields.notice.setAttribute('aria-live', 'polite');
     listeners.push(drawer.addEventListener('keydown', async event => {
-      if (event.key === 'Escape') { setupOpen = false; show(fields.setup, false); await action('close'); await placeDrawer(); }
+      if (event.key === 'Escape') await closeStudy();
     }));
     if (expected !== generation) { await reset(); return; }
     mounted = true; captionKey = renderKey = wordKey = '';
@@ -284,7 +296,6 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       (view?.activeCues || []).map(cue => [cue.id, cue.text,
         (view?.tokens?.[cue.id] || []).map(token => [token.surface, token.start, token.end, token.furigana, token.romaji, token.pos])])]);
     if (key === captionKey) return;
-    captionKey = key;
     for (const off of tokenListeners) if (typeof off === 'function') off();
     tokenListeners = [];
     for (const child of await read(captions.getChildren())) child.remove();
@@ -292,7 +303,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     const cues = view?.activeCues || [];
     show(captions, enabled && cues.length > 0);
     player.setAttribute('data-langplay-caption-active', String(enabled && cues.length > 0));
-    if (!enabled) return;
+    if (!enabled) { captionKey = key; return; }
     const rendered = await Promise.all(cues.map(async cue => {
       const line = await make('p');
       const tokens = view.tokens?.[cue.id];
@@ -327,6 +338,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       captionKey = ''; return;
     }
     for (const line of rendered) captions.append(line);
+    captionKey = key;
   }
 
   async function matchesClock(element) {
@@ -341,7 +353,6 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     const parts = sentenceParts(sentence, view.sentenceTokens);
     const key = JSON.stringify([sentence, parts]);
     if (key !== sentenceKey) {
-      sentenceKey = key;
       for (const child of await read(fields.sentence.getChildren())) child.remove();
       fields.sentence.setText(parts ? '' : sentence);
       fields.sentence.setAttribute('data-reading', parts ? 'aligned' : 'plain');
@@ -359,6 +370,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
         }));
         for (const word of words) fields.sentence.append(word);
       }
+      sentenceKey = key;
     }
     text('sentence-romaji', view.sentenceRomaji);
     show(fields['sentence-romaji'], !parts && !!view.sentenceRomaji);
@@ -407,7 +419,6 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     if (!mounted) return;
     const key = JSON.stringify([view.playback.title, view.playback.episode, view.drawerOpen, view.selected, view.reading, view.romaji, view.meaning, view.baseForm, view.explanation, view.reply, view.error, view.busy, view.source, view.preferences, view.autoSubtitles, view.sentenceRomaji, view.sentenceTranslation, view.translationBusy, view.translationError, view.sentenceTokens?.map(token => [token.surface, token.romaji, token.pos, token.meaning, token.meaningBusy])]);
     if (key !== renderKey) {
-      renderKey = key;
       const nextWord = identity(view);
       if (nextWord !== wordKey) { wordKey = nextWord; fields.question.setProperty('value', ''); notice(''); }
       text('word', view.selected?.surface); text('reading', [view.reading, view.romaji].filter(Boolean).join(' · '));
@@ -427,6 +438,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       show(fields.study, !!view.drawerOpen && !!view.selected);
       if (view.error) notice(view.error);
       await placeDrawer();
+      renderKey = key;
     }
     await renderCaptions();
     await placeControls();

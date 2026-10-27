@@ -49,8 +49,13 @@ machine's passwords, accounts or database.
 
 Denshi's renderer expects port 43211. If another Seanime profile is running,
 **quit it from the tray** before installing or launching this setup. The installer
-refuses to configure a different profile. qBittorrent/companion ports are selected
-when first installed and saved. All three APIs bind to 127.0.0.1.
+refuses to configure a different profile. qBittorrent's port is selected when
+first installed and saved. The companion uses port 8765, matching the learning
+plugin's network permission. Close any other service using that port before
+setup; it no longer silently selects an incompatible port. Older installations
+with a different companion port must close LangPlay and rerun setup to migrate.
+All three APIs bind to 127.0.0.1. Jimaku settings are read from this installation's
+private Seanime profile.
 
 Retrying keeps verified downloads, credentials, library settings, provider
 preferences and automatic-download rules. Only initial setup applies defaults.

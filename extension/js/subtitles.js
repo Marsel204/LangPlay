@@ -309,47 +309,35 @@ export function parseSubtitleFile(raw, filename = '') {
   return parseSRT(raw);
 }
 
+// Prefix end maxima preserve enclosing cues when shorter dialogue overlaps them.
+const cueEndIndexes = new WeakMap();
+/** Find an active cue in a start-sorted timeline, including overlapping cues. */
 export function findCueIndexAtTime(timeline, time) {
-  if (!timeline || timeline.length === 0) return -1;
-
+  if (!timeline?.length) return -1;
   const effectiveTime = time - timingOffset;
-
-  if (currentSubIndex >= 0 && currentSubIndex < timeline.length) {
-    const cue = timeline[currentSubIndex];
-    if (effectiveTime >= cue.start && effectiveTime <= cue.end) {
-      return currentSubIndex;
-    }
-    if (currentSubIndex + 1 < timeline.length) {
-      const nextCue = timeline[currentSubIndex + 1];
-      if (effectiveTime >= nextCue.start && effectiveTime <= nextCue.end) {
-        return currentSubIndex + 1;
-      }
-    }
+  let ends = cueEndIndexes.get(timeline);
+  if (!ends || ends.length !== timeline.length) {
+    let maximum = -Infinity;
+    ends = timeline.map(cue => maximum = Math.max(maximum, cue.end));
+    cueEndIndexes.set(timeline, ends);
   }
-
-  let low = 0;
-  let high = timeline.length - 1;
-
-  while (low <= high) {
+  let low = 0, high = timeline.length;
+  while (low < high) {
     const mid = (low + high) >> 1;
-    const cue = timeline[mid];
-
-    if (effectiveTime < cue.start) {
-      high = mid - 1;
-    } else if (effectiveTime > cue.end) {
-      low = mid + 1;
-    } else {
-      return mid;
-    }
+    if (timeline[mid].start <= effectiveTime) low = mid + 1;
+    else high = mid;
   }
-
+  for (let i = low - 1; i >= 0 && ends[i] >= effectiveTime; i--) {
+    if (timeline[i].end >= effectiveTime) return i;
+  }
   return -1;
 }
 
 export function setTimeline(timeline, isManual = false) {
   subtitleTimeline = Array.isArray(timeline) ? timeline : [];
+  cueEndIndexes.delete(subtitleTimeline);
   currentSubIndex = -1;
-  if (isManual) manualCaptionsLoaded = true;
+  manualCaptionsLoaded = !!isManual;
 }
 
 export function getTimeline() {

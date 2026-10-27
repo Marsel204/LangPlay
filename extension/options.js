@@ -352,8 +352,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // 10. Clear cards
   clearCardsBtn.addEventListener('click', () => {
     if (confirm('Are you sure you want to clear all locally saved cards in extension storage?')) {
-      chrome.storage.local.set({ linguaplay_cards: [] }, () => {
-        savedCardCounter.textContent = '0 cards in storage';
+      chrome.runtime.sendMessage({ action: 'CLEAR_CARDS' }, response => {
+        const error = chrome.runtime.lastError;
+        savedCardCounter.textContent = error || !response?.success
+          ? `Could not clear cards: ${error?.message || response?.error || 'Try again.'}` : '0 cards in storage';
       });
     }
   });

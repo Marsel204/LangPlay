@@ -22,6 +22,7 @@ import urllib.request
 
 VERSION = "0.2.0"
 BACKEND_PORT = 43211  # Denshi 3.10.4's renderer hardcodes this port.
+COMPANION_PORT = 8765  # The learning plugin declares network access to this port.
 
 
 class SetupError(RuntimeError):
@@ -422,13 +423,22 @@ class Installer:
 
     def _install(self, library, system):
         state_path = self.root / "installation.json"
+        if port_busy(COMPANION_PORT):
+            try:
+                check_companion(COMPANION_PORT, self.root)
+            except (OSError, ValueError, SetupError) as error:
+                raise SetupError('LangPlay needs companion port 8765. Close the other application using it and retry setup.') from error
         state = read_json(state_path) if state_path.exists() else {
             "schema": 1, "system": system, "library": str(library),
-            "qbitPort": available_port(8081), "companionPort": available_port(8765),
+            "qbitPort": available_port(8081), "companionPort": COMPANION_PORT,
             "qbitPassword": secrets.token_urlsafe(32), "complete": False,
         }
         if state.get("schema") != 1 or state.get("system") != system:
             raise SetupError("This installation belongs to a different platform or installer version.")
+        if state.get('companionPort') != COMPANION_PORT:
+            if port_busy(state['companionPort']):
+                raise SetupError('Close the existing LangPlay companion before rerunning setup to migrate its port to 8765.')
+            state['companionPort'] = COMPANION_PORT
         save_json(state_path, state)
         Path(state["library"]).mkdir(parents=True, exist_ok=True)
         (self.root / "stream-cache").mkdir(exist_ok=True)
@@ -543,6 +553,8 @@ def launch(root: Path, log=print):
         state = read_json(root / "installation.json")
         if not state.get("complete"):
             raise SetupError("Setup is incomplete. Run the installer again.")
+        if state.get('companionPort') != COMPANION_PORT:
+            raise SetupError('Run setup again to migrate the companion to port 8765 required by the learning plugin.')
         api = SeanimeAPI()
         already_running = port_busy(BACKEND_PORT)
         if already_running:
@@ -580,16 +592,23 @@ def launch(root: Path, log=print):
 
 
 def check_companion(port: int, root: Path):
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/langplay/health", timeout=2) as response:
-        data = json.load(response)
-    if data.get("application") != "langplay-companion" or not same_path(data.get("profile", ""), root):
-        raise SetupError("The LangPlay port belongs to another application. Close it and retry.")
+    message = "The LangPlay port belongs to another application or is unavailable. Close it and retry."
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/langplay/health", timeout=2) as response:
+            raw = response.read(65537)
+        if len(raw) > 65536:
+            raise ValueError('Oversized health reply.')
+        data = json.loads(raw)
+        if (not isinstance(data, dict) or data.get("application") != "langplay-companion"
+                or not isinstance(data.get('profile'), str) or not same_path(data['profile'], root)):
+            raise ValueError('Foreign companion.')
+    except (OSError, ValueError, TypeError, RecursionError):
+        raise SetupError(message) from None
     return True
 
 
 def companion(root: Path):
     """Use the existing backend without its auto-incrementing bind or ephemeral bookmark path."""
-    import http.server
     import Server
     # Windows --windowed executables have no Python stdout, even with redirected handles.
     if sys.stdout is None:
@@ -601,10 +620,14 @@ def companion(root: Path):
     data.mkdir(parents=True, exist_ok=True)
     Server.ANKI_FILE = str(data / "anki_cards.txt")
     os.environ['LANGPLAY_SUBTITLE_DIR'] = str(root / 'subtitles')
+    os.environ['LANGPLAY_SEANIME_DIR'] = str(root / 'seanime')
     class Handler(Server.RequestHandler):
         def do_GET(self):
             if self.path == "/api/langplay/health":
+                if not self.origin_allowed():
+                    self.send_json_response(403, {"status": "error", "message": "Origin is not allowed."})
+                    return
                 self.send_json_response(200, {"application": "langplay-companion", "profile": str(root), "version": VERSION})
             else:
                 super().do_GET()
-    http.server.ThreadingHTTPServer(("127.0.0.1", state["companionPort"]), Handler).serve_forever()
+    Server.LangPlayHTTPServer(("127.0.0.1", state["companionPort"]), Handler).serve_forever()

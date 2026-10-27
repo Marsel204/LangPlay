@@ -121,8 +121,17 @@ const captionsCopyFeedback = document.getElementById('captions-copy-feedback');
 
 // Current token tracking
 let currentActiveToken = null;
+let currentSelection = null;
 let currentLastAiData = null;
 let currentYouTubeId = null;
+let playbackVersion = 0;
+
+function clearWordSelection() {
+  abortAIAnalysis();
+  if (currentActiveToken) currentActiveToken.classList.remove('active');
+  currentActiveToken = currentSelection = currentLastAiData = null;
+  activeState.classList.add('hidden'); placeholderState.classList.remove('hidden');
+}
 
 // ══════════════════════════════════════════════════════════════════════
 //  1. Subtitle Synchronization Callback
@@ -299,6 +308,8 @@ async function loadYouTube(input) {
   }
 
   currentYouTubeId = videoId;
+  const revision = ++playbackVersion;
+  clearWordSelection();
   showYouTubeUI();
   setTimeline([], false);
   tokensContainer.innerHTML = '';
@@ -306,12 +317,15 @@ async function loadYouTube(input) {
 
   try {
     await loadYouTubeVideo(videoId, async (errorCode, vidId) => {
+      if (revision !== playbackVersion) return;
       if (errorCode === 101 || errorCode === 150) {
         showYoutubeFeedback("Embedding disabled by owner. Attempting direct stream extraction via local server...");
         try {
           const sRes = await fetch(`/api/stream?v=${encodeURIComponent(vidId)}`);
+          if (revision !== playbackVersion) return;
           if (sRes.ok) {
             const sData = await sRes.json();
+            if (revision !== playbackVersion) return;
             if (sData.url) {
               showNativeUI();
               videoPlayer.src = sData.url;
@@ -329,10 +343,13 @@ async function loadYouTube(input) {
       showYoutubeFeedback(`YouTube playback error (${errorCode}). If embedding is blocked, try another video.`);
     });
   } catch (err) {
+    if (revision !== playbackVersion) return;
     showYoutubeFeedback(`Error initializing YouTube player: ${err.message}`);
   }
 
+  if (revision !== playbackVersion) return;
   const cues = await fetchServerCaptions(videoId);
+  if (revision !== playbackVersion || isManualCaptionsLoaded()) return;
   if (cues && cues.length > 0) {
     if (!isManualCaptionsLoaded()) {
       setTimeline(cues, false);
@@ -418,6 +435,8 @@ function handleTokenClick(tokenEl) {
   currentActiveToken = tokenEl;
 
   const word = tokenEl.dataset.word;
+  const selection = Object.freeze({ word, sentence: getCurrentSentence() || word });
+  currentSelection = selection;
   const romaji = tokenEl.dataset.romaji;
   const reading = tokenEl.dataset.reading;
   const furigana = tokenEl.dataset.furigana;
@@ -436,6 +455,7 @@ function handleTokenClick(tokenEl) {
   } else {
     activeDef.innerHTML = '<span class="animate-pulse">Fetching translation…</span>';
     fetchGoogleTranslation(baseform).then(translation => {
+      if (currentSelection !== selection) return;
       if (translation) {
         activeDef.innerHTML = `${baseform !== word ? baseform + ' — ' : ''}${translation}`;
       } else {
@@ -519,27 +539,37 @@ export async function initApp() {
     const file = e.target.files[0];
     if (!file) return;
     videoLabel.textContent = file.name;
+    playbackVersion++; currentYouTubeId = null; clearWordSelection();
+    setTimeline([], false);
     showNativeUI();
     loadLocalVideo(file);
   });
 
+  let subtitleUploadVersion = 0;
   subInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
+    subInput.value = ''; // Allow choosing the same file again after a failure.
     if (!file) return;
-    subLabel.textContent = file.name;
-
+    const upload = ++subtitleUploadVersion, playback = playbackVersion;
+    const isCurrent = () => upload === subtitleUploadVersion && playback === playbackVersion;
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('Choose a subtitle up to 10 MiB.', 'error'); return;
+    }
     const reader = new FileReader();
+    const failed = () => { if (isCurrent()) showToast('Could not read subtitle. Choose the file again to retry.', 'error'); };
+    reader.onerror = failed;
     reader.onload = (evt) => {
-      const cues = parseSubtitleFile(evt.target.result, file.name);
-      setTimeline(cues, true);
-      tokensContainer.innerHTML = '';
-      if (cues.length === 0) {
-        showToast('Parsed 0 cues. Verify file syntax (.srt/.vtt)', 'error');
-      } else {
+      if (!isCurrent()) return;
+      try {
+        const cues = parseSubtitleFile(evt.target.result, file.name);
+        if (!cues.length) { showToast('No usable subtitle cues. Verify file syntax (.srt/.vtt).', 'error'); return; }
+        setTimeline(cues, true);
+        subLabel.textContent = file.name;
+        tokensContainer.innerHTML = '';
         showToast(`Parsed ${cues.length} subtitle cues.`, 'success');
-      }
+      } catch { failed(); }
     };
-    reader.readAsText(file);
+    try { reader.readAsText(file); } catch { failed(); }
   });
 
   // 5. YouTube Search & Load
@@ -617,6 +647,8 @@ export async function initApp() {
 
   // 10. Ask AI (Supports Antigravity CLI / Gemini / OpenRouter)
   askAiBtn.addEventListener('click', () => {
+    const selection = currentSelection;
+    if (!selection) return;
     aiTriggerSection.classList.add('hidden');
     aiResponseContainer.classList.remove('hidden');
     aiLoadingSkeleton.classList.remove('hidden');
@@ -624,9 +656,9 @@ export async function initApp() {
     aiCardsContainer.innerHTML = '';
     aiErrorDisplay.classList.add('hidden');
 
-    const word = activeWord.textContent;
+    const word = selection.word;
     const romaji = activeRomaji.textContent;
-    const sentence = getCurrentSentence();
+    const sentence = selection.sentence;
     const provider = getAIProvider();
     const apiKey = aiApiKeyInput ? aiApiKeyInput.value.trim() : '';
 
@@ -637,17 +669,20 @@ export async function initApp() {
       provider,
       apiKey,
       onChunk: (text) => {
+        if (selection !== currentSelection) return;
         aiLoadingSkeleton.classList.add('hidden');
         aiStreamPreview.classList.remove('hidden');
         aiStreamPreview.textContent = text;
       },
       onSuccess: (data) => {
+        if (selection !== currentSelection) return;
         currentLastAiData = data;
         aiLoadingSkeleton.classList.add('hidden');
         aiStreamPreview.classList.add('hidden');
         renderAICards(data, word, aiCardsContainer);
       },
       onError: (msg) => {
+        if (selection !== currentSelection) return;
         aiLoadingSkeleton.classList.add('hidden');
         aiStreamPreview.classList.add('hidden');
         aiErrorDisplay.textContent = msg;
@@ -658,16 +693,18 @@ export async function initApp() {
 
   // 11. Quick Add to Anki (Dual Pipeline)
   quickAnkiBtn.addEventListener('click', async () => {
+    const selection = currentSelection;
+    if (!selection) return;
     quickAnkiBtn.disabled = true;
     quickAnkiBtn.innerHTML = '⏳ Syncing...';
     quickAnkiFeedback.classList.add('hidden');
 
-    const word = activeWord.textContent;
+    const word = selection.word;
     const romaji = activeRomaji.textContent;
     const token = currentActiveToken;
     const reading = token ? (token.dataset.reading || token.dataset.furigana || '') : '';
     const meaning = activeDef.innerHTML;
-    const sentence = getCurrentSentence();
+    const sentence = selection.sentence;
 
     try {
       const res = await addQuickCard({
@@ -679,10 +716,12 @@ export async function initApp() {
         sentenceRomaji: ''
       });
 
+      if (selection !== currentSelection) return;
       quickAnkiBtn.innerHTML = '✓ Added to Anki';
       quickAnkiBtn.className = 'w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center gap-2 cursor-default';
       showToast(res.message, 'success', 3500);
     } catch (err) {
+      if (selection !== currentSelection) return;
       quickAnkiBtn.disabled = false;
       quickAnkiBtn.innerHTML = '⚠ Sync Failed';
       quickAnkiBtn.className = 'w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 transition-all flex items-center justify-center gap-2';
@@ -696,20 +735,23 @@ export async function initApp() {
   // 12. Save AI Card to Anki
   if (aiSaveAnkiBtn) {
     aiSaveAnkiBtn.addEventListener('click', async () => {
-      if (!currentLastAiData) return;
+      const selection = currentSelection;
+      if (!currentLastAiData || !selection) return;
       aiSaveAnkiBtn.disabled = true;
       aiSaveAnkiBtn.innerHTML = '⏳ Saving AI Card...';
 
       try {
         const res = await addAICard({
-          word: activeWord.textContent,
+          word: selection.word,
           aiData: currentLastAiData,
-          sentence: getCurrentSentence()
+          sentence: selection.sentence
         });
+        if (selection !== currentSelection) return;
         aiSaveAnkiBtn.innerHTML = '✓ AI Card Saved';
         aiSaveAnkiBtn.className = 'w-full py-2 px-3 rounded-lg text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center gap-1 cursor-default';
         showToast(res.message, 'success', 3500);
       } catch (err) {
+        if (selection !== currentSelection) return;
         aiSaveAnkiBtn.disabled = false;
         aiSaveAnkiBtn.innerHTML = '⚠ Save Failed';
         showToast(err.message, 'error', 3500);
@@ -719,11 +761,7 @@ export async function initApp() {
 
   // 13. Dismiss Drawer
   dismissBtn.addEventListener('click', () => {
-    abortAIAnalysis();
-    activeState.classList.add('hidden');
-    placeholderState.classList.remove('hidden');
-    if (currentActiveToken) currentActiveToken.classList.remove('active');
-    currentActiveToken = null;
+    clearWordSelection();
     playMedia();
   });
 

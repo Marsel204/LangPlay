@@ -19,16 +19,21 @@ export function start(ctx) {
   const tray = ctx.newTray({ iconUrl: '', withContent: false });
   tray.onClick(() => panel.show());
   let ticking = false, surface = null, terminated = false, terminatedIdentity = null, localSequence = 0, automatic = null;
+  let manualSourceSequence = 0, pendingDiscontinuity = false;
   const parsing = new Set();
+  // Visible lines must survive eviction from the bounded general parser cache.
+  const activeReadings = new Map();
   const send = (event, value) => panel.channel.send(event, JSON.stringify(value));
   async function publish(waitForSurface = true) {
     const view = controller.view();
     const association = host.snapshot()?.association;
     const associations = storage.read('sources', {});
     const tokens = {};
+    const activeTexts = new Set(view.activeCues.map(cue => cue.text));
+    for (const text of activeReadings.keys()) if (!activeTexts.has(text)) activeReadings.delete(text);
     for (const cue of view.activeCues) {
-      const cached = services.cached(cue.text);
-      if (cached) tokens[cue.id] = cached;
+      const cached = activeReadings.get(cue.text) || services.cached(cue.text);
+      if (cached) { activeReadings.set(cue.text, cached); tokens[cue.id] = cached; }
     }
     const state = { ...view, tokens, preferences, autoSubtitles: automatic?.status() || {state:'idle',message:''},
       association: association && associations[association] || null };
@@ -41,42 +46,54 @@ export function start(ctx) {
     }
   }
   async function tick(discontinuity = false) {
+    pendingDiscontinuity = pendingDiscontinuity || discontinuity;
     if (ticking) return;
     ticking = true;
+    const seeked = pendingDiscontinuity;
+    pendingDiscontinuity = false;
     try {
-      await controller.refresh({ discontinuity });
+      await controller.refresh({ discontinuity: seeked });
       if (!terminated) automatic?.update(preferences.autoSubtitles).catch(() => {});
       if (!panel.isHidden() || surface?.available) {
         await publish(false);
         for (const cue of controller.readingCues()) {
           if (parsing.size >= 4) break;
-          if (!services.cached(cue.text) && !parsing.has(cue.text)) {
+          if (!activeReadings.has(cue.text) && !services.cached(cue.text) && !parsing.has(cue.text)) {
             parsing.add(cue.text);
-            services.parse(cue.text).then(() => {
+            services.parse(cue.text).then(tokens => {
               // A cold line (for example just after a seek) should gain its
               // readings immediately, without another 250 ms polling delay.
-              if (controller.view().activeCues.some(active => active.text === cue.text)) return publish(false);
+              if (controller.view().activeCues.some(active => active.text === cue.text)) {
+                activeReadings.set(cue.text, tokens);
+                return publish(false);
+              }
             }).catch(() => {}).finally(() => parsing.delete(cue.text));
           }
         }
       }
-    } finally { ticking = false; }
+    } finally { ticking = false; if (pendingDiscontinuity) await tick(); }
   }
   async function perform(op, data) {
       let result = { ok: true };
       if (op === 'refresh') await controller.refresh();
       else if (op === 'saved-list' || op === 'saved-open') result = await services.savedSubtitles({ action: op === 'saved-list' ? 'list' : 'open' });
       else if (op === 'import' || op === 'saved-import') {
+        const choice = ++manualSourceSequence, before = host.snapshot();
+        if (!before) throw new Error('Start an episode before loading a subtitle.');
+        if (data.expectedPlayback && ['clientId', 'playbackId', 'videoIdentity'].some(key => data.expectedPlayback[key] !== before[key])) {
+          throw new Error('Episode changed. Choose the subtitle for the current episode.');
+        }
+        const isCurrent = () => choice === manualSourceSequence;
         automatic?.cancel();
         let subtitle = data;
         if (op === 'saved-import') {
-          const before = host.snapshot();
-          if (!before) throw new Error('Start an episode before loading a saved subtitle.');
           subtitle = { ...await services.savedSubtitles({ action: 'read', name: data.name, encoding: data.encoding }), offsetMs: data.offsetMs };
           const after = host.snapshot();
           if (!after || ['clientId', 'playbackId', 'videoIdentity'].some(key => before[key] !== after[key])) throw new Error('Episode changed. Choose the subtitle for the current episode.');
         }
-        await controller.loadSubtitle(subtitle);
+        if (!isCurrent()) throw new Error('A newer subtitle choice superseded this import.');
+        await controller.loadSubtitle(subtitle, { expectedPlayback: before, isCurrent });
+        if (!isCurrent()) throw new Error('A newer subtitle choice superseded this import.');
         const association = host.snapshot()?.association;
         if (association) {
           const sources = storage.read('sources', {});

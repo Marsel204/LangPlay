@@ -61,7 +61,7 @@ export function createLearningSession({ now = () => Date.now(), maxExtrapolation
     const time = position();
     if (time === null) return [];
     const sourceMs = time - offsetMs;
-    const result = active().slice(0, 8);
+    const result = active();
     // Prepare only nearby lines, with current dialogue taking priority. Seek
     // directly into the sorted source instead of scanning an episode per tick.
     let low = 0, high = index.cues.length;
@@ -70,7 +70,7 @@ export function createLearningSession({ now = () => Date.now(), maxExtrapolation
       if (index.cues[middle].startMs <= sourceMs) low = middle + 1;
       else high = middle;
     }
-    for (let i = low; i < index.cues.length && result.length < 8; i++) {
+    for (let i = low, upcoming = 0; i < index.cues.length && upcoming < 8; i++, upcoming++) {
       if (index.cues[i].startMs > sourceMs + 15000) break;
       result.push(index.cues[i]);
     }

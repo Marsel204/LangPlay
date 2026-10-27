@@ -158,6 +158,57 @@ class SetupTests(unittest.TestCase):
             with self.assertRaisesRegex(core.SetupError, "another application"):
                 core.check_companion(8765, self.root)
 
+    def test_malformed_companion_health_has_a_friendly_conflict_error(self):
+        for raw in (b'AnkiConnect', b'[]', b'{"application":"langplay-companion","profile":3}', b'x' * 65537):
+            with self.subTest(raw=raw[:50]), patch.object(core.urllib.request, 'urlopen', return_value=io.BytesIO(raw)):
+                with self.assertRaisesRegex(core.SetupError, 'another application'):
+                    core.check_companion(8765, self.root)
+
+    def test_companion_health_rejects_untrusted_origins_before_disclosing_profile(self):
+        import Server
+        from unittest.mock import Mock
+        core.save_json(self.root / 'installation.json', self.state(companionPort=8765))
+        with patch.dict(os.environ), patch.object(Server, 'ANKI_FILE'), patch.object(Server, 'LangPlayHTTPServer') as http:
+            core.companion(self.root)
+            handler = http.call_args.args[1].__new__(http.call_args.args[1])
+            handler.path = '/api/langplay/health'
+            handler.headers = {'Origin': 'https://untrusted.example'}
+            handler.send_json_response = Mock()
+            handler.do_GET()
+            code, body = handler.send_json_response.call_args.args
+            self.assertEqual(code, 403)
+            self.assertNotIn('profile', body)
+
+    def test_companion_port_conflict_fails_before_downloading_or_saving_state(self):
+        with patch.object(core, 'port_busy', return_value=True), \
+                patch.object(core, 'check_companion', side_effect=OSError('foreign service')), \
+                patch.object(core, 'fetch', side_effect=AssertionError('Download started before port validation.')) as fetch:
+            with self.assertRaisesRegex(core.SetupError, '8765'):
+                core.Installer(self.root)._install(self.root / 'Anime', 'linux')
+        fetch.assert_not_called()
+        self.assertFalse((self.root / 'installation.json').exists())
+
+    def test_companion_reads_credentials_from_the_owned_seanime_profile(self):
+        import Server
+        import subtitle_discovery
+        core.save_json(self.root / 'installation.json', self.state(companionPort=8765))
+        core.save_json(self.root / 'seanime/cache/ext_user_config_subtitle-engine.cache',
+                       {'subtitle-engine': {'value': {'values': {'jimakuKey': 'owned-fixture'}}}})
+        with patch.dict(os.environ, {'LANGPLAY_JIMAKU_API_KEY': ''}), \
+                patch.object(Server, 'ANKI_FILE'), patch('http.server.ThreadingHTTPServer'), \
+                patch.object(Server, 'LangPlayHTTPServer') as http:
+            core.companion(self.root)
+            self.assertEqual(os.environ.get('LANGPLAY_SEANIME_DIR'), str(self.root / 'seanime'))
+            self.assertEqual(subtitle_discovery.jimaku_key(), 'owned-fixture')
+        self.assertEqual(http.call_args.args[0], ('127.0.0.1', 8765))
+
+    def test_legacy_port_requires_setup_before_launching_services(self):
+        core.save_json(self.root / 'installation.json', self.state(companionPort=8766, complete=True))
+        with patch.object(core.Installer, 'spawn') as spawn:
+            with self.assertRaisesRegex(core.SetupError, 'setup again'):
+                core.launch(self.root)
+        spawn.assert_not_called()
+
     def test_desktop_exec_escapes_spaces_quotes_and_field_codes(self):
         text = core.desktop_exec(["/home/A person/app", "a%f", 'a"b', "a$HOME"])
         self.assertIn('"/home/A person/app"', text)
@@ -178,7 +229,7 @@ class SetupTests(unittest.TestCase):
             core.launch(self.root, log=lambda _: None)
 
     def test_launch_uses_installed_runtime_and_waits_for_the_owned_backend(self):
-        state = self.state(companionPort=8766, runtime="/installed/LangPlay", seanime="/installed/Seanime", complete=True)
+        state = self.state(companionPort=8765, runtime="/installed/LangPlay", seanime="/installed/Seanime", complete=True)
         core.save_json(self.root / "installation.json", state)
         calls = []
         def spawn(_, command, *args, **kwargs):
@@ -195,7 +246,7 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(wait.call_count, 2)
 
     def test_startup_failure_cleans_new_processes_without_stopping_existing_services(self):
-        state = self.state(companionPort=8766, runtime="/installed/LangPlay", seanime="/installed/Seanime", complete=True)
+        state = self.state(companionPort=8765, runtime="/installed/LangPlay", seanime="/installed/Seanime", complete=True)
         core.save_json(self.root / "installation.json", state)
         with patch.object(core, "port_busy", side_effect=lambda port: port == 8082), \
              patch.object(core, "QbitAPI"), patch.object(core.Installer, "spawn"), \

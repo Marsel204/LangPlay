@@ -114,6 +114,9 @@ Rerun `native/install_host.py` using the installed backend path and extension ID
 then reload the extension. The updated launcher prefers `.venv/bin/python` beside
 `Server.py`; restart any server already running with the old interpreter. For
 manual startup, use `.venv/bin/python Server.py --host 127.0.0.1 --port 8000`.
+The standalone server now binds to loopback by default. Use `--host 0.0.0.0`
+only when intentionally sharing it on a trusted LAN. Only app HTML and `static/`
+assets are served; repository files and saved cards are not public assets.
 
 When the server/parser is unavailable, subtitles remain usable with the existing
 lightweight fallback. Parsing retries on subsequent cues and when automatic

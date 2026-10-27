@@ -1,6 +1,7 @@
 """Episode-scoped Jimaku discovery; credentials stay in the local companion."""
 import codecs
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -31,11 +32,13 @@ def jimaku_key():
             return ''
         value = json.loads(raw)['subtitle-engine']['value']['values'].get('jimakuKey', '')
         return value.strip() if isinstance(value, str) else ''
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
         return ''
 
 
 def trusted_url(url, entry=None):
+    if not isinstance(url, str):
+        return False
     try:
         parsed = urllib.parse.urlparse(url)
         return (parsed.scheme == 'https' and parsed.hostname == 'jimaku.cc' and parsed.port in (None, 443)
@@ -66,7 +69,13 @@ def _fetch(url, deadline, key='', limit=MAX_BYTES):
         with urllib.request.build_opener(JimakuRedirect()).open(request, timeout=min(10, remaining)) as response:
             if not trusted_url(response.url):
                 raise ValueError('Unsupported subtitle location.')
-            if int(response.headers.get('Content-Length', 0)) > limit:
+            try:
+                length = int(response.headers.get('Content-Length', 0))
+                if length < 0:
+                    raise ValueError()
+            except (ValueError, TypeError):
+                raise ValueError('Jimaku returned an invalid response length. Retry automatic search.') from None
+            if length > limit:
                 raise ValueError('Japanese subtitle exceeds the size limit.')
             data = bytearray()
             while len(data) <= limit:
@@ -83,7 +92,7 @@ def _fetch(url, deadline, key='', limit=MAX_BYTES):
         hints = {401: 'Check the Jimaku API key in Subtitle Engine preferences.', 403: 'Check the Jimaku API key in Subtitle Engine preferences.',
                  429: 'Jimaku rate limit reached. Wait and retry automatic search.'}
         raise ValueError(hints.get(error.code, f'Jimaku is unavailable (HTTP {error.code}). Retry automatic search.')) from None
-    except (urllib.error.URLError, TimeoutError):
+    except (OSError, http.client.HTTPException):
         raise ValueError('Jimaku could not be reached. Retry automatic search or load a saved subtitle.') from None
 
 
@@ -106,7 +115,12 @@ def _cached(folder, media, episode):
         if metadata.parent.is_symlink():
             return None
         descriptor = os.open(metadata, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
-        with os.fdopen(descriptor, 'rb') as source:
+        try:
+            source = os.fdopen(descriptor, 'rb')
+        except BaseException:
+            os.close(descriptor)
+            raise
+        with source:
             if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
                 return None
             raw = source.read(65537)
@@ -121,8 +135,9 @@ def _cached(folder, media, episode):
         result = saved_subtitles({'action': 'read', 'name': expected})
         if hashlib.sha256(result['content'].encode('utf-8')).hexdigest() != item['sha256']:
             return None
+        _validate_cues(result['content'], '.' + item['format'])
         return {**result, 'cached': True, 'originalName': item.get('originalName', expected)}
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
         return None
 
 
@@ -134,6 +149,83 @@ def _rank(file):
             0 if 'amazon' in name else 1, name)
 
 
+def _cue_time(value, extension):
+    if extension in ('.ass', '.ssa'):
+        pattern = r'(\d+):([0-5]\d):([0-5]\d)\.(\d{2})'
+    elif extension == '.srt':
+        pattern = r'(\d{2,}):([0-5]\d):([0-5]\d),(\d{3})'
+    else:
+        pattern = r'(?:(\d{2,}):)?([0-5]\d):([0-5]\d)\.(\d{3})'
+    match = re.fullmatch(pattern, value, re.ASCII)
+    if not match:
+        raise ValueError('Invalid subtitle timestamp.')
+    hours, minutes, seconds, fraction = match.groups()
+    value = ((int(hours or 0) * 60 + int(minutes)) * 60 + int(seconds)) * 1000
+    value += int(fraction) * (10 if extension in ('.ass', '.ssa') else 1)
+    if value > 2**53 - 1:
+        raise ValueError('Subtitle timestamp is outside the supported range.')
+    return value
+
+
+def _validate_cues(content, extension):
+    """Check the timing structure accepted by the learning parser before caching."""
+    normalized = content.lstrip('\ufeff').replace('\r\n', '\n').replace('\r', '\n').strip()
+    if '\x00' in normalized:
+        raise ValueError('Invalid subtitle text.')
+    intervals = []
+    if extension in ('.ass', '.ssa'):
+        section, columns = '', None
+        for line in normalized.split('\n'):
+            line = line.strip()
+            if not line or line.startswith(';'):
+                continue
+            if line.startswith('[') and line.endswith(']'):
+                section, columns = line.lower(), None
+                continue
+            if section != '[events]' or ':' not in line:
+                continue
+            key, value = line.split(':', 1)
+            if key.strip().lower() == 'format':
+                columns = [column.strip().lower() for column in value.split(',')]
+                if (len(columns) > 64 or not all(columns) or len(set(columns)) != len(columns)
+                        or 'start' not in columns or 'end' not in columns or columns[-1] != 'text'):
+                    raise ValueError('Invalid ASS event format.')
+            elif key.strip().lower() == 'dialogue':
+                if not columns:
+                    raise ValueError('ASS events need a format declaration.')
+                values = value.split(',', len(columns) - 1)
+                if len(values) != len(columns):
+                    raise ValueError('Incomplete ASS event.')
+                event = dict(zip(columns, (part.strip() for part in values)))
+                layer = event.get('layer', re.sub(r'^Marked=', '', event.get('marked', '0'), flags=re.I))
+                if not re.fullmatch(r'-?\d+', layer, re.ASCII) or abs(int(layer)) > 2**53 - 1:
+                    raise ValueError('Invalid ASS layer.')
+                intervals.append((event['start'], event['end']))
+    else:
+        blocks = re.split(r'\n(?:[ \t]*\n)+', normalized)
+        if extension == '.vtt':
+            header = blocks.pop(0).split('\n')
+            if not re.fullmatch(r'WEBVTT(?:[ \t].*)?', header[0]) or any('-->' in line for line in header[1:]):
+                raise ValueError('Invalid WebVTT header.')
+        for block in blocks:
+            lines = block.split('\n')
+            if extension == '.vtt' and re.match(r'^(NOTE(?:[ \t]|$)|STYLE$|REGION$)', lines[0]):
+                continue
+            if '-->' not in lines[0]:
+                identifier = lines.pop(0)
+                if extension == '.srt' and not re.fullmatch(r'\d+', identifier, re.ASCII):
+                    raise ValueError('Invalid SRT cue number.')
+            match = re.fullmatch(r'(\S+)\s+-->\s+(\S+)(?:[ \t]+.*)?', lines[0].strip()) if lines else None
+            if not match:
+                raise ValueError('Invalid subtitle cue timing.')
+            intervals.append(match.groups())
+    if not intervals:
+        raise ValueError('No usable subtitle cues.')
+    for start, end in intervals:
+        if _cue_time(end, extension) <= _cue_time(start, extension):
+            raise ValueError('Subtitle cue end must follow its start.')
+
+
 def _decode(data, extension):
     if not isinstance(data, bytes) or not 0 < len(data) <= MAX_BYTES:
         raise ValueError('No usable Japanese subtitle file.')
@@ -141,12 +233,10 @@ def _decode(data, extension):
     try:
         content = data.decode(encoding)
     except UnicodeError:
-        content = data.decode('shift_jis')
+        content = data.decode('cp932')
     if not re.search(r'[\u3040-\u30ff\u3400-\u9fff]', content):
         raise ValueError('No usable Japanese subtitle text.')
-    timing = r'(?m)^Dialogue\s*:' if extension in ('.ass', '.ssa') else r'\d{2}:\d{2}(?::\d{2})?[,.]\d{2,3}\s*-->'
-    if not re.search(timing, content, re.IGNORECASE):
-        raise ValueError('No usable Japanese subtitle cues.')
+    _validate_cues(content, extension)
     return content
 
 
@@ -165,17 +255,29 @@ def automatic_subtitle(body, *, get_json=None, download=None, key_reader=None):
         raise ValueError('Japanese subtitle search is busy. Retry in a moment.')
     try:
         deadline = time.monotonic() + 40
-        get_json = get_json or (lambda path, auth: json.loads(_fetch('https://jimaku.cc' + path, deadline, auth, 512 * 1024)))
+        def provider_json(path, auth):
+            try:
+                return json.loads(_fetch('https://jimaku.cc' + path, deadline, auth, 512 * 1024))
+            except (UnicodeError, RecursionError, json.JSONDecodeError):
+                raise ValueError('Jimaku returned invalid JSON. Retry automatic search.') from None
+        get_json = get_json or provider_json
         download = download or (lambda url: _fetch(url, deadline))
         entries = get_json(f'/api/entries/search?anilist_id={media}', key)
+        if not isinstance(entries, list):
+            raise ValueError('Jimaku returned an invalid search reply. Retry automatic search.')
         matches = [e for e in entries if isinstance(e, dict) and e.get('anilist_id') == media and type(e.get('id')) is int
+                   and isinstance(e.get('flags', {}), dict)
+                   and all(type(e.get('flags', {}).get(flag, False)) is bool for flag in ('anime', 'external', 'unverified'))
                    and e.get('flags', {}).get('anime', True) and not e.get('flags', {}).get('external')]
         matches.sort(key=lambda e: (e.get('flags', {}).get('unverified', False), e['id']))
         if not matches:
             raise ValueError('No matching Japanese subtitles on Jimaku. Load a saved file instead.')
         entry = matches[0]['id']
         files = get_json(f'/api/entries/{entry}/files?episode={episode}', key)
+        if not isinstance(files, list):
+            raise ValueError('Jimaku returned an invalid file list. Retry automatic search.')
         candidates = [f for f in files if isinstance(f, dict) and isinstance(f.get('name'), str) and len(f['name']) <= 256
+                      and not any(0xd800 <= ord(char) <= 0xdfff for char in f['name'])
                       and Path(f['name']).suffix.lower() in FORMATS and trusted_url(f.get('url'), entry)
                       and type(f.get('size')) is int and 0 < f['size'] <= MAX_BYTES
                       and not re.search(r'(^|[. _\[(-])(eng|english|en|signs?|songs?)([. _\])&-]|$)', f['name'], re.I)]
