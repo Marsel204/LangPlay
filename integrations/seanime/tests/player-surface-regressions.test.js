@@ -69,6 +69,20 @@ test('a changed visible word replaces the caption even when cue identity is unch
   assert.notEqual(h.token(), original); assert.equal(h.token().text, '言葉');
 });
 
+test('the same paused caption recovers after a transient DOM bridge failure', async () => {
+  const h = fixture();
+  const first = view([{ surface: '日本語', start: 0, end: 3 }]);
+  await h.surface.update(first);
+  const captions = h.nodes.find(node => node.attributes['data-langplay'] === 'captions');
+  const getChildren = captions.getChildren.bind(captions);
+  let fail = true;
+  captions.getChildren = async () => { if (fail) { fail = false; throw Error('Transient DOM bridge failure'); } return getChildren(); };
+  const changed = view([{ surface: '言葉', start: 0, end: 2 }]);
+  await assert.rejects(h.surface.update(changed), /Transient/);
+  await h.surface.update(changed);
+  assert.equal(h.token().text, '言葉');
+});
+
 
 test('mounting into an already fullscreen inline player keeps the drawer inside it', async () => {
   const h = fixture();
@@ -111,6 +125,39 @@ test('fullscreen captions reserve the study drawer area and release it when clos
   assert.equal(captions.attributes['data-study-open'], 'false');
   await h.surface.fullscreen({fullscreen:false});
   assert.equal(captions.attributes['data-mode'], 'windowed');
+});
+
+test('fullscreen Close dismisses on primary press without waiting for click or a published view', async () => {
+  const h = fixture();
+  await h.surface.update({...view([]),drawerOpen:true});
+  await h.surface.fullscreen({fullscreen:true});
+  const drawer = h.nodes.find(n => n.attributes['data-langplay'] === 'drawer');
+  const close = h.nodes.find(n => n.attributes['data-langplay'] === 'close');
+  const captions = h.nodes.find(n => n.attributes['data-langplay'] === 'captions');
+  assert.equal(typeof close.handlers.get('pointerdown'), 'function', 'fullscreen dismissal must handle the initial press');
+  await close.handlers.get('pointerdown')({button:2});
+  assert.equal('hidden' in drawer.attributes, false, 'secondary clicks must not dismiss study');
+  await close.handlers.get('pointerdown')({button:0});
+  assert.equal('hidden' in drawer.attributes, true, 'the drawer must hide before waiting for another published view');
+  assert.equal(captions.attributes['data-study-open'], 'false');
+  await close.handlers.get('click')();
+  assert.equal(h.actions.filter(([op]) => op === 'close').length, 1, 'the subsequent click must not close twice');
+  assert.equal(h.actions.some(([op]) => op === 'resume'), false);
+});
+
+test('keyboard Close and Escape dismiss fullscreen study without a published view', async () => {
+  for (const escape of [false,true]) {
+    const h = fixture();
+    await h.surface.update({...view([]),drawerOpen:true});
+    await h.surface.fullscreen({fullscreen:true});
+    const drawer = h.nodes.find(n => n.attributes['data-langplay'] === 'drawer');
+    const close = h.nodes.find(n => n.attributes['data-langplay'] === 'close');
+    if (escape) await drawer.handlers.get('keydown')({key:'Escape'});
+    else await close.handlers.get('click')();
+    assert.equal('hidden' in drawer.attributes, true);
+    assert.equal(h.actions.filter(([op]) => op === 'close').length, 1);
+    assert.equal(h.actions.some(([op]) => op === 'resume'), false);
+  }
 });
 
 test('word lookup shows romaji alongside the Japanese reading', async () => {

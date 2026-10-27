@@ -120,6 +120,18 @@ test('fullscreen moves the learning drawer into the same video subtree and retur
   assert.equal(h.resumes, 0, 'fullscreen transitions must not resume a paused video');
 });
 
+test('Close dismisses fullscreen word study and keeps playback paused', async () => {
+  const h = fixture(); await h.importSubtitle();
+  const word = h.nodes.find(n => n.connected && n.tagName.toLowerCase() === 'button' && n.textContent === '日本語');
+  await word.click(); await h.tick();
+  await h.emit('video-fullscreen', { fullscreen: true });
+  assert.equal('hidden' in h.part('drawer').attributes, false);
+  await h.part('close').click(); await h.tick();
+  assert.equal('hidden' in h.part('drawer').attributes, true, 'Close must hide the fullscreen study drawer');
+  assert.equal(h.part('captions').attributes['data-study-open'], 'false');
+  assert.equal(h.resumes, 0, 'closing study must preserve the paused video');
+});
+
 test('terminating playback removes the caption controls rather than leaving a hidden player overlay', async () => {
   const h = fixture(); await h.importSubtitle(); assert.ok(h.part('captions'), 'caption overlay must exist before teardown');
   h.core.getPlaybackStatus = () => null;

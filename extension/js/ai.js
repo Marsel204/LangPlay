@@ -182,6 +182,12 @@ export async function requestAIAnalysis({ word, romaji, sentence, provider = nul
   activeAbortController = new AbortController();
   const controller = activeAbortController;
   const signal = activeAbortController.signal;
+  const currentCallback = callback => (...args) => {
+    if (!signal.aborted && activeAbortController === controller) callback?.(...args);
+  };
+  onChunk = currentCallback(onChunk);
+  onSuccess = currentCallback(onSuccess);
+  onError = currentCallback(onError);
 
   // 1. Antigravity CLI / Local Server
   if (activeProv === 'antigravity') {
@@ -215,7 +221,7 @@ export async function requestAIAnalysis({ word, romaji, sentence, provider = nul
       if (err.name === 'AbortError') return;
       onError(err.message || 'Local Antigravity Server not running. Start Server.py or switch to Gemini API in options.');
     } finally {
-      activeAbortController = null;
+      if (activeAbortController === controller) activeAbortController = null;
     }
     return;
   }
@@ -281,6 +287,7 @@ export async function requestAIAnalysis({ word, romaji, sentence, provider = nul
     const key = apiKey || await getSavedApiKey('gemini');
     if (!key) {
       onError('Please provide a Google Gemini API key (AIzaSy...) in the top bar or Options page to enable Gemini explanations.');
+      if (activeAbortController === controller) activeAbortController = null;
       return;
     }
 
@@ -323,7 +330,7 @@ export async function requestAIAnalysis({ word, romaji, sentence, provider = nul
       if (err.name === 'AbortError') return;
       onError(err.message || 'Gemini API call failed. Verify your API key.');
     } finally {
-      activeAbortController = null;
+      if (activeAbortController === controller) activeAbortController = null;
     }
     return;
   }
@@ -332,6 +339,7 @@ export async function requestAIAnalysis({ word, romaji, sentence, provider = nul
   const key = apiKey || await getSavedApiKey('openrouter');
   if (!key) {
     onError('Please provide an OpenRouter API key (sk-or-...) to enable DeepSeek explanations.');
+    if (activeAbortController === controller) activeAbortController = null;
     return;
   }
 
@@ -426,7 +434,7 @@ Please provide an in-depth linguistic and grammatical breakdown with full Romaji
     if (err.name === 'AbortError') return;
     onError(`Network or server error: ${err.message}`);
   } finally {
-    activeAbortController = null;
+    if (activeAbortController === controller) activeAbortController = null;
   }
 }
 

@@ -1,7 +1,7 @@
 {
   "id": "langplay-learning",
   "name": "LangPlay",
-  "version": "0.4.9",
+  "version": "0.4.12",
   "manifestURI": "",
   "language": "javascript",
   "type": "plugin",
@@ -14,8 +14,18 @@
   "plugin": {
     "version": "1",
     "permissions": {
-      "scopes": ["playback", "storage"],
-      "allow": { "networkAccess": { "allowedDomains": ["http://127.0.0.1:8765"], "reasoning": "Use your local LangPlay companion for Japanese parsing and explicit AI requests." } }
+      "scopes": [
+        "playback",
+        "storage"
+      ],
+      "allow": {
+        "networkAccess": {
+          "allowedDomains": [
+            "http://127.0.0.1:8765"
+          ],
+          "reasoning": "Use your local LangPlay companion for Japanese parsing and explicit AI requests."
+        }
+      }
     }
   }
 }

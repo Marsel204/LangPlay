@@ -83,6 +83,7 @@ The selected surface lookup starts alongside parsing. Cached cue tokens let all 
 
 Verification: 110 integration and 82 existing Node tests pass, plus deterministic bundle/callback smoke and whitespace checks. Real companion results supplied meanings for all 13 words in the example sentence. The production tray renderer was checked at 380 px and 280 px, with 13 glosses and no horizontal overflow at 280 px. This was a layout fixture using real service results; live video playback, native desktop and Windows were not requalified. Installed manifest bytes match the build, and Seanime reports version 0.4.6 after external-extension reload.
 
+
 ## Compact AI answers — 20 October 2026
 
 Version 0.4.8 renders Markdown rather than showing raw asterisks, heading markers and quote prefixes. Direct answers remain visible; contextual explanation is expanded initially, and additional grammar/examples open on demand. The shared renderer supports paragraphs, emphasis, lists, quotes, code and tables without interpreting provider HTML or following embedded URLs. The player uses native button inputs for keyboard-safe section toggles; unchanged replies keep disclosure state across clock/dictionary updates.
@@ -96,5 +97,3 @@ The 0.4.8 manifest was installed with a recoverable backup and reloaded through 
 ## Integrated transport controls — 20 October 2026
 
 Version 0.4.9 moves LangPlay into the native bottom player row, before player settings. Use the eye to show/hide Japanese, Auto Sub to open Japanese subtitle settings, and the language icon to choose Japanese, Furigana or Romaji. The green badge indicates a loaded source and displays its cue count. The separate floating toolbar has been removed. The group follows host control visibility/fullscreen and recovers after transport replacement without altering native controls. Verification: 118 integration tests, production build, detector, whitespace checks, and production-renderer browser fixtures passed. The installed manifest matches the build and its scoped external-extension reload returned HTTP 200. Native desktop and Windows playback were not requalified.
-
-The integration runner serializes test files because two production-bundle fixtures rebuild the same `dist/learning-plugin.js`; concurrent Windows reads could otherwise parse a partially written bundle. Test assertions and coverage remain unchanged.

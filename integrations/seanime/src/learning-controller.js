@@ -36,10 +36,10 @@ export function createLearningController({ host, services, now } = {}) {
     if (options.discontinuity) reset();
     return view();
   }
-  async function loadSubtitle(value, {expectedPlayback, expectedSource} = {}) {
+  async function loadSubtitle(value, {expectedPlayback, expectedSource, isCurrent = () => true} = {}) {
     await refresh();
-    if (expectedPlayback && (!playback || ['clientId','playbackId','videoIdentity'].some(key => expectedPlayback[key] !== playback[key])) ||
-        expectedSource !== undefined && source !== expectedSource) throw new Error('Playback or subtitle source changed; automatic load rejected.');
+    if (!isCurrent() || expectedPlayback && (!playback || ['clientId','playbackId','videoIdentity'].some(key => expectedPlayback[key] !== playback[key])) ||
+        expectedSource !== undefined && source !== expectedSource) throw new Error('Playback, subtitle source or request changed; load rejected.');
     if (typeof value?.content !== 'string' || value.content.length > 10 * 1024 * 1024) throw new Error('Subtitle exceeds the 10 MiB text limit.');
     const parsed = parseSubtitles(value.content, value);
     session.setSource({ sourceId: parsed.sourceId, cues: parsed.cues, offsetMs: value.offsetMs });
@@ -56,7 +56,7 @@ export function createLearningController({ host, services, now } = {}) {
       void translateSelection(selected);
       // The clicked surface can be looked up before a cold parse completes.
       // Cached cue tokens let all sentence definitions start immediately too.
-      const initial = Promise.resolve().then(() => services.lookup({ surface: selected.surface })).catch(() => ({ meaning: '' }));
+      const initial = Promise.resolve().then(() => services.lookup({ surface: selected.surface, isCurrent: () => current(selected) })).catch(() => ({ meaning: '' }));
       initial.then(found => { if (current(selected) && !baseForm) meaning = found?.meaning || ''; });
       const cached = services.cached?.(selected.sentence);
       if (cached?.length) enrichSentence(selected, cached);
@@ -70,7 +70,7 @@ export function createLearningController({ host, services, now } = {}) {
       reading = token?.reading || '';
       romaji = token?.romaji || '';
       baseForm = token?.baseForm || token?.base_form || selected.surface;
-      const found = baseForm === selected.surface ? await initial : await services.lookup({ surface: selected.surface, baseForm });
+      const found = baseForm === selected.surface ? await initial : await services.lookup({ surface: selected.surface, baseForm, isCurrent: () => current(selected) });
       if (current(selected)) meaning = found?.meaning || 'No definition available. Try selecting the word again or use Explain sentence.';
     } catch (e) { if (current(selected)) error = String(e.message || e); }
     finally { if (current(selected)) busy = false; }
@@ -82,7 +82,7 @@ export function createLearningController({ host, services, now } = {}) {
     sentenceTokens = records;
     tokens.forEach((token, index) => {
       if (!records[index].meaningBusy) return;
-      Promise.resolve().then(() => current(selected) ? services.lookup({ surface: token.surface, baseForm: token.baseForm || token.base_form }) : null)
+      Promise.resolve().then(() => current(selected) ? services.lookup({ surface: token.surface, baseForm: token.baseForm || token.base_form, isCurrent: () => current(selected) }) : null)
         .then(found => { if (current(selected) && sentenceTokens === records) records[index].meaning = found?.meaning || ''; })
         .catch(() => {})
         .finally(() => { if (current(selected) && sentenceTokens === records) records[index].meaningBusy = false; });
@@ -92,7 +92,7 @@ export function createLearningController({ host, services, now } = {}) {
     if (!selected || !current(selected) || !services.translate) return;
     translationBusy = true; translationError = '';
     try {
-      const result = await services.translate(selected);
+      const result = await services.translate({ ...selected, isCurrent: () => current(selected) });
       if (current(selected)) sentenceTranslation = result.translation;
     } catch (e) { if (current(selected)) translationError = String(e.message || e); }
     finally { if (current(selected)) translationBusy = false; }
@@ -120,11 +120,17 @@ export function createLearningController({ host, services, now } = {}) {
     return { activeCues: session.active(), drawerOpen, selected: session.selected(), reading, romaji, baseForm, meaning,
       sentenceRomaji, sentenceTokens, sentenceTranslation, translationError, translationBusy,
       error, explanation, reply, busy, source, positionMs: session.position(),
-      playback: playback ? { title: playback.title, episode: playback.episode, paused: playback.paused } : null };
+      playback: playback ? { clientId: playback.clientId, playbackId: playback.playbackId, videoIdentity: playback.videoIdentity,
+        title: playback.title, episode: playback.episode, paused: playback.paused } : null };
   }
   return Object.freeze({ refresh, loadSubtitle, select, resume, view, readingCues: () => session.readingCues(),
     close() { drawerOpen = false; return view(); },
-    setOffset(value) { session.setOffset(value); if (source) source.offsetMs = value; reset(); return view(); },
+    setOffset(value) {
+      const selected = session.selected();
+      session.setOffset(value); if (source) source.offsetMs = value;
+      if (selected !== session.selected()) reset();
+      return view();
+    },
     explain: () => action('explain'), save: () => action('save'),
     async translate() { await refresh(); await translateSelection(session.selected()); return view(); },
     chat: question => action('chat', { question }),

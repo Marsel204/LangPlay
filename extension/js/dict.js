@@ -20,7 +20,7 @@ export const JDICT = {
   '返す': 'to return (something)', '帰る': 'to return home', '死ぬ': 'to die', '生きる': 'to live; to be alive', '生まれる': 'to be born',
   '変わる': 'to change (intrans.)', '変える': 'to change (trans.)', '思う': 'to think; to feel', '考える': 'to think; to consider', '知る': 'to know',
   '分かる': 'to understand; to know', '忘れる': 'to forget', '覚える': 'to remember; to memorize', '信じる': 'to believe', '感じる': 'to feel',
-  '好き': 'to like', '嫌い': 'to dislike; to hate', '欲しい': 'to want (adjective)', 'できる': 'can do; to be able to', 'なる': 'to become',
+  '欲しい': 'to want (adjective)', 'できる': 'can do; to be able to', 'なる': 'to become',
   '見える': 'to be visible; can see', '聞こえる': 'to be audible; can hear', '決める': 'to decide', '選ぶ': 'to choose',
   '探す': 'to search; to look for', '見つける': 'to find; to discover', '試す': 'to try', '続ける': 'to continue',
   '歌う': 'to sing', '踊る': 'to dance', '泳ぐ': 'to swim', '飛ぶ': 'to fly; to jump', '打つ': 'to hit; to strike', '切る': 'to cut',

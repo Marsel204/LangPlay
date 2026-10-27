@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHost } from '../src/host.js';
 import { validateMessage } from '../src/bridge.js';
+import { createLearningController } from '../src/learning-controller.js';
 
 test('Host converts seconds, withholds URLs, and rechecks playback before control', () => {
   let id = 'http://signed.example/movie?secret=private', pauses = 0;
@@ -36,4 +37,24 @@ test('automatic discovery gets a numeric anime ID and episode changes invalidate
  const core={getCurrentClientId:()=> 'a',getCurrentPlayerType:()=> 'web',getCurrentPlaybackInfo:()=>({id:'same-stream',media:{id:189046},episode:{episodeNumber:episode}}),getPlaybackStatus:()=>({id:'same-stream',clientId:'a',currentTime:0,paused:true})};
  const host=createHost(core),first=host.snapshot();assert.equal(first.mediaId,189046);
  episode=2;assert.notEqual(host.snapshot().videoIdentity,first.videoIdentity);
+});
+
+test('unknown host duration preserves authoritative playback time and active subtitles', async () => {
+  let duration;
+  const core = {
+    getCurrentClientId: () => 'client', getCurrentPlayerType: () => 'web',
+    getCurrentPlaybackInfo: () => ({ id: 'stream' }),
+    getPlaybackStatus: () => ({ id: 'stream', clientId: 'client', currentTime: 1.5, paused: false, duration }),
+  };
+  const host = createHost(core);
+  const controller = createLearningController({ host, services: {} });
+  await controller.refresh();
+  await controller.loadSubtitle({ sourceId: 'sample', format: 'srt', content: '1\n00:00:01,000 --> 00:00:04,000\n日本語\n' });
+  for (duration of [undefined, null, 0, -1, NaN, Infinity, 'unknown']) {
+    await controller.refresh();
+    assert.equal(controller.view().positionMs, 1500, `Unknown duration: ${duration}`);
+    assert.equal(controller.view().activeCues[0]?.text, '日本語');
+  }
+  duration = 20;
+  assert.equal(host.snapshot().durationMs, 20000);
 });

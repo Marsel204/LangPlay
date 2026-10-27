@@ -72,25 +72,24 @@ async function syncToAnkiConnect(frontText, backHTML, tags = ['linguaplay', 'imm
 }
 
 async function saveToExtensionStorage(card) {
-  try {
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      const res = await chrome.storage.local.get(['linguaplay_cards']);
-      const cards = res.linguaplay_cards || [];
-      cards.push({ ...card, date: new Date().toISOString() });
-      await chrome.storage.local.set({ linguaplay_cards: cards });
-      return cards.length;
-    }
-    if (typeof localStorage !== 'undefined') {
+  if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+    const result = await chrome.runtime.sendMessage({ action: 'SAVE_CARD', card });
+    if (!result?.success) throw new Error(result?.error || 'The card could not be saved. Reopen the extension and retry.');
+    return result.count;
+  }
+  if (typeof localStorage !== 'undefined') {
+    const write = () => {
       const raw = localStorage.getItem('linguaplay_cards');
       const cards = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(cards)) throw new Error('Saved cards are damaged.');
       cards.push({ ...card, date: new Date().toISOString() });
       localStorage.setItem('linguaplay_cards', JSON.stringify(cards));
       return cards.length;
-    }
-  } catch (e) {
-    console.warn('[Anki] Could not save card to extension storage:', e);
+    };
+    return typeof navigator !== 'undefined' && navigator.locks?.request
+      ? navigator.locks.request('linguaplay-cards', write) : write();
   }
-  return 0;
+  throw new Error('Card storage is unavailable.');
 }
 
 async function tryServerBookmark(cardData) {
@@ -117,12 +116,14 @@ export async function addQuickCard({ word, reading, romaji, meaning, sentence, s
   }
 
   // 1. Try AnkiConnect
+  let synced = false;
   try {
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('AnkiConnect timeout')), 2000));
     await Promise.race([
       syncToAnkiConnect(frontText, backHTML, ['linguaplay', 'immersion', 'quick-add']),
       timeoutPromise
     ]);
+    synced = true;
 
     await saveToExtensionStorage({ word, reading, meaning, sentence, type: 'quick' });
 
@@ -132,6 +133,7 @@ export async function addQuickCard({ word, reading, romaji, meaning, sentence, s
       message: 'Added directly to Anki deck!'
     };
   } catch (ankiErr) {
+    if (synced) throw new Error(`Added to Anki, but the local backup failed: ${ankiErr.message}`);
     console.warn('[Anki] AnkiConnect offline, saving to extension collection:', ankiErr.message);
 
     // 2. Try Local Server
@@ -170,12 +172,14 @@ export async function addAICard({ word, aiData, sentence }) {
   }
 
   // 1. Try AnkiConnect
+  let synced = false;
   try {
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('AnkiConnect timeout')), 2000));
     await Promise.race([
       syncToAnkiConnect(frontText, backHTML, ['linguaplay', 'immersion', 'ai-breakdown']),
       timeoutPromise
     ]);
+    synced = true;
 
     await saveToExtensionStorage({ word, reading, meaning: aiData.meaning, sentence, aiData, type: 'ai' });
 
@@ -185,6 +189,7 @@ export async function addAICard({ word, aiData, sentence }) {
       message: 'AI card added directly to Anki deck!'
     };
   } catch (ankiErr) {
+    if (synced) throw new Error(`Added to Anki, but the local backup failed: ${ankiErr.message}`);
     console.warn('[Anki] AnkiConnect offline, saving to extension collection:', ankiErr.message);
 
     await tryServerBookmark({

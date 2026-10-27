@@ -9,6 +9,7 @@ and native Antigravity CLI / Gemini AI linguistic analysis.
 import argparse
 import glob
 import http.server
+import ipaddress
 import json
 import os
 import re
@@ -45,12 +46,17 @@ cache_lock = threading.Lock()
 caption_cache = {}   # video_id -> (timestamp, vtt_data)
 search_cache = {}    # query -> (timestamp, list_of_videos)
 stream_cache = {}    # video_id -> (timestamp, stream_url)
-ai_analysis_cache = {} # (word, sentence) -> (timestamp, parsed_json)
+ai_analysis_cache = {} # structured provider/prompt context -> (timestamp, parsed_json)
 dictionary_cache = {}  # word -> (timestamp, plain-text meaning)
 sentence_translation_cache = {}  # sentence -> (timestamp, English translation)
 dictionary_slots = threading.BoundedSemaphore(4)
 CACHE_TTL = 3600     # 1 hour
 ANTIGRAVITY_TIMEOUT_SECONDS = 90
+MAX_AGY_PROMPT_BYTES = 16 * 1024
+
+
+class PromptTooLong(ValueError):
+    pass
 
 
 def get_from_cache(cache_dict, key):
@@ -192,6 +198,8 @@ Respond with ONLY a valid, raw JSON object (strictly no markdown fences, no back
 
 
 def run_antigravity_prompt(prompt):
+    if len(prompt.encode('utf-8')) > MAX_AGY_PROMPT_BYTES:
+        raise PromptTooLong('AI context exceeds 16 KiB. Shorten the sentence, prompt or conversation and retry.')
     agy_bin = find_agy_binary()
     if not agy_bin:
         raise RuntimeError("Antigravity CLI ('agy') not found in PATH or ~/.local/bin/agy")
@@ -268,6 +276,8 @@ def run_gemini_api_analysis(word, sentence, romaji, api_key, custom_prompt=""):
 
 
 def configured_ai_provider(requested=None):
+    if requested is not None and not isinstance(requested, str):
+        raise ValueError('AI provider must be a string')
     provider = requested or os.environ.get("LANGPLAY_AI_PROVIDER", "antigravity")
     if not isinstance(provider, str):
         raise ValueError("AI provider must be a string")
@@ -423,8 +433,92 @@ def pick_track_backend(tracks, lang_prefix="ja"):
 
 
 class RequestHandler(http.server.SimpleHTTPRequestHandler):
+    request_timeout = 10
+
+    def setup(self):
+        self.request.settimeout(self.request_timeout)
+        super().setup()
+
+    def handle_one_request(self):
+        self._receiving_request = True
+        self._request_read_expired = False
+        self._receive_timer = threading.Timer(self.request_timeout, self._expire_request_read)
+        self._receive_timer.daemon = True
+        self._receive_timer.start()
+        try:
+            super().handle_one_request()
+        finally:
+            self._finish_request_read()
+
+    def _expire_request_read(self):
+        if not self._receiving_request:
+            return
+        self._request_read_expired = True
+        try:
+            self.connection.shutdown(socket.SHUT_RD)
+        except OSError:
+            pass
+
+    def _finish_request_read(self):
+        self._receiving_request = False
+        timer = getattr(self, '_receive_timer', None)
+        if timer:
+            timer.cancel()
+
+    def parse_request(self):
+        valid = super().parse_request()
+        if valid and self._request_read_expired:
+            self.send_error(408, 'Request receive timed out.')
+            return False
+        if valid and self.command != 'POST':
+            self._finish_request_read()
+        return valid
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=BASE_DIR, **kwargs)
+
+    def origin_allowed(self, local_only=False):
+        value = self.headers.get('Origin')
+        if not value:
+            return True  # Native host and companion clients do not send Origin.
+        try:
+            origin = urllib.parse.urlsplit(value)
+            if origin.username or origin.password or origin.path or origin.query or origin.fragment:
+                return False
+            if origin.scheme == 'http' and origin.hostname in ('127.0.0.1', 'localhost', '::1'):
+                return True
+            if local_only:
+                return False
+            if origin.scheme in ('chrome-extension', 'moz-extension') and origin.hostname:
+                return True
+            if origin.scheme == 'https' and (origin.hostname == 'youtube.com' or (origin.hostname or '').endswith('.youtube.com')):
+                return True
+            # Explicit LAN hosting keeps same-origin access through a private IP.
+            return (origin.scheme == 'http' and origin.netloc == self.headers.get('Host')
+                    and ipaddress.ip_address(origin.hostname).is_private)
+        except (ValueError, TypeError):
+            return False
+
+    def send_head(self):
+        path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
+        if '\x00' in path:
+            self.send_error(404, 'Not Found')
+            return None
+        if path == '/':
+            self.path = path = '/index.html'
+        target = os.path.realpath(self.translate_path(path))
+        root = os.path.realpath(BASE_DIR)
+        static = os.path.join(root, 'static')
+        public_page = path in ('/index.html', '/App.html') and target == os.path.join(root, path[1:])
+        try:
+            public_asset = (path.startswith('/static/') and not any(part.startswith('.') for part in path.split('/') if part)
+                            and os.path.commonpath((target, static)) == static)
+        except ValueError:
+            public_asset = False  # A symlink may resolve onto another Windows drive.
+        if not (public_page or public_asset) or not os.path.isfile(target):
+            self.send_error(404, 'Not Found')
+            return None
+        return super().send_head()
 
     def log_message(self, format, *args):
         try:
@@ -456,27 +550,63 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             pass
 
     def do_OPTIONS(self):
+        if not self.origin_allowed():
+            self.send_json_response(403, {"status": "error", "message": "Origin is not allowed."})
+            return
         self.send_response(200, "OK")
         self.send_cors_headers()
         self.end_headers()
 
+    def read_json_object(self, max_bytes, text_fields=()):
+        length = int(self.headers.get('Content-Length', 0))
+        if not 0 < length <= max_bytes:
+            raise ValueError(f'Request must contain JSON between 1 and {max_bytes} bytes.')
+        try:
+            raw = self.rfile.read(length)
+        except TimeoutError:
+            raise ValueError('Request body timed out.') from None
+        finally:
+            self._finish_request_read()
+        if getattr(self, '_request_read_expired', False):
+            raise ValueError('Request body timed out.')
+        if len(raw) != length:
+            raise ValueError('Request body is incomplete.')
+        try:
+            body = json.loads(raw.decode('utf-8'))
+        except RecursionError:
+            raise ValueError('Request JSON is nested too deeply.') from None
+        if not isinstance(body, dict):
+            raise ValueError('Request must be a JSON object.')
+        pending = [body]
+        try:
+            while pending:
+                item = pending.pop()
+                if isinstance(item, str):
+                    item.encode('utf-8')
+                elif isinstance(item, dict):
+                    pending.extend(item.keys())
+                    pending.extend(item.values())
+                elif isinstance(item, list):
+                    pending.extend(item)
+        except UnicodeError:
+            raise ValueError('Request text contains an invalid Unicode character.') from None
+        for field in text_fields:
+            if not isinstance(body.get(field, ''), str):
+                raise ValueError(f'{field} must be text.')
+        return body
+
     def do_POST(self):
         parsed_path = urllib.parse.urlparse(self.path)
+        local_only = parsed_path.path in ('/api/dictionary', '/api/translate', '/api/subtitles', '/api/subtitles/auto')
+        if not self.origin_allowed(local_only):
+            self.send_json_response(403, {"status": "error", "message": "Origin is not allowed."})
+            return
 
         if parsed_path.path in ("/api/dictionary", "/api/translate"):
-            origin = urllib.parse.urlparse(self.headers.get('Origin', ''))
-            if self.headers.get('Origin') and (origin.scheme != 'http' or origin.hostname not in ('127.0.0.1', 'localhost', '::1')):
-                self.send_json_response(403, {"status": "error", "message": "Use LangPlay from the local Seanime app."})
-                return
             try:
-                length = int(self.headers.get('Content-Length', 0))
                 translating_sentence = parsed_path.path == "/api/translate"
                 max_bytes = 65536 if translating_sentence else 4096
-                if not 0 < length <= max_bytes:
-                    raise ValueError('Translation request is empty or too large.')
-                body = json.loads(self.rfile.read(length).decode('utf-8'))
-                if not isinstance(body, dict):
-                    raise ValueError('Translation request must be an object.')
+                body = self.read_json_object(max_bytes)
                 if translating_sentence:
                     translation = google_translate(body.get('sentence'))
                     self.send_json_response(200, {"status": "success", "translation": translation})
@@ -490,19 +620,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if parsed_path.path in ("/api/subtitles", "/api/subtitles/auto"):
-            # Host-side plugin fetches have no Origin. Only local browser origins
-            # may access the dedicated folder; general CORS stays unchanged.
-            origin = urllib.parse.urlparse(self.headers.get('Origin', ''))
-            if self.headers.get('Origin') and (origin.scheme != 'http' or origin.hostname not in ('127.0.0.1', 'localhost', '::1')):
-                self.send_json_response(403, {"status": "error", "message": "Use LangPlay from the local Seanime app."})
-                return
             try:
-                length = int(self.headers.get('Content-Length', 0))
-                if not 0 < length <= 4096:
-                    raise ValueError('Saved subtitle request must be smaller than 4 KiB.')
-                body = json.loads(self.rfile.read(length).decode('utf-8'))
-                if not isinstance(body, dict):
-                    raise ValueError('Saved subtitle request must be an object.')
+                body = self.read_json_object(4096)
                 result = automatic_subtitle(body) if parsed_path.path.endswith("/auto") else saved_subtitles(body)
                 self.send_json_response(200, {"status": "success", **result})
             except ValueError as error:
@@ -513,12 +632,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
         if parsed_path.path == "/api/parse":
             try:
-                length = int(self.headers.get("Content-Length", 0))
-                if not 0 < length <= 65536:
-                    raise ValueError("Parser request must contain JSON smaller than 64 KiB")
-                body = json.loads(self.rfile.read(length).decode("utf-8"))
-                if not isinstance(body, dict):
-                    raise ValueError("Parser request must be an object")
+                body = self.read_json_object(65536)
                 tokens = parse_japanese(body.get("text"))
                 self.send_json_response(200, {"status": "success", "engine": "sudachi", "tokens": tokens})
             except (ValueError, UnicodeError) as error:
@@ -532,12 +646,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # ── POST /api/ai/chat ──
         if parsed_path.path == "/api/ai/chat":
             try:
-                content_length = int(self.headers.get("Content-Length", 0))
-                if not 0 < content_length <= 1048576:
-                    raise ValueError("Chat request must contain JSON smaller than 1 MiB")
-                body = json.loads(self.rfile.read(content_length).decode("utf-8"))
-                if not isinstance(body, dict):
-                    raise ValueError("Chat request must be an object")
+                body = self.read_json_object(1048576)
                 messages = body.get("messages")
                 if not isinstance(messages, list) or not messages or not all(
                     isinstance(message, dict) and message.get("role") in ("system", "user", "assistant")
@@ -567,23 +676,24 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # ── POST /api/ai/analyze ──
         if parsed_path.path == "/api/ai/analyze":
             try:
-                content_length = int(self.headers.get("Content-Length", 0))
-                post_data = self.rfile.read(content_length)
-                req_json = json.loads(post_data.decode("utf-8"))
-
+                req_json = self.read_json_object(1048576, ('word', 'sentence', 'romaji', 'prompt', 'apiKey'))
+                provider = configured_ai_provider(req_json.get("provider"))
+            except ValueError as error:
+                self.send_json_response(400, {"status": "error", "message": str(error)})
+                return
+            try:
                 word = req_json.get("word", "").strip()
                 sentence = req_json.get("sentence", "").strip()
                 romaji = req_json.get("romaji", "").strip()
                 custom_prompt = req_json.get("prompt", "").strip()
-                provider = configured_ai_provider(req_json.get("provider"))
                 api_key = req_json.get("apiKey", "").strip()
 
                 if not word and not custom_prompt:
                     self.send_json_response(400, {"status": "error", "message": "Missing 'word' parameter"})
                     return
 
-                # Check cache (v5 compact horizontal gloss format or custom prompt)
-                cache_key = f"v5:{provider}:prompt:{custom_prompt}" if custom_prompt else f"v5:{provider}:{word}:{sentence}"
+                # Preserve field boundaries and every input used to build the prompt.
+                cache_key = (provider, 'prompt', custom_prompt) if custom_prompt else (provider, 'word', word, sentence, romaji)
                 cached = get_from_cache(ai_analysis_cache, cache_key)
                 if cached:
                     print(f"  ⚡ Serving cached AI analysis for '{word or 'custom_prompt'}'")
@@ -604,6 +714,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 set_in_cache(ai_analysis_cache, cache_key, ai_data)
                 self.send_json_response(200, {"status": "success", "data": ai_data, "provider": provider})
 
+            except PromptTooLong as error:
+                self.send_json_response(400, {"status": "error", "message": str(error)})
             except subprocess.TimeoutExpired:
                 self.send_json_response(504, {"status": "error", "message": f"Antigravity CLI did not finish within {ANTIGRAVITY_TIMEOUT_SECONDS} seconds. Please try again."})
             except Exception as e:
@@ -614,18 +726,13 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         # ── POST /api/bookmark ──
         if parsed_path.path == "/api/bookmark":
             try:
-                content_length = int(self.headers.get("Content-Length", 0))
-                if content_length == 0:
-                    self.send_json_response(400, {"status": "error", "message": "Missing request body"})
-                    return
-
-                post_data = self.rfile.read(content_length)
-                card_data = json.loads(post_data.decode("utf-8"))
-
-                sentence = card_data.get("sentence", "").replace("\t", " ").replace("\n", " ").strip()
-                word = card_data.get("word", "").replace("\t", " ").replace("\n", " ").strip()
-                reading = card_data.get("reading", "").replace("\t", " ").replace("\n", " ").strip()
-                meaning = card_data.get("meaning", "").replace("\t", " ").replace("\n", " ").strip()
+                card_data = self.read_json_object(1048576, ('sentence', 'word', 'reading', 'meaning'))
+            except ValueError as error:
+                self.send_json_response(400, {"status": "error", "message": str(error)})
+                return
+            try:
+                sentence, word, reading, meaning = (re.sub(r'[\t\r\n\v\f\x85\u2028\u2029]+', ' ', card_data.get(key, '')).strip()
+                                                    for key in ('sentence', 'word', 'reading', 'meaning'))
 
                 if not word:
                     self.send_json_response(400, {"status": "error", "message": "Word field is required"})
@@ -636,6 +743,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                     if word and word in sentence
                     else sentence
                 )
+                if bold_sentence.startswith('#'):
+                    bold_sentence = '&#35;' + bold_sentence[1:]
 
                 with file_lock:
                     file_is_empty = not os.path.exists(ANKI_FILE) or os.path.getsize(ANKI_FILE) == 0
@@ -661,6 +770,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed_path = urllib.parse.urlparse(self.path)
+        if parsed_path.path.startswith('/api/') and not self.origin_allowed():
+            self.send_json_response(403, {"status": "error", "message": "Origin is not allowed."})
+            return
 
         # ── Root URL Dispatch ──
         if parsed_path.path in ["", "/"]:
@@ -841,6 +953,38 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             super().do_GET()
 
 
+class LangPlayHTTPServer(http.server.ThreadingHTTPServer):
+    """Bound active clients as well as the time allowed to receive a request."""
+    max_workers = 32
+    allow_reuse_address = True
+
+    def __init__(self, *args, **kwargs):
+        self._request_slots = threading.BoundedSemaphore(self.max_workers)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self._request_slots.acquire(blocking=False):
+            try:
+                request.settimeout(1)
+                request.sendall(b'HTTP/1.0 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+            except OSError:
+                pass
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._request_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._request_slots.release()
+
+
 def is_port_available(host, port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
@@ -863,7 +1007,7 @@ def get_local_ip():
 def main():
     parser = argparse.ArgumentParser(description="LinguaPlay Multithreaded Immersion Server")
     parser.add_argument("-p", "--port", type=int, default=8000, help="Port to listen on (default: 8000)")
-    parser.add_argument("-H", "--host", type=str, default="0.0.0.0", help="Host interface (default: 0.0.0.0 to allow LAN access)")
+    parser.add_argument("-H", "--host", type=str, default="127.0.0.1", help="Host interface (default: 127.0.0.1; use 0.0.0.0 for trusted LAN access)")
     parser.add_argument("--open", action="store_true", help="Automatically open browser on startup")
     args = parser.parse_args()
 
@@ -884,8 +1028,7 @@ def main():
             sys.exit(1)
 
     server_address = (host, port)
-    http.server.ThreadingHTTPServer.allow_reuse_address = True
-    httpd = http.server.ThreadingHTTPServer(server_address, RequestHandler)
+    httpd = LangPlayHTTPServer(server_address, RequestHandler)
 
     local_ip = get_local_ip()
     agy_detected = find_agy_binary()

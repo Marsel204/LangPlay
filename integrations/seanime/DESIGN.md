@@ -32,6 +32,15 @@ Self-review, with no delegated review. Live browser checks cover Horimiya episod
 
 Each captured sentence word groups romaji above Japanese and a short dictionary meaning below, with wrapping between word groups and preserved original punctuation/newlines. Full dictionary text is available on hover. Definitions fill independently from cached or parsed tokens; pending words show Loading… and missing entries show No definition. Parsing and sentence English remain independent of dictionary requests.
 
+## Caption composition — 20 October 2026
+
+The watching caption follows the LangPlayeExt reference: white semibold Japanese word groups, small pink readings above them, a shared near-black violet strip, a subtle border, and 12 px corners. Inline word groups keep pronunciation attached to the word and preserve source line breaks. The strip is capped at 950 px and wraps to the available player width.
+
+The compact LangPlay/Subtitles/reading toolbar sits at the lower right, 64 px above the player bottom, with a shared background. Captions reserve at least 112 px above the contained picture bottom, including letterbox clearance. Fullscreen study starts 24 px from the top and ends 120 px from the bottom, leaving the toolbar reachable. Wide captions reserve the study width; narrow fullscreen study uses a scrollable sheet capped at 40% of the player with captions 8 px above it.
+
+Version 0.4.7 was built, installed, and reloaded using Seanime's scoped external-extension reload. All 116 integration tests passed, including the updated caption-inset regression; the detector and whitespace checks were clean. Visual verification used the production renderer with fixture content at 1280 px and 640 px player widths, long dialogue, and open fullscreen study. Native playback and Windows were not requalified.
+
+
 ## Compact AI answers — 20 October 2026
 
 AI explanations and replies use the same restricted Markdown reader in the player and tray panel. Direct answers stay visible; contextual sections open first, while further grammar notes and examples can be expanded. Text, emphasis, lists, quotes, code and tables are rendered as safe DOM nodes. Raw provider HTML stays literal. Player disclosure controls use native button inputs to avoid Seanime's playback keyboard shortcuts.
@@ -45,3 +54,17 @@ Version 0.4.9 replaces the separate toolbar with an unbacked inline group insert
 When the transport is absent the group stays hidden; it never falls back to a floating panel. Host transport replacement recreates only plugin-owned controls and detaches their old listeners. Teardown leaves the native settings, spacer, and other controls intact. Captions now reserve 80 px above the contained picture bottom; the removed second toolbar no longer consumes a separate row.
 
 Self-review found no remaining material issue. All 118 integration tests, build callback smoke, production build, static detector and whitespace checks passed. Browser fixture verification covered row ownership, short/long dialogue, wide/narrow composition, eye toggle and reading selection. Native playback was not requalified.
+
+## Glossy caption material — 26 October 2026
+
+Version 0.4.10 gives the shared Japanese caption strip a smoked-glass material: a translucent charcoal base, 22 px backdrop blur, a restrained diagonal reflection, a brighter upper edge, and soft inset and drop shadows. Rounded 18 px corners belong to the strip; word targets use lighter translucent feedback and an immediate, subtle press response. White Japanese stays primary, with higher-contrast pink readings above each word. Caption placement, wrapping, controls and learning behavior retain their existing composition.
+
+Browsers without backdrop filtering use a darker opaque fallback. Reduced transparency and increased contrast use a solid material; forced colors use system colors. Reduced motion removes word scaling and transitions. Production-renderer fixtures at 1015 px and 390 px covered the supplied scene, a white backdrop, and long dialogue on a dark backdrop without overflow. All 118 integration tests, callback smoke, production build and the static detector passed. Live native playback and Windows were not visually requalified.
+
+Version 0.4.11 makes the requested glass transparent: an 18% charcoal tint and 8 px blur keep the scene visible through the strip, with lighter reflections, edges and shadows. Unsupported browsers use a 26% tint. Stronger text shadows separate Japanese and readings from bright footage. The solid accessibility overrides remain available through system preferences.
+
+## Fullscreen study dismissal — 26 October 2026
+
+Version 0.4.12 dismisses study locally before waiting for the controller's next published view. Close responds to the primary pointer press and keeps click activation for keyboards and assistive technology; the following click does not repeat the close action. Escape uses the same dismissal path. The drawer explicitly accepts pointer events when fullscreen places it inside the player. Closing clears the caption reservation and keeps playback paused.
+
+Two regression tests first failed for the missing press handler and reliance on a subsequently published view, then passed with the change. All 121 integration tests and the production build pass. Chromium production-renderer fixtures at 1280 px and 390 px verified physical pointer clicks, keyboard Close and Escape, including a player with inherited pointer events disabled. The installed manifest matches the build and Seanime reports version 0.4.12 after scoped reload. The user's native fullscreen interaction still requires confirmation; the exact live cause of the missing click was not independently established.

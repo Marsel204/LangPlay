@@ -39,7 +39,8 @@ export function createAutoSubtitles({host, controller, services, storage, onChan
         let subtitle = null;
         const namedEpisode = typeof saved?.sourceId === 'string' && /(?:^|[. _-])(?:S\d{1,3})?E(?:P(?:ISODE)?)?[. _-]*0*(\d{1,5})(?!\d)/i.exec(saved.sourceId);
         const namedAnime = typeof saved?.sourceId === 'string' && /^Jimaku\.(\d+)\./i.exec(saved.sourceId);
-        if (saved?.sourceId && (!namedEpisode || Number(namedEpisode[1]) === episode) && (!namedAnime || Number(namedAnime[1]) === mediaId)) {
+        // Provider caches must pass the companion's structure/hash checks too.
+        if (saved?.sourceId && !namedAnime && (!namedEpisode || Number(namedEpisode[1]) === episode)) {
           try { subtitle = await services.savedSubtitles({action:'read',name:saved.sourceId,encoding:'auto'}); }
           catch (_) { /* A removed saved file falls back to the provider. */ }
         }
@@ -48,7 +49,7 @@ export function createAutoSubtitles({host, controller, services, storage, onChan
         if (!current() || controller.view().source !== originalSource) return;
         if (!subtitle?.content || !subtitle.sourceId) throw new Error('No usable Japanese subtitles found. Load a saved file or retry.');
         const offsetMs = saved?.sourceId === subtitle.sourceId ? saved.offsetMs || 0 : 0;
-        await controller.loadSubtitle({...subtitle,offsetMs}, {expectedPlayback:snapshot,expectedSource:originalSource});
+        await controller.loadSubtitle({...subtitle,offsetMs}, {expectedPlayback:snapshot,expectedSource:originalSource,isCurrent:current});
         if (!current()) return;
         const sources = storage.read('sources',{}) || {};
         sources[snapshot.association] = {sourceId:subtitle.sourceId,offsetMs};

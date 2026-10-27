@@ -83,6 +83,30 @@ test('caption preparation bounds outstanding requests and does not duplicate the
   assert.equal(new Set(h.requests).size, h.requests.length);
 });
 
+test('every overlapping active caption eventually receives readings', async () => {
+  const h = fixture(), resolved = new Set();
+  const dense = Array.from({ length: 20 }, (_, i) => `${i + 1}\n00:00:01,000 --> 00:00:05,000\n猫${i}\n`).join('\n');
+  h.status.currentTime = 1.5; await h.load(dense);
+  for (let round = 0; round < 7; round++) {
+    await h.tick();
+    for (const text of h.requests.filter(text => !resolved.has(text))) { resolved.add(text); await h.resolve(text); }
+  }
+  assert.equal(new Set(h.requests).size, 20);
+});
+
+test('active readings survive general parser cache eviction without starving later cues', async () => {
+  const h = fixture(), resolved = new Set();
+  const dense = Array.from({ length: 300 }, (_, i) => `${i + 1}\n00:00:01,000 --> 00:00:50,000\n猫${i}\n`).join('\n');
+  h.status.currentTime = 1.5; await h.load(dense);
+  for (let round = 0; round < 85; round++) {
+    await h.tick();
+    for (const text of h.requests.filter(text => !resolved.has(text))) { resolved.add(text); await h.resolve(text); }
+  }
+  assert.equal(new Set(h.requests).size, 300);
+  assert.equal(h.requests.length, 300, 'Active lines must not be reparsed as the general LRU cache evicts them.');
+  assert.equal(Object.keys(h.latest().tokens).length, 300);
+});
+
 test('a late reading result cannot restore captions from the previous episode', async () => {
   const h = fixture(); h.status.currentTime = 1.5; await h.load(); await h.tick();
   h.info.id = h.status.id = 'episode-2'; h.info.episode.episodeNumber = 2; await h.tick();

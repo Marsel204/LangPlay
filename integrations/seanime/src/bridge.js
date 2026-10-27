@@ -2,6 +2,10 @@ const operations = new Set(['refresh', 'import', 'saved-list', 'saved-import', '
 export function validateMessage(value) {
   if (!value || value.v !== 1 || !Number.isSafeInteger(value.id) || value.id < 0 || !operations.has(value.op)) throw new Error('Invalid LangPlay message.');
   const d = value.data || {};
+  if (d.expectedPlayback !== undefined && (!d.expectedPlayback ||
+      ['clientId', 'playbackId', 'videoIdentity'].some(key => typeof d.expectedPlayback[key] !== 'string' || !d.expectedPlayback[key]))) {
+    throw new Error('Invalid subtitle playback context.');
+  }
   if (value.op === 'saved-import' && (typeof d.name !== 'string' || !d.name.length || d.name.length > 256 || /[/\\\x00]/.test(d.name) ||
       !/\.(srt|vtt|ass|ssa)$/i.test(d.name) || !['auto', 'shift_jis'].includes(d.encoding) || !Number.isSafeInteger(d.offsetMs) || Math.abs(d.offsetMs) > 3600000)) throw new Error('Choose a saved subtitle and a valid encoding and delay.');
   if (value.op === 'import' && (typeof d.content !== 'string' || !d.content.length || d.content.length > 10 * 1024 * 1024 ||

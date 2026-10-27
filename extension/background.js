@@ -41,6 +41,20 @@ try {
 const serverStarts = new Map();
 const serverStartFailures = new Map();
 const parserRequests = new Map();
+let cardWrites = Promise.resolve();
+
+function writeCardCollection(card, clear = false) {
+  const work = cardWrites.then(async () => {
+    const stored = await chrome.storage.local.get(['linguaplay_cards']);
+    const cards = stored.linguaplay_cards ?? [];
+    if (!clear && !Array.isArray(cards)) throw new Error('Saved cards are damaged. Export or repair the collection before adding cards.');
+    const next = clear ? [] : [...cards, { ...card, date: new Date().toISOString() }];
+    await chrome.storage.local.set({ linguaplay_cards: next });
+    return next.length;
+  });
+  cardWrites = work.catch(() => {});
+  return work;
+}
 
 function canRequestServerStart(sender) {
   if (sender.id !== chrome.runtime.id) return false;
@@ -90,6 +104,21 @@ async function ensureLocalServer() {
 
 // Innertube Android VR Caption Extraction Bridge in Background
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'SAVE_CARD' || request.action === 'CLEAR_CARDS') {
+    if (sender.id !== chrome.runtime.id) {
+      sendResponse({ success: false, error: 'Untrusted card request' });
+      return false;
+    }
+    const clear = request.action === 'CLEAR_CARDS';
+    if (!clear && (!request.card || typeof request.card.word !== 'string' || !request.card.word.trim()
+        || typeof request.card.sentence !== 'string' || JSON.stringify(request.card).length > 1024 * 1024)) {
+      sendResponse({ success: false, error: 'Invalid card' });
+      return false;
+    }
+    writeCardCollection(request.card, clear).then(count => sendResponse({ success: true, count }),
+      error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
   if (request.action === 'PARSE_JAPANESE') {
     (async () => {
       try {

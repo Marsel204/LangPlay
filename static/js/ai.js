@@ -191,7 +191,12 @@ export async function requestAIAnalysis({ word, romaji, sentence, provider = nul
   const activeProv = provider || currentProvider;
 
   activeAbortController = new AbortController();
+  const controller = activeAbortController;
   const signal = activeAbortController.signal;
+  const currentCallback = callback => (...args) => {
+    if (!signal.aborted && activeAbortController === controller) callback?.(...args);
+  };
+  onChunk = currentCallback(onChunk); onSuccess = currentCallback(onSuccess); onError = currentCallback(onError);
 
   // ══════════════════════════════════════════════════════════════════════
   // 1. Antigravity CLI / Local Server Engine (No API Key Required!)
@@ -226,7 +231,7 @@ export async function requestAIAnalysis({ word, romaji, sentence, provider = nul
       if (err.name === 'AbortError') return;
       onError(err.message || 'Antigravity CLI analysis failed. You can switch to Gemini API or OpenRouter in the top bar.');
     } finally {
-      activeAbortController = null;
+      if (activeAbortController === controller) activeAbortController = null;
     }
     return;
   }
@@ -271,7 +276,7 @@ export async function requestAIAnalysis({ word, romaji, sentence, provider = nul
       if (err.name === 'AbortError') return;
       onError(err.message || 'Gemini API call failed. Verify your API key.');
     } finally {
-      activeAbortController = null;
+      if (activeAbortController === controller) activeAbortController = null;
     }
     return;
   }
@@ -376,7 +381,7 @@ Please provide an in-depth linguistic and grammatical breakdown with full Romaji
     if (err.name === 'AbortError') return;
     onError(`Network or server error: ${err.message}`);
   } finally {
-    activeAbortController = null;
+    if (activeAbortController === controller) activeAbortController = null;
   }
 }
 
