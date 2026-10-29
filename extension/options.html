@@ -30,6 +30,7 @@
           <option value="gemini">Google Gemini API (Direct 2.5 Flash)</option>
           <option value="deepseek">DeepSeek API (Direct V3 / R1)</option>
           <option value="openrouter">OpenRouter (DeepSeek / Claude / GPT-4o)</option>
+          <option value="9router">9Router</option>
           <option value="opencode">OpenCode / Custom OpenAI Endpoint (Ollama, LM Studio)</option>
           <option value="antigravity" selected>Local Antigravity CLI / Server (http://127.0.0.1:8000)</option>
         </select>
@@ -69,7 +70,20 @@
         <p id="openrouter-status-text" class="help-text">From openrouter.ai/keys (e.g. deepseek/deepseek-chat, google/gemini-2.5-flash).</p>
       </div>
 
-      <!-- OpenCode / Custom OpenAI Endpoint -->
+      <!-- 9Router -->
+      <div class="form-group" id="group-9router">
+        <label for="9router-url">9Router API Base URL</label>
+        <input type="text" id="9router-url" value="http://127.0.0.1:20128/v1">
+        <label for="9router-key">9Router token (optional)</label>
+        <input type="password" id="9router-key" autocomplete="off">
+        <p class="help-text">Provider credentials stay in 9Router. Leave the token blank only when router authentication is disabled.</p>
+        <label for="9router-model">Model or Combo ID</label>
+        <input type="text" id="9router-model" list="9router-models" placeholder="Exact model ID or combo name">
+        <datalist id="9router-models"></datalist>
+        <button type="button" id="load-9router-models-btn" class="btn-secondary">Load Models</button>
+        <button type="button" id="test-9router-btn" class="btn-secondary">Test 9Router</button>
+        <p id="9router-status-text" class="help-text" role="status" aria-live="polite">Save to use these settings. Test uses the current form without saving.</p>
+      </div>
       <div class="form-group" id="group-opencode">
         <label for="opencode-url">OpenCode / Custom OpenAI Endpoint Base URL</label>
         <div style="display: flex; gap: 8px; margin-bottom: 6px;">
@@ -161,6 +175,7 @@
 
   <div id="save-toast" class="toast">✓ Settings saved successfully!</div>
 
+  <script src="js/router.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

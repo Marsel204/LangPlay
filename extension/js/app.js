@@ -36,6 +36,8 @@ import {
 } from './player-controller.js';
 import {
   getAIProvider,
+  onAISettingsChanged,
+  waitForAISettings,
   setAIProvider,
   checkAntigravityStatus,
   getSavedApiKey,
@@ -174,6 +176,17 @@ function updateTimingOffsetUI() {
   }
 }
 
+function resetAIExplanation() {
+  abortAIAnalysis();
+  aiTriggerSection.classList.remove('hidden');
+  aiResponseContainer.classList.add('hidden');
+  aiLoadingSkeleton.classList.add('hidden');
+  aiStreamPreview.classList.add('hidden');
+  aiCardsContainer.innerHTML = '';
+  aiErrorDisplay.classList.add('hidden');
+  currentLastAiData = null;
+}
+
 async function updateAIProviderUI() {
   const prov = getAIProvider();
   if (aiProviderSelect) aiProviderSelect.value = prov;
@@ -187,6 +200,7 @@ async function updateAIProviderUI() {
   };
 
   const btnLabels = {
+    '9router': 'Ask 9Router for Breakdown',
     antigravity: 'Ask Antigravity AI for Breakdown',
     gemini: 'Ask Gemini AI for Breakdown',
     openrouter: 'Ask OpenRouter AI for Breakdown',
@@ -204,7 +218,9 @@ async function updateAIProviderUI() {
   if (aiProviderIcon) aiProviderIcon.textContent = icons[prov] || '🤖';
   if (askAiBtnText) askAiBtnText.textContent = btnLabels[prov] || 'Ask AI for Breakdown';
 
-  if (prov === 'antigravity') {
+  if (prov === 'antigravity' && aiLocalBadge) aiLocalBadge.textContent = 'Antigravity CLI (Local)';
+  if (prov === '9router' && aiLocalBadge) aiLocalBadge.textContent = 'Configure 9Router in Extension Options';
+  if (prov === 'antigravity' || prov === '9router') {
     if (aiLocalBadge) aiLocalBadge.classList.remove('hidden');
     if (aiKeyInputWrap) aiKeyInputWrap.classList.add('hidden');
   } else {
@@ -213,6 +229,7 @@ async function updateAIProviderUI() {
     if (aiApiKeyInput) {
       aiApiKeyInput.placeholder = placeholders[prov] || 'Paste API key…';
       const savedKey = await getSavedApiKey(prov);
+      if (prov !== getAIProvider()) return;
       aiApiKeyInput.value = savedKey;
       if (savedKey) {
         if (apiKeyStatus) {
@@ -522,6 +539,12 @@ export async function initApp() {
     }
   });
 
+  onAISettingsChanged(() => {
+    resetAIExplanation();
+    updateAIProviderUI();
+  });
+
+  await waitForAISettings();
   await updateAIProviderUI();
   const agyStatus = await checkAntigravityStatus();
   if (agyStatus.available) {
@@ -539,6 +562,7 @@ export async function initApp() {
   if (aiProviderSelect) {
     aiProviderSelect.addEventListener('change', (e) => {
       setAIProvider(e.target.value);
+      resetAIExplanation();
       updateAIProviderUI();
       showToast(`AI Engine set to: ${e.target.options[e.target.selectedIndex].text}`, 'info', 1800);
     });

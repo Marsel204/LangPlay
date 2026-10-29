@@ -17,6 +17,7 @@ currently reproduces the development setup; automatic downloads start off.
 ## Development
 
 - [Japanese parser setup](PARSING.md)
+- [9Router setup for companion, Seanime and extension](docs/setup/9router.md)
 - [Seanime integration status and limits](integrations/seanime/BASELINE.md)
 - [Installer build, configuration and checks](installer/README.md)
 - [Browser extension](extension/README.md)
