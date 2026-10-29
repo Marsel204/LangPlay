@@ -1,3 +1,4 @@
+if (typeof importScripts === 'function') importScripts('js/router.js');
 /**
  * LinguaPlay Chrome Extension — Service Worker (background.js)
  */
@@ -158,6 +159,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return false;
     }
     ensureLocalServer().then(sendResponse, error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (request.action === 'CALL_9ROUTER') {
+    (async () => {
+      try {
+        if (sender.id !== chrome.runtime.id) throw new Error('Untrusted request');
+        const stored = await chrome.storage.local.get(['linguaplay_9router_url', 'linguaplay_9router_key', 'linguaplay_9router_model']);
+        const content = await RouterAI.request({url:stored.linguaplay_9router_url, key:stored.linguaplay_9router_key, model:stored.linguaplay_9router_model}, {messages:request.messages, isJson:request.isJson});
+        if (request.isJson) {
+          let parsed;
+          try {parsed = JSON.parse(content);} catch {throw new Error('9Router returned an invalid explanation.');}
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Object.keys(parsed).length) throw new Error('9Router returned an invalid explanation.');
+        }
+        sendResponse({success:true, content});
+      } catch (error) {sendResponse({success:false, error:error.message});}
+    })();
     return true;
   }
 

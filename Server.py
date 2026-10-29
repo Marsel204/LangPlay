@@ -8,6 +8,7 @@ and native Antigravity CLI / Gemini AI linguistic analysis.
 
 import argparse
 import glob
+import http.client
 import http.server
 import ipaddress
 import json
@@ -282,6 +283,91 @@ def configured_ai_provider(requested=None):
     if not isinstance(provider, str):
         raise ValueError("AI provider must be a string")
     return provider.strip().lower()
+
+
+def router_config():
+    base = os.environ.get('LANGPLAY_9ROUTER_BASE_URL', '').strip() or 'http://127.0.0.1:20128/v1'
+    parsed = urllib.parse.urlsplit(base)
+    try:
+        valid = parsed.scheme in ('http', 'https') and parsed.hostname and parsed.port != 0
+    except ValueError:
+        valid = False
+    if not valid or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError('9Router URL must use HTTP(S), without credentials, query or fragment.')
+    path = parsed.path.rstrip('/')
+    if path.endswith('/chat/completions'):
+        path = path[:-len('/chat/completions')]
+    if not path:
+        path = '/v1'
+    model = os.environ.get('LANGPLAY_9ROUTER_MODEL', '').strip()
+    if not model:
+        raise ValueError('Set LANGPLAY_9ROUTER_MODEL to your exact model or combo ID.')
+    key = os.environ.get('LANGPLAY_9ROUTER_API_KEY', '').strip()
+    if any(c in key for c in '\r\n'):
+        raise ValueError('9Router token must be a single line.')
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, '', '')), key, model
+
+
+class RouterNoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise RuntimeError('9Router redirect rejected. Configure the final API URL directly.')
+
+
+def run_router_completion(messages, json_output=False):
+    base, key, model = router_config()
+    payload = {'model': model, 'messages': messages, 'stream': False, 'max_tokens': 4096}
+    if json_output:
+        payload['response_format'] = {'type': 'json_object'}
+    headers = {'Content-Type': 'application/json'}
+    if key:
+        headers['Authorization'] = 'Bearer ' + key
+    request = urllib.request.Request(base + '/chat/completions', data=json.dumps(payload).encode(), headers=headers)
+    try:
+        with urllib.request.build_opener(RouterNoRedirect()).open(request, timeout=45) as response:
+            raw = response.read(2 * 1024 * 1024 + 1)
+        if len(raw) > 2 * 1024 * 1024:
+            raise RuntimeError('9Router response is oversized. Retry with a shorter request.')
+        data = json.loads(raw)
+        choices = data.get('choices') if isinstance(data, dict) else None
+        choice = choices[0] if isinstance(choices, list) and choices else None
+        if not isinstance(choice, dict) or choice.get('finish_reason') != 'stop':
+            raise RuntimeError('9Router returned an incomplete or malformed reply. Retry with a shorter request.')
+        message = choice.get('message')
+        content = message.get('content') if isinstance(message, dict) else None
+        if not isinstance(content, str) or not content.strip():
+            raise RuntimeError('9Router returned an empty or malformed reply. Please retry.')
+        return content.strip()
+    except urllib.error.HTTPError as error:
+        hint = {401: 'Token rejected. Check the router token.', 403: 'Token rejected or access denied.', 429: 'Rate limit reached. Wait and retry.'}.get(error.code, 'Check the router configuration and retry.')
+        raise RuntimeError('9Router request failed. ' + hint) from None
+    except (TimeoutError, urllib.error.URLError, OSError, http.client.HTTPException):
+        raise RuntimeError('9Router unreachable or timed out. Check its address and that it is running.') from None
+    except (ValueError, UnicodeError):
+        raise RuntimeError('9Router returned malformed JSON. Please retry.') from None
+
+
+def run_router_analysis(word, sentence, romaji='', custom_prompt=''):
+    content = run_router_completion([{'role': 'user', 'content': custom_prompt or build_ai_prompt(word, sentence, romaji)}], True)
+    try:
+        result = json.loads(content)
+        if not isinstance(result, dict) or not result:
+            raise ValueError()
+        return result
+    except ValueError:
+        raise RuntimeError('9Router returned an invalid explanation. Please retry.') from None
+
+
+def run_router_chat(messages, word='', sentence='', romaji=''):
+    context = f'You are Sensei, a Japanese grammar tutor. Answer in concise Markdown with romaji.\nContext Sentence: {sentence}\nTarget Word: {word} ({romaji})'
+    return run_router_completion([{'role': 'system', 'content': context}, *messages])
+
+
+def router_status():
+    try:
+        _, _, model = router_config()
+        return {'router_configured': True, 'router_model': model}
+    except ValueError:
+        return {'router_configured': False, 'router_model': ''}
 
 
 def run_deepseek_completion(messages, api_key="", json_output=False):
@@ -658,7 +744,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 if not all(isinstance(value, str) for value in context):
                     raise ValueError("Word, sentence and romaji must be strings")
                 provider = configured_ai_provider(body.get("provider"))
-                if provider == "deepseek":
+                if provider == "9router":
+                    reply = run_router_chat(messages, *context)
+                elif provider == "deepseek":
                     reply = run_deepseek_chat(messages, *context, api_key=body.get("apiKey", ""))
                 elif provider in ("antigravity", "agy"):
                     reply = run_antigravity_chat(messages, *context)
@@ -693,14 +781,21 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
                 # Preserve field boundaries and every input used to build the prompt.
+                router_identity = ()
+                if provider == "9router":
+                    import hashlib
+                    router_identity = (hashlib.sha256(json.dumps(router_config()).encode()).hexdigest(),)
                 cache_key = (provider, 'prompt', custom_prompt) if custom_prompt else (provider, 'word', word, sentence, romaji)
+                cache_key += router_identity
                 cached = get_from_cache(ai_analysis_cache, cache_key)
                 if cached:
                     print(f"  ⚡ Serving cached AI analysis for '{word or 'custom_prompt'}'")
                     self.send_json_response(200, {"status": "success", "data": cached, "cached": True})
                     return
 
-                if provider in ["antigravity", "agy"]:
+                if provider == "9router":
+                    ai_data = run_router_analysis(word, sentence, romaji, custom_prompt)
+                elif provider in ["antigravity", "agy"]:
                     ai_data = run_antigravity_analysis(word, sentence, romaji, custom_prompt)
                 elif provider == "deepseek":
                     ai_data = run_deepseek_analysis(word, sentence, romaji, api_key, custom_prompt)
@@ -793,6 +888,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 "antigravity_available": agy_path is not None,
                 "antigravity_path": agy_path,
                 "default_provider": configured_ai_provider(),
+                **router_status(),
                 "deepseek_configured": bool(os.environ.get("LANGPLAY_DEEPSEEK_API_KEY", "").strip()),
                 "deepseek_model": os.environ.get("LANGPLAY_DEEPSEEK_MODEL", "deepseek-flash")
             })
