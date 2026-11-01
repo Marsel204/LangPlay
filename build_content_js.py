@@ -575,6 +575,21 @@ content_code = """/**
   let drawerPlacementObserver = null;
   let drawerSidebar = null;
 
+  chrome.storage?.onChanged?.addListener((changes, area) => {
+    if (area !== 'local' || !Object.keys(changes).some(key => key === 'linguaplay_ai_provider' || key.startsWith('linguaplay_9router_'))) return;
+    drawerContextVersion++;
+    senseiChatHistory = [];
+    activeSenseiChatRequest = null;
+    lastAiData = null;
+    for (const id of ['lp-ai-loading', 'lp-ai-results', 'lp-ai-anki-btn', 'lp-sensei-chat-box']) {
+      const element = document.getElementById(id);
+      if (element) element.style.display = 'none';
+    }
+    const chat = document.getElementById('lp-chat-messages');
+    if (chat) chat.textContent = '';
+    updateSenseiChatControls();
+  });
+
   // ── Load Settings ──
   let renderedSentence = '';
   let subtitleRenderVersion = 0;
@@ -1209,9 +1224,9 @@ content_code = """/**
     }
 
     // 4. OpenCode Custom Endpoint
-    if (provider === 'opencode') {
+    if (provider === 'opencode' || provider === '9router') {
       return new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({ action: 'CALL_CUSTOM_AI', messages, isJson }, response => {
+        chrome.runtime.sendMessage({ action: provider === '9router' ? 'CALL_9ROUTER' : 'CALL_CUSTOM_AI', messages, isJson }, response => {
           if (chrome.runtime.lastError) {
             reject(new Error(chrome.runtime.lastError.message));
           } else if (!response || !response.success) {
@@ -1308,7 +1323,7 @@ content_code = """/**
       ], async (cfg) => {
         try {
           const primaryProvider = getSenseiProvider(cfg);
-          const hasKey = cfg.linguaplay_gemini_key || cfg.linguaplay_deepseek_key || cfg.linguaplay_openrouter_key || cfg.linguaplay_opencode_key || cfg.linguaplay_opencode_url || primaryProvider === 'antigravity' || primaryProvider === 'opencode';
+          const hasKey = cfg.linguaplay_gemini_key || cfg.linguaplay_deepseek_key || cfg.linguaplay_openrouter_key || cfg.linguaplay_opencode_key || cfg.linguaplay_opencode_url || primaryProvider === 'antigravity' || primaryProvider === 'opencode' || primaryProvider === '9router';
           if (!hasKey) {
             resolve({ error: 'Please set up an AI API key (Gemini, DeepSeek, etc.) in LinguaPlay settings to use Sensei AI.' });
             return;
@@ -1335,7 +1350,7 @@ Respond in JSON only:
           if (!candidateProviders.includes('antigravity')) candidateProviders.push('antigravity');
 
           let lastError = null;
-          for (const prov of candidateProviders) {
+          for (const prov of (primaryProvider === '9router' ? ['9router'] : candidateProviders)) {
             try {
               if (prov === 'antigravity' && options?.ensureServer && chrome.runtime?.sendMessage) {
                 await new Promise(r => {
@@ -3100,7 +3115,11 @@ Respond with ONLY valid JSON:
       });
     }
 
+    let analysisRequestVersion = 0;
     document.getElementById('lp-ai-btn').addEventListener('click', async () => {
+      const analysisVersion = ++analysisRequestVersion;
+      const analysisContextVersion = drawerContextVersion;
+      const isCurrentAnalysis = () => analysisVersion === analysisRequestVersion && analysisContextVersion === drawerContextVersion;
       const word = document.getElementById('lp-active-word').textContent;
       const romaji = document.getElementById('lp-active-romaji').textContent;
       const sentence = drawerContextSentence || document.getElementById('lp-sentence-jp')?.textContent || activeLiveSentence || '';
@@ -3126,12 +3145,14 @@ Respond with ONLY valid JSON:
         'linguaplay_opencode_model',
         'linguaplay_server_url'
       ], async (cfg) => {
+        if (!isCurrentAnalysis()) return;
         const provider = getSenseiProvider(cfg);
         const prompt = buildSenseiAnalysisPrompt(word, romaji, sentence);
         const messages = [{ role: 'user', content: prompt }];
 
         const providerTitleMap = {
           gemini: '✨ GEMINI FLASH SENSEI BREAKDOWN',
+          '9router': '9ROUTER BREAKDOWN',
           deepseek: '⚡ DEEPSEEK SENSEI BREAKDOWN',
           openrouter: `🌐 OPENROUTER (${cfg.linguaplay_openrouter_model || 'deepseek'}) BREAKDOWN`,
           opencode: `💻 OPENCODE (${cfg.linguaplay_opencode_model || 'custom'}) BREAKDOWN`,
@@ -3148,6 +3169,7 @@ Respond with ONLY valid JSON:
             sentence
           });
 
+          if (!isCurrentAnalysis()) return;
           const json = JSON.parse(rawText.replace(/```json|```/g, '').trim());
           lastAiData = json;
 
@@ -3159,6 +3181,7 @@ Respond with ONLY valid JSON:
 
           results.innerHTML = renderPedagogicalBreakdown(json, providerTitleMap[provider] || '✨ SENSEI AI BREAKDOWN');
         } catch (err) {
+          if (!isCurrentAnalysis()) return;
           // If local server failed and user has configured another key, try fallback
           if (provider === 'antigravity' && cfg.linguaplay_gemini_key) {
             try {
@@ -3171,6 +3194,7 @@ Respond with ONLY valid JSON:
                 romaji,
                 sentence
               });
+              if (!isCurrentAnalysis()) return;
               const json = JSON.parse(rawText.replace(/```json|```/g, '').trim());
               lastAiData = json;
               loading.style.display = 'none';
@@ -3193,9 +3217,9 @@ Respond with ONLY valid JSON:
                 <span>⚠️</span> AI Analysis Notice: ${err.message}
               </div>
               <p style="margin: 0 0 8px; color: #cbd5e1; font-size: 11.5px;">
-                ${provider === 'antigravity' ? 'Click Ask Sensei to retry, or open extension settings to select another provider.' : 'Quick-save your API key directly below, or open full extension settings:'}
+                ${['antigravity', '9router'].includes(provider) ? 'Click Ask Sensei to retry, or open extension settings to configure this provider.' : 'Quick-save your API key directly below, or open full extension settings:'}
               </p>
-              <div style="display: ${provider === 'antigravity' ? 'none' : 'flex'}; gap: 6px; margin-bottom: 8px; align-items: center;">
+              <div style="display: ${['antigravity', '9router'].includes(provider) ? 'none' : 'flex'}; gap: 6px; margin-bottom: 8px; align-items: center;">
                 <select id="lp-inline-provider" style="background: #1e1b4b; color: #e2e8f0; border: 1px solid rgba(139,92,246,0.5); border-radius: 6px; padding: 4px 6px; font-size: 11px;">
                   <option value="deepseek" selected>DeepSeek</option>
                   <option value="gemini">Gemini</option>

@@ -36,8 +36,59 @@ document.addEventListener('DOMContentLoaded', () => {
   const saveSettingsBtn = document.getElementById('save-settings-btn');
   const saveToast = document.getElementById('save-toast');
 
+  const routerUrl = document.getElementById('9router-url');
+  const routerKey = document.getElementById('9router-key');
+  const routerModel = document.getElementById('9router-model');
+  const routerStatus = document.getElementById('9router-status-text');
+  const routerValues = () => ({url:routerUrl.value, key:routerKey.value, model:routerModel.value});
+  async function allowRouter(requireModel = true, values = routerValues(), current = () => true) {
+    const cfg = RouterAI.config(values, requireModel);
+    const permission = {origins:[cfg.origin]};
+    const allowed = await chrome.permissions.contains(permission);
+    if (!current()) return;
+    if (!allowed && !await chrome.permissions.request(permission)) throw new Error('9Router endpoint access denied. Allow access and retry.');
+    return cfg;
+  }
+  const routerButtons = ['load-9router-models-btn', 'test-9router-btn'].map(id => document.getElementById(id));
+  let routerCheck = null;
+  function invalidateRouterCheck() {
+    routerCheck?.controller.abort();
+    routerCheck = null;
+    routerButtons.forEach(button => button.disabled = false);
+    routerStatus.textContent = '';
+  }
+  for (const field of [routerUrl, routerKey, routerModel, aiProvider]) {
+    for (const event of ['input', 'change']) field.addEventListener(event, () => {
+      invalidateRouterCheck();
+      if (field === routerUrl || field === routerKey) document.getElementById('9router-models').replaceChildren();
+    });
+  }
+  for (const [index, models] of [true, false].entries()) {
+    routerButtons[index].addEventListener('click', async event => {
+      invalidateRouterCheck();
+      const button = event.currentTarget;
+      const values = routerValues();
+      const check = {controller:new AbortController()};
+      routerCheck = check;
+      const current = () => routerCheck === check && JSON.stringify(values) === JSON.stringify(routerValues());
+      button.disabled = true;
+      routerStatus.textContent = models ? 'Loading models…' : 'Testing 9Router…';
+      try {
+        await allowRouter(!models, values, current);
+        if (!current()) return;
+        const result = await RouterAI.request(values, {models, signal:check.controller.signal, messages:[{role:'user',content:'Respond with OK'}]});
+        if (!current()) return;
+        if (models) {
+          document.getElementById('9router-models').replaceChildren(...result.map(id => {const option = document.createElement('option'); option.value = id; return option;}));
+          routerStatus.textContent = `${result.length} models loaded. You can also enter a combo manually.`;
+        } else routerStatus.textContent = '9Router returned a completion. Settings have not been saved.';
+      } catch (error) {if (current()) routerStatus.textContent = error.message;}
+      finally {if (routerCheck === check) {button.disabled = false; routerCheck = null;}}
+    });
+  }
   // 1. Load saved settings
   chrome.storage.local.get([
+    'linguaplay_9router_url', 'linguaplay_9router_key', 'linguaplay_9router_model',
     'linguaplay_ai_provider',
     'linguaplay_gemini_key',
     'linguaplay_deepseek_key',
@@ -53,6 +104,9 @@ document.addEventListener('DOMContentLoaded', () => {
     'linguaplay_reading_mode',
     'linguaplay_cards'
   ], (res) => {
+    routerUrl.value = res.linguaplay_9router_url || 'http://127.0.0.1:20128/v1';
+    routerKey.value = res.linguaplay_9router_key || '';
+    routerModel.value = res.linguaplay_9router_model || '';
     aiProvider.value = res.linguaplay_ai_provider || (res.linguaplay_gemini_key ? 'gemini' : 'antigravity');
     if (res.linguaplay_gemini_key) geminiKey.value = res.linguaplay_gemini_key;
     if (res.linguaplay_deepseek_key) deepseekKey.value = res.linguaplay_deepseek_key;
@@ -84,6 +138,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 2. Save settings
   saveSettingsBtn.addEventListener('click', async () => {
+    if (aiProvider.value === '9router') {
+      try {await allowRouter();} catch (error) {routerStatus.textContent = error.message; return;}
+    }
     if (aiProvider.value === 'opencode') {
       try {
         await allowCustomEndpoint();
@@ -94,6 +151,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
     chrome.storage.local.set({
+      linguaplay_9router_url: routerUrl.value.trim() || 'http://127.0.0.1:20128/v1',
+      linguaplay_9router_key: routerKey.value.trim(),
+      linguaplay_9router_model: routerModel.value.trim(),
       linguaplay_ai_provider: aiProvider.value,
       linguaplay_gemini_key: geminiKey.value.trim(),
       linguaplay_deepseek_key: deepseekKey.value.trim(),

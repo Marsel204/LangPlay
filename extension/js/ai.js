@@ -29,18 +29,73 @@ let currentProvider = 'antigravity';
 let antigravityAvailable = false;
 let customServerUrl = DEFAULT_LOCAL_SERVER;
 
-// Load initial settings from chrome.storage or localStorage
+const settingsListeners = new Set();
+const observedSettings = {
+  [LS_AI_PROVIDER]: 'antigravity', [LS_SERVER_URL]: DEFAULT_LOCAL_SERVER,
+  linguaplay_9router_url: 'http://127.0.0.1:20128/v1',
+  linguaplay_9router_key: '', linguaplay_9router_model: ''
+};
+const settingsDefaults = {...observedSettings};
+const touchedSettings = new Set();
+export function onAISettingsChanged(listener) {
+  settingsListeners.add(listener);
+  return () => settingsListeners.delete(listener);
+}
+let settingsLoaded = false;
+let resolveSettings;
+const settingsReady = new Promise(resolve => {resolveSettings = resolve;});
+export function waitForAISettings() { return settingsReady; }
+function applySettings(values, notify = true) {
+  const changed = new Set();
+  for (const key of Object.keys(observedSettings)) {
+    if (!Object.prototype.hasOwnProperty.call(values, key)) continue;
+    const value = values[key] ?? settingsDefaults[key];
+    if (value === observedSettings[key]) continue;
+    observedSettings[key] = value;
+    if (key === LS_AI_PROVIDER) currentProvider = value;
+    if (key === LS_SERVER_URL) customServerUrl = value;
+    changed.add(key);
+  }
+  const relevant = changed.has(LS_AI_PROVIDER)
+    || (currentProvider === '9router' && [...changed].some(key => key.startsWith('linguaplay_9router_')))
+    || (currentProvider === 'antigravity' && changed.has(LS_SERVER_URL));
+  if (relevant && notify) {
+    abortAIAnalysis();
+    settingsListeners.forEach(listener => listener());
+  }
+}
+// Track applied values rather than trusting oldValue: our own delayed provider
+// notification must not invalidate a request started after setAIProvider.
 try {
-  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-    chrome.storage.local.get([LS_AI_PROVIDER, LS_SERVER_URL], (res) => {
-      if (res[LS_AI_PROVIDER]) currentProvider = res[LS_AI_PROVIDER];
-      if (res[LS_SERVER_URL]) customServerUrl = res[LS_SERVER_URL];
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    chrome.storage.onChanged?.addListener((changes, area) => {
+      if (area !== 'local') return;
+      const values = {};
+      for (const key of Object.keys(observedSettings)) {
+        if (!changes[key]) continue;
+        touchedSettings.add(key);
+        values[key] = changes[key].newValue;
+      }
+      applySettings(values);
     });
+    const loadSettings = (res = {}) => {
+      if (settingsLoaded) return;
+      const values = {};
+      for (const key of Object.keys(observedSettings)) {
+        if (!touchedSettings.has(key)) values[key] = res[key];
+      }
+      applySettings(values, false);
+      settingsLoaded = true;
+      resolveSettings();
+    };
+    const initial = chrome.storage.local.get(Object.keys(observedSettings), loadSettings);
+    initial?.then?.(loadSettings, () => loadSettings());
   } else if (typeof localStorage !== 'undefined') {
     currentProvider = localStorage.getItem(LS_AI_PROVIDER) || 'antigravity';
     customServerUrl = localStorage.getItem(LS_SERVER_URL) || DEFAULT_LOCAL_SERVER;
   }
-} catch (e) { /* ignore */ }
+} catch (e) {settingsLoaded = true; resolveSettings();}
+if (typeof chrome === 'undefined' || !chrome.storage?.local) {settingsLoaded = true; resolveSettings();}
 
 export async function checkAntigravityStatus() {
   try {
@@ -66,8 +121,11 @@ export function getAIProvider() {
 }
 
 export function setAIProvider(provider) {
-  if (['antigravity', ...Object.keys(API_KEY_STORAGE_KEYS)].includes(provider)) {
+  if (['antigravity', '9router', ...Object.keys(API_KEY_STORAGE_KEYS)].includes(provider)) {
+    abortAIAnalysis();
     currentProvider = provider;
+    observedSettings[LS_AI_PROVIDER] = provider;
+    touchedSettings.add(LS_AI_PROVIDER);
     try {
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
         chrome.storage.local.set({ [LS_AI_PROVIDER]: provider });
@@ -177,17 +235,32 @@ function resolveRomaji(explicitRomaji, reading, surface) {
  */
 export async function requestAIAnalysis({ word, romaji, sentence, provider = null, apiKey = null, onChunk, onSuccess, onError }) {
   abortAIAnalysis();
-  const activeProv = provider || currentProvider;
-
   activeAbortController = new AbortController();
   const controller = activeAbortController;
   const signal = activeAbortController.signal;
   const currentCallback = callback => (...args) => {
     if (!signal.aborted && activeAbortController === controller) callback?.(...args);
   };
+  if (!settingsLoaded) await settingsReady;
+  if (signal.aborted || activeAbortController !== controller) return;
+  const activeProv = provider || currentProvider;
+
   onChunk = currentCallback(onChunk);
   onSuccess = currentCallback(onSuccess);
   onError = currentCallback(onError);
+
+  if (activeProv === '9router') {
+    try {
+      const response = await chrome.runtime.sendMessage({action:'CALL_9ROUTER', isJson:true, messages:[{role:'system',content:buildSystemPrompt()}, {role:'user',content:`Context Sentence: ${sentence || word}\nTarget Word: ${word} (${romaji || ''})`}]});
+      if (!response?.success) throw new Error(response?.error || '9Router request failed.');
+      let result;
+      try {result = JSON.parse(response.content);} catch {throw new Error('9Router returned an invalid explanation.');}
+      if (!result || typeof result !== 'object' || Array.isArray(result) || !Object.keys(result).length) throw new Error('9Router returned an invalid explanation.');
+      onSuccess(result);
+    } catch (error) {onError(error.message);}
+    finally {if (activeAbortController === controller) activeAbortController = null;}
+    return;
+  }
 
   // 1. Antigravity CLI / Local Server
   if (activeProv === 'antigravity') {

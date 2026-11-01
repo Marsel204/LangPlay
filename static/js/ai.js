@@ -51,7 +51,8 @@ export function getAIProvider() {
 }
 
 export function setAIProvider(provider) {
-  if (['antigravity', 'gemini', 'openrouter'].includes(provider)) {
+  if (['antigravity', '9router', 'gemini', 'openrouter'].includes(provider)) {
+    abortAIAnalysis();
     currentProvider = provider;
     try {
       if (typeof localStorage !== 'undefined' && localStorage.setItem) {
@@ -201,14 +202,14 @@ export async function requestAIAnalysis({ word, romaji, sentence, provider = nul
   // ══════════════════════════════════════════════════════════════════════
   // 1. Antigravity CLI / Local Server Engine (No API Key Required!)
   // ══════════════════════════════════════════════════════════════════════
-  if (activeProv === 'antigravity') {
-    if (onChunk) onChunk('🤖 Invoking Google Antigravity CLI (agy) for linguistic breakdown…');
+  if (activeProv === 'antigravity' || activeProv === '9router') {
+    if (onChunk) onChunk(activeProv === '9router' ? 'Requesting 9Router via the companion…' : '🤖 Invoking Google Antigravity CLI (agy) for linguistic breakdown…');
     try {
       const response = await fetch('/api/ai/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          provider: 'antigravity',
+          provider: activeProv,
           word,
           romaji: romaji || '',
           sentence: sentence || word
