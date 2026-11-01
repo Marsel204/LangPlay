@@ -1,4 +1,5 @@
-"""Episode-scoped Jimaku discovery; credentials stay in the local companion."""
+"""Episode-scoped subtitle discovery; credentials stay in the local companion."""
+import ajatt_subtitles
 import codecs
 import hashlib
 import http.client
@@ -55,8 +56,16 @@ class JimakuRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(request, fp, code, message, headers, new_url)
 
 
-def _fetch(url, deadline, key='', limit=MAX_BYTES):
-    if not trusted_url(url):
+class AjattRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, message, headers, new_url):
+        if not ajatt_subtitles.trusted_url(new_url):
+            raise ValueError('AJATT returned an unsupported subtitle download location.')
+        return super().redirect_request(request, fp, code, message, headers, new_url)
+
+
+def _fetch(url, deadline, key='', limit=MAX_BYTES, *, provider='Jimaku'):
+    validate = trusted_url if provider == 'Jimaku' else ajatt_subtitles.trusted_url
+    if provider not in ('Jimaku', 'AJATT') or not validate(url) or key and provider != 'Jimaku':
         raise ValueError('Unsupported subtitle location.')
     remaining = deadline - time.monotonic()
     if remaining <= 0:
@@ -66,15 +75,16 @@ def _fetch(url, deadline, key='', limit=MAX_BYTES):
         headers['Authorization'] = key
     request = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.build_opener(JimakuRedirect()).open(request, timeout=min(10, remaining)) as response:
-            if not trusted_url(response.url):
+        redirect = JimakuRedirect() if provider == 'Jimaku' else AjattRedirect()
+        with urllib.request.build_opener(redirect).open(request, timeout=min(10, remaining)) as response:
+            if not validate(response.url):
                 raise ValueError('Unsupported subtitle location.')
             try:
                 length = int(response.headers.get('Content-Length', 0))
                 if length < 0:
                     raise ValueError()
             except (ValueError, TypeError):
-                raise ValueError('Jimaku returned an invalid response length. Retry automatic search.') from None
+                raise ValueError(f'{provider} returned an invalid response length. Retry automatic search.') from None
             if length > limit:
                 raise ValueError('Japanese subtitle exceeds the size limit.')
             data = bytearray()
@@ -91,9 +101,10 @@ def _fetch(url, deadline, key='', limit=MAX_BYTES):
     except urllib.error.HTTPError as error:
         hints = {401: 'Check the Jimaku API key in Subtitle Engine preferences.', 403: 'Check the Jimaku API key in Subtitle Engine preferences.',
                  429: 'Jimaku rate limit reached. Wait and retry automatic search.'}
-        raise ValueError(hints.get(error.code, f'Jimaku is unavailable (HTTP {error.code}). Retry automatic search.')) from None
+        hint = hints.get(error.code) if provider == 'Jimaku' else None
+        raise ValueError(hint or f'{provider} is unavailable (HTTP {error.code}). Retry automatic search.') from None
     except (OSError, http.client.HTTPException):
-        raise ValueError('Jimaku could not be reached. Retry automatic search or load a saved subtitle.') from None
+        raise ValueError(f'{provider} could not be reached. Retry automatic search or load a saved subtitle.') from None
 
 
 def _atomic(path, data):
@@ -129,14 +140,17 @@ def _cached(folder, media, episode):
         item = json.loads(raw)
         if item['mediaId'] != media or item['episode'] != episode or item['format'] not in ('srt', 'vtt', 'ass', 'ssa'):
             return None
-        expected = f'Jimaku.{media}.E{episode:02d}.ja.{item["format"]}'
+        provider = item.get('provider', 'Jimaku')
+        if provider not in ('Jimaku', 'AJATT'):
+            return None
+        expected = f'{provider}.{media}.E{episode:02d}.ja.{item["format"]}'
         if item['sourceId'] != expected:
             return None
         result = saved_subtitles({'action': 'read', 'name': expected})
         if hashlib.sha256(result['content'].encode('utf-8')).hexdigest() != item['sha256']:
             return None
         _validate_cues(result['content'], '.' + item['format'])
-        return {**result, 'cached': True, 'originalName': item.get('originalName', expected)}
+        return {**result, 'cached': True, 'provider': provider, 'originalName': item.get('originalName', expected)}
     except (OSError, ValueError, KeyError, TypeError, RecursionError):
         return None
 
@@ -240,7 +254,39 @@ def _decode(data, extension):
     return content
 
 
-def automatic_subtitle(body, *, get_json=None, download=None, key_reader=None):
+def _select_subtitle(files, download):
+    for file in sorted(files, key=_rank)[:3]:
+        try:
+            return file, _decode(download(file['url']), Path(file['name']).suffix.lower())
+        except (ValueError, OSError, UnicodeError):
+            continue
+    raise ValueError('No usable matching Japanese subtitles found. Load a saved file or retry later.')
+
+
+def _jimaku_subtitle(media, episode, key, get_json, download):
+    entries = get_json(f'/api/entries/search?anilist_id={media}', key)
+    if not isinstance(entries, list):
+        raise ValueError('Jimaku returned an invalid search reply. Retry automatic search.')
+    matches = [entry for entry in entries if isinstance(entry, dict) and entry.get('anilist_id') == media and type(entry.get('id')) is int
+               and isinstance(entry.get('flags', {}), dict)
+               and all(type(entry.get('flags', {}).get(flag, False)) is bool for flag in ('anime', 'external', 'unverified'))
+               and entry.get('flags', {}).get('anime', True) and not entry.get('flags', {}).get('external')]
+    matches.sort(key=lambda entry: (entry.get('flags', {}).get('unverified', False), entry['id']))
+    if not matches:
+        raise ValueError('No matching Japanese subtitles on Jimaku. Load a saved file instead.')
+    entry = matches[0]['id']
+    files = get_json(f'/api/entries/{entry}/files?episode={episode}', key)
+    if not isinstance(files, list):
+        raise ValueError('Jimaku returned an invalid file list. Retry automatic search.')
+    candidates = [file for file in files if isinstance(file, dict) and isinstance(file.get('name'), str) and len(file['name']) <= 256
+                  and not any(0xd800 <= ord(char) <= 0xdfff for char in file['name'])
+                  and Path(file['name']).suffix.lower() in FORMATS and trusted_url(file.get('url'), entry)
+                  and type(file.get('size')) is int and 0 < file['size'] <= MAX_BYTES
+                  and not re.search(r'(^|[. _\[(-])(eng|english|en|signs?|songs?)([. _\])&-]|$)', file['name'], re.I)]
+    return _select_subtitle(candidates, download)
+
+
+def automatic_subtitle(body, *, get_json=None, download=None, key_reader=None, ajatt_fetch=None):
     media, episode = body.get('mediaId'), body.get('episode')
     if type(media) is not int or not 0 < media < 2**31 or type(episode) is not int or not 0 < episode <= 100000:
         raise ValueError('Start an identified anime episode before automatic subtitle search.')
@@ -249,55 +295,45 @@ def automatic_subtitle(body, *, get_json=None, download=None, key_reader=None):
     if cached:
         return cached
     key = (key_reader or jimaku_key)()
-    if not key:
-        raise ValueError('Configure your Jimaku API key in Subtitle Engine preferences, then retry automatic search.')
     if not _slots.acquire(timeout=.1):
         raise ValueError('Japanese subtitle search is busy. Retry in a moment.')
     try:
         deadline = time.monotonic() + 40
+        jimaku_deadline = deadline - 15
         def provider_json(path, auth):
             try:
-                return json.loads(_fetch('https://jimaku.cc' + path, deadline, auth, 512 * 1024))
+                return json.loads(_fetch('https://jimaku.cc' + path, jimaku_deadline, auth, 512 * 1024))
             except (UnicodeError, RecursionError, json.JSONDecodeError):
                 raise ValueError('Jimaku returned invalid JSON. Retry automatic search.') from None
         get_json = get_json or provider_json
-        download = download or (lambda url: _fetch(url, deadline))
-        entries = get_json(f'/api/entries/search?anilist_id={media}', key)
-        if not isinstance(entries, list):
-            raise ValueError('Jimaku returned an invalid search reply. Retry automatic search.')
-        matches = [e for e in entries if isinstance(e, dict) and e.get('anilist_id') == media and type(e.get('id')) is int
-                   and isinstance(e.get('flags', {}), dict)
-                   and all(type(e.get('flags', {}).get(flag, False)) is bool for flag in ('anime', 'external', 'unverified'))
-                   and e.get('flags', {}).get('anime', True) and not e.get('flags', {}).get('external')]
-        matches.sort(key=lambda e: (e.get('flags', {}).get('unverified', False), e['id']))
-        if not matches:
-            raise ValueError('No matching Japanese subtitles on Jimaku. Load a saved file instead.')
-        entry = matches[0]['id']
-        files = get_json(f'/api/entries/{entry}/files?episode={episode}', key)
-        if not isinstance(files, list):
-            raise ValueError('Jimaku returned an invalid file list. Retry automatic search.')
-        candidates = [f for f in files if isinstance(f, dict) and isinstance(f.get('name'), str) and len(f['name']) <= 256
-                      and not any(0xd800 <= ord(char) <= 0xdfff for char in f['name'])
-                      and Path(f['name']).suffix.lower() in FORMATS and trusted_url(f.get('url'), entry)
-                      and type(f.get('size')) is int and 0 < f['size'] <= MAX_BYTES
-                      and not re.search(r'(^|[. _\[(-])(eng|english|en|signs?|songs?)([. _\])&-]|$)', f['name'], re.I)]
-        candidates.sort(key=_rank)
-        for file in candidates[:3]:
-            extension = Path(file['name']).suffix.lower()
+        download = download or (lambda url: _fetch(url, jimaku_deadline))
+        selected, provider = None, 'Jimaku'
+        jimaku_error = 'Configure your Jimaku API key in Subtitle Engine preferences to search Jimaku.'
+        if key:
             try:
-                content = _decode(download(file['url']), extension)
-            except (ValueError, OSError, UnicodeError):
-                continue
-            name = f'Jimaku.{media}.E{episode:02d}.ja{extension}'
-            cache_dir = folder / '.langplay-auto'
-            if cache_dir.is_symlink():
-                raise ValueError('Automatic subtitle cache is unavailable. Load a saved subtitle instead.')
-            cache_dir.mkdir(mode=0o700, exist_ok=True)
-            _atomic(folder / name, content.encode('utf-8'))
-            metadata = {'mediaId': media, 'episode': episode, 'sourceId': name, 'format': extension[1:],
-                        'originalName': file['name'], 'sha256': hashlib.sha256(content.encode('utf-8')).hexdigest()}
-            _atomic(cache_dir / f'{media}-{episode}.json', json.dumps(metadata, ensure_ascii=False).encode())
-            return {'sourceId': name, 'format': extension[1:], 'content': content, 'cached': False, 'originalName': file['name']}
-        raise ValueError('No usable matching Japanese subtitles found. Load a saved file or retry later.')
+                selected = _jimaku_subtitle(media, episode, key, get_json, download)
+            except (ValueError, OSError, UnicodeError) as error:
+                jimaku_error = str(error)
+        if selected is None:
+            provider = 'AJATT'
+            ajatt_fetch = ajatt_fetch or (lambda url, limit: _fetch(url, deadline, limit=limit, provider='AJATT'))
+            try:
+                candidates = ajatt_subtitles.candidates(body.get('title'), media, episode, ajatt_fetch)
+                selected = _select_subtitle(candidates, lambda url: ajatt_fetch(url, MAX_BYTES))
+            except (ValueError, OSError, UnicodeError, RecursionError) as error:
+                raise ValueError(f'{jimaku_error} AJATT fallback: {error}') from None
+        file, content = selected
+        extension = Path(file['name']).suffix.lower()
+        name = f'{provider}.{media}.E{episode:02d}.ja{extension}'
+        cache_dir = folder / '.langplay-auto'
+        if cache_dir.is_symlink():
+            raise ValueError('Automatic subtitle cache is unavailable. Load a saved subtitle instead.')
+        cache_dir.mkdir(mode=0o700, exist_ok=True)
+        _atomic(folder / name, content.encode('utf-8'))
+        metadata = {'mediaId': media, 'episode': episode, 'sourceId': name, 'format': extension[1:], 'provider': provider,
+                    'originalName': file['name'], 'sha256': hashlib.sha256(content.encode('utf-8')).hexdigest()}
+        _atomic(cache_dir / f'{media}-{episode}.json', json.dumps(metadata, ensure_ascii=False).encode())
+        return {'sourceId': name, 'format': extension[1:], 'content': content, 'cached': False,
+                'provider': provider, 'originalName': file['name']}
     finally:
         _slots.release()

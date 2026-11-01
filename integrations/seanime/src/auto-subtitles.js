@@ -38,14 +38,14 @@ export function createAutoSubtitles({host, controller, services, storage, onChan
         const saved = associations[snapshot.association];
         let subtitle = null;
         const namedEpisode = typeof saved?.sourceId === 'string' && /(?:^|[. _-])(?:S\d{1,3})?E(?:P(?:ISODE)?)?[. _-]*0*(\d{1,5})(?!\d)/i.exec(saved.sourceId);
-        const namedAnime = typeof saved?.sourceId === 'string' && /^Jimaku\.(\d+)\./i.exec(saved.sourceId);
+        const namedAnime = typeof saved?.sourceId === 'string' && /^(?:Jimaku|AJATT)\.(\d+)\./i.exec(saved.sourceId);
         // Provider caches must pass the companion's structure/hash checks too.
         if (saved?.sourceId && !namedAnime && (!namedEpisode || Number(namedEpisode[1]) === episode)) {
           try { subtitle = await services.savedSubtitles({action:'read',name:saved.sourceId,encoding:'auto'}); }
           catch (_) { /* A removed saved file falls back to the provider. */ }
         }
         if (!current() || controller.view().source !== originalSource) return;
-        if (!subtitle) subtitle = await services.discoverSubtitles({mediaId,episode});
+        if (!subtitle) subtitle = await services.discoverSubtitles({mediaId,episode,title:snapshot.title});
         if (!current() || controller.view().source !== originalSource) return;
         if (!subtitle?.content || !subtitle.sourceId) throw new Error('No usable Japanese subtitles found. Load a saved file or retry.');
         const offsetMs = saved?.sourceId === subtitle.sourceId ? saved.offsetMs || 0 : 0;
@@ -54,7 +54,7 @@ export function createAutoSubtitles({host, controller, services, storage, onChan
         const sources = storage.read('sources',{}) || {};
         sources[snapshot.association] = {sourceId:subtitle.sourceId,offsetMs};
         storage.write('sources',Object.fromEntries(Object.entries(sources).slice(-100)));
-        setStatus('ready',subtitle.originalName ? `Loaded automatically from Jimaku: ${subtitle.originalName}. Timing can vary by release.` : 'Loaded the saved Japanese subtitle for this episode.');
+        setStatus('ready',subtitle.originalName ? `Loaded automatically from ${subtitle.provider || 'Jimaku'}: ${subtitle.originalName}. Timing can vary by release.` : 'Loaded the saved Japanese subtitle for this episode.');
       } catch (error) {
         if (current()) setStatus('error',String(error.message || error));
       } finally { if (ticket === sequence) pending = null; }

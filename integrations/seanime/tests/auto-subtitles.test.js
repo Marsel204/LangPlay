@@ -18,7 +18,7 @@ async function fixture(overrides={}){
 }
 test('episode start searches and loads matching Japanese without an import action',async()=>{
  const h=await fixture();await h.loader.update();assert.equal(h.controller.view().source.sourceId,'episode-2.srt');
- assert.deepEqual(h.calls,[['discover',{mediaId:189046,episode:2}]]);assert.equal(h.values.sources['189046:2'].sourceId,'episode-2.srt');
+ assert.deepEqual(h.calls,[['discover',{mediaId:189046,episode:2,title:'Generated test'}]]);assert.equal(h.values.sources['189046:2'].sourceId,'episode-2.srt');
  await h.loader.update();assert.equal(h.calls.length,1);
 });
 test('a saved episode association reloads its file and delay before searching',async()=>{
@@ -38,6 +38,30 @@ test('provider cache associations go through discovery validation before reuse',
 });
 test('missing associated files fall back to the matching episode search',async()=>{
  const h=await fixture();h.values.sources['189046:2']={sourceId:'removed.srt',offsetMs:0};await h.loader.update();assert.equal(h.controller.view().source.sourceId,'episode-2.srt');
+});
+test('AJATT cache associations pass through companion validation and preserve their delay', async () => {
+  let reads = 0;
+  const h = await fixture({
+    savedSubtitles: async () => { reads++; return subtitle('tampered.srt'); },
+    discoverSubtitles: async () => ({...subtitle('AJATT.189046.E02.ja.srt'), provider:'AJATT', originalName:'Show.E02.ja.srt'}),
+  });
+  h.values.sources['189046:2'] = {sourceId:'AJATT.189046.E02.ja.srt',offsetMs:250};
+  await h.loader.update();
+  assert.equal(reads, 0);
+  assert.equal(h.controller.view().source.sourceId, 'AJATT.189046.E02.ja.srt');
+  assert.equal(h.controller.view().source.offsetMs, 250);
+  assert.match(h.loader.status().message, /from AJATT/);
+  assert.doesNotMatch(h.loader.status().message, /Jimaku/);
+});
+test('late AJATT results cannot replace a manual subtitle choice', async () => {
+  const pending = deferred();
+  const h = await fixture({discoverSubtitles:() => pending.promise});
+  const work = h.loader.update();
+  await h.controller.loadSubtitle(subtitle('manual.srt'));
+  pending.resolve({...subtitle('AJATT.189046.E02.ja.srt'),provider:'AJATT'});
+  await work;
+  assert.equal(h.controller.view().source.sourceId, 'manual.srt');
+  assert.equal(h.values.sources['189046:2'], undefined);
 });
 test('late episode results cannot overwrite the next episode',async()=>{
  const pending=deferred();const h=await fixture({discoverSubtitles:body=>body.episode===2?pending.promise:Promise.resolve(subtitle('episode-3.srt'))});
