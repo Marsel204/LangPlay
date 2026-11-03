@@ -50,6 +50,34 @@ function view(tokens) {
     preferences:{readingMode:'plain'}, activeCues:[{id:'cue',text:'日本語'}], tokens:{cue:tokens}, drawerOpen:false };
 }
 
+test('background opacity previews on input without replacing Japanese words and follows saved updates', async () => {
+  const h = fixture(), state = view([{ surface: '日本語', start: 0, end: 3 }]);
+  await h.surface.update(state);
+  const slider = h.nodes.find(node => node.attributes['data-langplay'] === 'caption-opacity');
+  assert.ok(slider, 'subtitle settings must offer a background slider');
+  assert.equal(slider.attributes.type, 'range'); assert.equal(slider.attributes.min, '0'); assert.equal(slider.attributes.max, '100');
+  assert.equal(slider.value, 18);
+  const word = h.token(), captions = word.parent.parent;
+  slider.value = '0'; await slider.handlers.get('input')();
+  assert.equal(h.actions.at(-1)?.[1].captionOpacity, 0);
+  assert.equal(captions.attributes['data-transparent'], 'true');
+  assert.equal(slider.attributes['aria-valuetext'], '0% (Transparent)');
+  assert.equal(h.token(), word);
+  await h.surface.update({ ...state, preferences: { ...state.preferences, captionOpacity: 100 } });
+  assert.equal(slider.value, 100); assert.equal(captions.attributes['data-transparent'], 'false');
+  assert.equal(captions.styles['--langplay-caption-opacity'], '1'); assert.equal(h.token(), word);
+  let resolveOld;
+  slider.value = '0';
+  slider.getProperty = () => new Promise(resolve => { resolveOld = resolve; });
+  const older = slider.handlers.get('input')();
+  await h.surface.update({ ...state, preferences: { ...state.preferences, captionOpacity: 100 } });
+  assert.equal(slider.value, '0', 'clock updates must not reset a drag awaiting the DOM bridge');
+  slider.value = '25'; slider.getProperty = async () => slider.value;
+  await slider.handlers.get('input')(); resolveOld('0'); await older;
+  assert.equal(h.actions.at(-1)?.[1].captionOpacity, 25, 'late DOM reads must not overwrite the latest slider value');
+  assert.equal(captions.styles['--langplay-caption-opacity'], '0.25'); assert.equal(h.token(), word);
+});
+
 test('optional English meanings appear beneath Japanese without replacing its clickable words', async () => {
   const h = fixture(), state = { ...view([{surface:'日本語',start:0,end:3}]),
     preferences: { readingMode: 'plain', showTranslation: true },

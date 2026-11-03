@@ -2,6 +2,7 @@ import styles from './player-surface.css';
 import answerStyles from './answer.css';
 import { parseAnswer } from './answer.js';
 import { sentenceParts } from './sentence-reading.js';
+import { captionOpacity, opacityLabel } from './caption-appearance.js';
 
 const clock = ms => { const s = Math.floor(Math.max(0, ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const identity = view => view?.selected ? JSON.stringify([view.selected.clientId, view.selected.playbackId, view.selected.generation, view.selected.cueId, view.selected.span]) : '';
@@ -27,6 +28,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
   let controlListeners = [];
   const answerKeys = new Map(), answerListeners = new Map();
   let captionMeanings = new Map();
+  let opacityKey = '', opacityPreview = null, opacityEditing = false, opacitySequence = 0;
   const fields = {};
   let pending = Promise.resolve(), needsSweep = true;
   const enqueue = work => { const next = pending.catch(() => {}).then(work); pending = next; return next; };
@@ -231,6 +233,25 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     }
     listeners.push(fields.translationMode.addEventListener('change', async () => action('preferences', {showTranslation:await read(fields.translationMode.getProperty('value')) === 'english'})));
     fields.captionRetry = await button(fields.setup, 'caption-retry', 'Retry sentence meaning', () => action('caption-retry'));
+    const opacityRow = await make('div', 'opacity-row', fields.setup);
+    const opacityTitle = await make('label', '', opacityRow, 'Background opacity');
+    fields.opacityValue = await make('output', 'caption-opacity-value', opacityRow);
+    fields.captionOpacity = await make('input', 'caption-opacity', fields.setup);
+    opacityTitle.setAttribute('for', fields.captionOpacity.id); fields.opacityValue.setAttribute('for', fields.captionOpacity.id);
+    for (const [key, value] of Object.entries({ type: 'range', min: '0', max: '100', step: '1', 'aria-label': 'Subtitle background opacity' })) fields.captionOpacity.setAttribute(key, value);
+    listeners.push(fields.captionOpacity.addEventListener('input', async () => {
+      const request = ++opacitySequence, expected = generation;
+      opacityEditing = true;
+      try {
+        const value = Number(await read(fields.captionOpacity.getProperty('value')));
+        if (request !== opacitySequence || expected !== generation) return;
+        opacityPreview = captionOpacity(value);
+        renderCaptionAppearance();
+        await action('preferences', { captionOpacity: opacityPreview });
+      } finally {
+        if (request === opacitySequence && expected === generation) { opacityEditing = false; opacityPreview = null; }
+      }
+    }));
     const savedLabel = await make('label', '', fields.setup, 'Saved Japanese subtitle');
     fields.saved = await make('select', 'saved', fields.setup); savedLabel.setAttribute('for', fields.saved.id);
     fields.saved.setAttribute('aria-label', 'Saved Japanese subtitle');
@@ -298,6 +319,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
   }
   async function renderCaptions() {
     if (!mounted || !captions) return;
+    renderCaptionAppearance();
     fields.toggle.setAttribute('aria-pressed', String(enabled));
     // Go-backed nested maps enumerate in a different order on each export.
     // Only visible text, spans and readings determine caption DOM identity.
@@ -358,6 +380,18 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     captionMeanings = nextMeanings;
     captionKey = key;
     renderCaptionMeanings();
+  }
+
+  function renderCaptionAppearance() {
+    const value = opacityPreview ?? captionOpacity(view?.preferences?.captionOpacity);
+    if (opacityKey === String(value)) return;
+    if (!opacityEditing) fields.captionOpacity.setProperty('value', value);
+    opacityKey = String(value);
+    const label = opacityLabel(value);
+    fields.opacityValue.setText(label); fields.captionOpacity.setAttribute('aria-valuetext', label);
+    captions.setStyle('--langplay-caption-opacity', String(value / 100));
+    captions.setStyle('--langplay-glass-strength', String(Math.min(1, value / 18)));
+    captions.setAttribute('data-transparent', String(value === 0));
   }
 
   function renderCaptionMeanings() {
@@ -533,6 +567,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     answerListeners.clear(); answerKeys.clear();
     mounted = false; captionKey = renderKey = wordKey = insetKey = replacedSource = sentenceKey = ''; setupOpen = false; drawerInPlayer = false;
     captionMeanings.clear();
+    opacityKey = ''; opacityPreview = null; opacityEditing = false; opacitySequence++;
   }
   const clear = () => enqueue(async () => { view = null; await reset(); await sweep(true); });
   const changeFullscreen = event => enqueue(async () => { fullscreen = !!event.fullscreen; await placeDrawer(); });

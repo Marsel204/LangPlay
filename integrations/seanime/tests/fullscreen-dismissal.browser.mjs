@@ -86,7 +86,13 @@ function mountFixture({ meanings = false, fullscreen = true, study = true } = {}
   window.surface = Surface.createPlayerSurface({
     ctx: { dom: { queryOne: async () => wrap(player), query: async selector => [...document.querySelectorAll(selector)].map(wrap),
       createElement: async tag => wrap(document.createElement(tag)), viewport: { getSize: () => ({ width: innerWidth }) } } },
-    act: async op => { window.fixtureActions.push(op); }, openPanel() {},
+    act: async (op, data) => {
+      window.fixtureActions.push(op);
+      if (op === 'preferences') {
+        Object.assign(window.fixtureState.preferences, data);
+        await window.surface.update(window.fixtureState);
+      }
+    }, openPanel() {},
   });
   let offset = 0;
   const tokens = [['うっ','u'],[' ',''],['見てた','miteta'],[' ',''],['の','no'],[' ',''],['か','ka'],['…','']]
@@ -160,6 +166,32 @@ test('player captions and fullscreen study remain usable', { timeout: 30000 }, a
           const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
           await writeFile(path.join(process.env.LANGPLAY_BROWSER_CAPTURE_DIR, `sentence-meaning-${width}.png`), Buffer.from(data, 'base64'));
         }
+        // Changing the saved percentage and dragging the actual native slider
+        // must leave all three text layers opaque and preserve word identity.
+        await evaluate(`window.fixtureState.preferences.captionOpacity = 0; window.surface.update(window.fixtureState)`);
+        const clear = await evaluate(`(() => {
+          const line = document.querySelector('[data-langplay="captions"] p'), style = getComputedStyle(line);
+          return { background: style.backgroundColor, image: style.backgroundImage, shadow: style.boxShadow,
+            blur: style.backdropFilter, border: style.borderTopColor,
+            words: [...line.querySelectorAll('button,rt,[data-langplay="caption-translation"]')].every(node =>
+              getComputedStyle(node).opacity === '1' && node.getBoundingClientRect().height > 0),
+            sameWord: line.querySelector('button') === window.originalWord };
+        })()`);
+        assert.equal(clear.background, 'rgba(0, 0, 0, 0)'); assert.equal(clear.image, 'none');
+        assert.equal(clear.shadow, 'none'); assert.equal(clear.blur, 'none');
+        assert.equal(clear.border, 'rgba(0, 0, 0, 0)'); assert.equal(clear.words, true); assert.equal(clear.sameWord, true);
+        if (process.env.LANGPLAY_BROWSER_CAPTURE_DIR && fullscreen) {
+          const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+          await writeFile(path.join(process.env.LANGPLAY_BROWSER_CAPTURE_DIR, `transparent-caption-${width}.png`), Buffer.from(data, 'base64'));
+        }
+        for (const value of [50, 100, 0]) {
+          await evaluate(`(() => { const slider = document.querySelector('[data-langplay="caption-opacity"]');
+            slider.value = '${value}'; slider.dispatchEvent(new Event('input', {bubbles:true})); })()`);
+          await evaluate('window.surface.update(window.fixtureState)');
+          const tint = await evaluate(`getComputedStyle(document.querySelector('[data-langplay="captions"] p')).backgroundColor`);
+          assert.equal(tint, value === 0 ? 'rgba(0, 0, 0, 0)' : value === 100 ? 'rgb(15, 17, 27)' : 'rgba(15, 17, 27, 0.5)');
+          assert.equal(await evaluate('window.fixtureState.preferences.captionOpacity'), value);
+        }
         await evaluate(`window.fixtureState.captionTranslations.line.translation = 'Were you watching?'; window.surface.update(window.fixtureState)`);
         assert.equal(await evaluate(`document.querySelector('[data-langplay="token"]') === window.originalWord`), true);
         await evaluate(`window.fixtureState.captionTranslations.line.translation = 'A longer English sentence that should wrap within the Japanese caption without covering the player. '.repeat(8); window.surface.update(window.fixtureState)`);
@@ -169,6 +201,24 @@ test('player captions and fullscreen study remain usable', { timeout: 30000 }, a
         assert.equal(long.contained, true); assert.equal(long.clamped, true);
         await evaluate(`window.fixtureState.preferences.showTranslation = false; window.surface.update(window.fixtureState)`);
         assert.equal(await evaluate(`getComputedStyle(document.querySelector('[data-langplay="caption-translation"]')).display`), 'none');
+        await evaluate(`document.querySelector('[data-langplay="subtitles"]').click(); window.surface.update(window.fixtureState)`);
+        const menu = await evaluate(`(() => {
+          const slider = document.querySelector('[data-langplay="caption-opacity"]');
+          slider.scrollIntoView({block:'nearest'}); slider.focus();
+          const box = slider.getBoundingClientRect();
+          return { shown: !document.querySelector('[data-langplay="drawer"]').hidden,
+            visible: box.top >= 0 && box.bottom <= innerHeight && box.width > 150,
+            labelled: !!document.querySelector('label[for="' + slider.id + '"]'),
+            overflow: document.documentElement.scrollWidth > innerWidth };
+        })()`);
+        assert.equal(menu.shown, true); assert.equal(menu.visible, true); assert.equal(menu.labelled, true); assert.equal(menu.overflow, false);
+        await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
+        await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
+        assert.equal(await evaluate('window.fixtureState.preferences.captionOpacity'), 1, 'native slider supports keyboard adjustment');
+        if (process.env.LANGPLAY_BROWSER_CAPTURE_DIR && fullscreen) {
+          const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+          await writeFile(path.join(process.env.LANGPLAY_BROWSER_CAPTURE_DIR, `opacity-settings-${width}.png`), Buffer.from(data, 'base64'));
+        }
         assert.deepEqual(await evaluate('window.fixtureErrors'), []);
       });
     }

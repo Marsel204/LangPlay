@@ -1,5 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
+test('caption background accepts a percentage including fully transparent and rejects invalid values', () => {
+  for (const captionOpacity of [0, 18, 50, 100]) {
+    assert.equal(validateMessage({ v: 1, id: 1, op: 'preferences', data: { captionOpacity } }).data.captionOpacity, captionOpacity);
+  }
+  for (const captionOpacity of [-1, 101, 0.5, NaN, Infinity, '0', null]) {
+    assert.throws(() => validateMessage({ v: 1, id: 1, op: 'preferences', data: { captionOpacity } }), /Invalid subtitle preferences/);
+  }
+});
 import { createServices } from '../src/services.js';
 
 test('obsolete queued translations do not exhaust admission for the latest selection', async () => {

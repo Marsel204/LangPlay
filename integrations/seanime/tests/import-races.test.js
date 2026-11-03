@@ -35,6 +35,21 @@ function fixture(persisted) {
   return { act, pending, values, states, responses, events, intervals, status };
 }
 
+test('caption opacity defaults to the existing tint and restores zero independently of other preferences', async () => {
+  const h = fixture(); await h.act('refresh');
+  assert.equal(h.states.at(-1).preferences.captionOpacity, 18);
+  await h.act('preferences', { captionOpacity: 0, autoSubtitles: false, showTranslation: true });
+  await h.act('preferences', { readingMode: 'romaji' });
+  const saved = JSON.parse(h.values.get('learning-v1:preferences'));
+  assert.equal(saved.captionOpacity, 0); assert.equal(saved.showTranslation, true);
+  const restored = fixture(h.values); await restored.act('refresh');
+  assert.equal(restored.states.at(-1).preferences.captionOpacity, 0);
+  for (const captionOpacity of [-1, 101, '0', null]) {
+    const invalid = fixture(new Map([['learning-v1:preferences', JSON.stringify({ captionOpacity })]]));
+    await invalid.act('refresh'); assert.equal(invalid.states.at(-1).preferences.captionOpacity, 18);
+  }
+});
+
 test('sentence meanings persist without changing other preferences or opening word study', async () => {
   const h = fixture();
   await h.act('preferences', { autoSubtitles: false, showTranslation: true });

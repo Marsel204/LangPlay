@@ -1,12 +1,19 @@
 import { decodeSubtitle } from './core/encoding.js';
 import { renderAnswer } from './answer.js';
 import { sentenceParts } from './sentence-reading.js';
+import { captionOpacity, opacityLabel } from './caption-appearance.js';
 
 const $ = id => document.getElementById(id);
 let sequence = 0, state = null, signature = '', selectedKey = '', setupOpen = false, offsetDirty = false;
 const pending = new Map();
 const captionMeaningNodes = new Map();
 let sentenceKey = '', fileReadVersion = 0;
+let opacityEditing = false, opacitySequence = 0;
+function renderOpacity(value) {
+  const label = opacityLabel(value);
+  $('caption-opacity-value').textContent = label;
+  $('caption-opacity').setAttribute('aria-valuetext', label);
+}
 const playbackKey = view => JSON.stringify(['clientId', 'playbackId', 'videoIdentity'].map(key => view?.playback?.[key]));
 function send(op, data = {}) {
   const id = ++sequence;
@@ -96,6 +103,10 @@ function render(view) {
   $('mode').value = view.preferences.readingMode;
   $('auto-mode').value = view.preferences.autoSubtitles === false ? 'manual' : 'automatic';
   $('translation-mode').value = view.preferences.showTranslation === true ? 'english' : 'off';
+  if (!opacityEditing) {
+    const value = captionOpacity(view.preferences.captionOpacity);
+    $('caption-opacity').value = value; renderOpacity(value);
+  }
   $('caption-retry').hidden = view.preferences.showTranslation !== true || !Object.values(view.captionTranslations || {}).some(value => value.state === 'error');
   $('auto-status').textContent = view.autoSubtitles?.message || '';
   $('auto-retry').hidden = view.autoSubtitles?.state !== 'error';
@@ -149,6 +160,12 @@ webview.on('learning:response', raw => {
 });
 $('auto-mode').onchange = () => run('preferences', {autoSubtitles:$('auto-mode').value === 'automatic'});
 $('translation-mode').onchange = () => run('preferences', {showTranslation:$('translation-mode').value === 'english'});
+$('caption-opacity').oninput = async () => {
+  const request = ++opacitySequence, value = captionOpacity(Number($('caption-opacity').value));
+  opacityEditing = true; renderOpacity(value);
+  try { await run('preferences', { captionOpacity: value }); }
+  finally { if (request === opacitySequence) opacityEditing = false; }
+};
 $('caption-retry').onclick = () => run('caption-retry');
 $('auto-retry').onclick = () => run('auto-retry');
 $('translation-retry').onclick = () => run('translate');

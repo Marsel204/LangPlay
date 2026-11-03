@@ -23,6 +23,16 @@ function fixture({ saved = false } = {}) {
   const render = () => listeners['learning:state'](JSON.stringify(state));
   render(); return { get, sent, render, state };
 }
+test('tray subtitle settings offer a saved background percentage with a transparent endpoint', async () => {
+  const ui = fixture(); assert.equal(ui.get('caption-opacity').value, 18);
+  ui.get('caption-opacity').value = '0'; await ui.get('caption-opacity').oninput();
+  assert.equal(ui.get('caption-opacity-value').textContent, '0% (Transparent)');
+  assert.equal(ui.sent.at(-1).data.captionOpacity, 0);
+  ui.state.preferences.captionOpacity = 100; ui.render();
+  assert.equal(ui.get('caption-opacity').value, 100);
+  assert.equal(ui.get('caption-opacity-value').textContent, '100% (Solid)');
+});
+
 test('the tray offers sentence meanings and shows English below the matching Japanese cue', async () => {
   const ui = fixture();
   assert.equal(ui.get('translation-mode').value, 'off');

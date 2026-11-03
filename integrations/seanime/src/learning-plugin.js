@@ -7,11 +7,12 @@ import { createCards } from './cards.js';
 import { createPlayerSurface } from './player-surface.js';
 import { createAutoSubtitles } from './auto-subtitles.js';
 import { createCaptionTranslations } from './caption-translations.js';
+import { captionOpacity } from './caption-appearance.js';
 
 export function start(ctx) {
   const host = createHost(ctx.videoCore), storage = createStorage($storage), cards = createCards(storage);
   const saved = storage.read('preferences', {});
-  let preferences = { readingMode: ['plain', 'furigana', 'romaji'].includes(saved?.readingMode) ? saved.readingMode : 'plain', autoSubtitles: saved?.autoSubtitles !== false, showTranslation: saved?.showTranslation === true };
+  let preferences = { readingMode: ['plain', 'furigana', 'romaji'].includes(saved?.readingMode) ? saved.readingMode : 'plain', autoSubtitles: saved?.autoSubtitles !== false, showTranslation: saved?.showTranslation === true, captionOpacity: captionOpacity(saved?.captionOpacity) };
   const services = createServices({ fetch: (url, options) => ctx.fetch(url, options), save: context => cards.save(context) });
   const controller = createLearningController({ host, services });
   const panel = ctx.newWebview({ slot: 'fixed', hidden: true, autoHeight: true, fullWidth: true,
@@ -120,7 +121,7 @@ export function start(ctx) {
       else if (op === 'export') result = { tsv: cards.tsv(), count: cards.list().length };
       else if (op === 'preferences') {
         preferences = {readingMode:data.readingMode ?? preferences.readingMode, autoSubtitles:data.autoSubtitles ?? preferences.autoSubtitles,
-          showTranslation:data.showTranslation ?? preferences.showTranslation};
+          showTranslation:data.showTranslation ?? preferences.showTranslation, captionOpacity:data.captionOpacity ?? preferences.captionOpacity};
         storage.write('preferences', preferences); automatic?.update(preferences.autoSubtitles).catch(() => {});
       }
       else if (op === 'auto-retry') automatic?.retry().catch(() => {});
