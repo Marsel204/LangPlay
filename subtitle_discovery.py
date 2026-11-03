@@ -267,10 +267,12 @@ def _jimaku_subtitle(media, episode, key, get_json, download):
     entries = get_json(f'/api/entries/search?anilist_id={media}', key)
     if not isinstance(entries, list):
         raise ValueError('Jimaku returned an invalid search reply. Retry automatic search.')
+    # External describes the entry's provenance, not its download host.
+    # Validate each file URL below, including for externally sourced entries.
     matches = [entry for entry in entries if isinstance(entry, dict) and entry.get('anilist_id') == media and type(entry.get('id')) is int
                and isinstance(entry.get('flags', {}), dict)
                and all(type(entry.get('flags', {}).get(flag, False)) is bool for flag in ('anime', 'external', 'unverified'))
-               and entry.get('flags', {}).get('anime', True) and not entry.get('flags', {}).get('external')]
+               and entry.get('flags', {}).get('anime', True)]
     matches.sort(key=lambda entry: (entry.get('flags', {}).get('unverified', False), entry['id']))
     if not matches:
         raise ValueError('No matching Japanese subtitles on Jimaku. Load a saved file instead.')

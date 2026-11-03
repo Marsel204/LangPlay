@@ -54,6 +54,43 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn('/api/entries/10/files?episode=1',self.calls)
         self.assertIn('/api/entries/10/files?episode=2',self.calls)
 
+    def test_external_movie_with_jimaku_hosted_subtitles_is_downloaded_and_cached(self):
+        url = 'https://jimaku.cc/entry/2127/download/takagi-movie.srt'
+        def api(path, key):
+            self.calls.append(path)
+            if '/search?' in path:
+                return [{'id': 2127, 'anilist_id': 138425,
+                         'flags': {'anime': True, 'movie': True, 'external': True, 'unverified': False}}]
+            return [{'name': 'Karakai Jouzu no Takagi-san Movie (2022) [jpn].srt',
+                     'size': len(TEXT.encode()), 'url': url}]
+        result = discovery.automatic_subtitle({'mediaId': 138425, 'episode': 1},
+                    get_json=api, download=self.download, key_reader=lambda: 'fixture-key',
+                    ajatt_fetch=lambda *args: self.fail('A matching Jimaku movie must not fall back to AJATT'))
+        self.assertEqual(result['content'], TEXT)
+        self.assertEqual(result['provider'], 'Jimaku')
+        self.assertEqual(result['sourceId'], 'Jimaku.138425.E01.ja.srt')
+        self.assertEqual(self.downloads, [url])
+        self.assertIn('/api/entries/2127/files?episode=1', self.calls)
+        cached = discovery.automatic_subtitle({'mediaId': 138425, 'episode': 1},
+                    key_reader=lambda: self.fail('cached movie must not need credentials'),
+                    get_json=lambda *args: self.fail('cached movie must work offline'))
+        self.assertTrue(cached['cached'])
+        self.assertEqual(cached['content'], TEXT)
+
+    def test_external_entry_cannot_download_subtitles_outside_jimaku(self):
+        def api(path, key):
+            if '/search?' in path:
+                return [{'id': 10, 'anilist_id': 189046, 'flags': {'anime': True, 'external': True}}]
+            self.calls.append(path)
+            return [{'name': 'Show.E02.ja.srt', 'size': 100,
+                     'url': 'https://example.com/subtitles.srt'}]
+        with self.assertRaisesRegex(ValueError, 'usable matching Japanese'):
+            discovery.automatic_subtitle({'mediaId': 189046, 'episode': 2},
+                        get_json=api, download=self.download, key_reader=lambda: 'fixture-key')
+        self.assertEqual(self.calls, ['/api/entries/10/files?episode=2'])
+        self.assertEqual(self.downloads, [])
+        self.assertEqual(list(Path(self.temp.name).rglob('*')), [])
+
     def test_prefers_japanese_web_srt_over_signs_english_and_tv(self):
         self.files=[{'name':'Show.E02.Signs.Songs.ass','size':100,'url':'https://jimaku.cc/entry/10/download/signs.ass'},
                     {'name':'Show.E02.eng.srt','size':100,'url':'https://jimaku.cc/entry/10/download/eng.srt'},

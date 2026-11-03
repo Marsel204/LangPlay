@@ -17,4 +17,6 @@ Automatic discovery uses the exact anime ID and episode, preserves a manual sour
 
 From this directory, run `npm test` and `npm run build`. Generated manifests live in `dist/`. Back up the installed manifest, replace only `langplay-learning.json`, and reload that extension. Preserve plugin storage, providers and Subtitle Engine.
 
+Run `npm run test:fullscreen` with Chromium installed (or set `LANGPLAY_TEST_CHROMIUM` to its executable) to check mouse and keyboard dismissal against overlapping fullscreen player controls.
+
 See [DESIGN.md](DESIGN.md) for surface ownership, pause/resume behavior and review notes.

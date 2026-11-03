@@ -46,7 +46,8 @@
   [data-langplay="captions"] button:is(:hover,:focus-visible,:active) rt{color:HighlightText}
 }
 [data-langplay="drawer"]{position:relative;z-index:90;pointer-events:auto;background:#17191c;border:1px solid #36393f;border-radius:8px;max-height:min(72vh,760px);overflow:auto;padding:0 12px 12px;min-width:0;box-shadow:0 8px 24px #0004;scrollbar-width:thin;scrollbar-color:#59535f #17191c;isolation:isolate}
-[data-langplay="drawer"][data-mode="fullscreen"]{position:absolute;right:16px;top:24px;bottom:84px;width:min(340px,42vw);max-height:none}
+/* Seanime's full-width title controls use z-index:999 and overlap Close. */
+[data-langplay="drawer"][data-mode="fullscreen"]{position:absolute;z-index:1000;right:16px;top:24px;bottom:84px;width:min(340px,42vw);max-height:none}
 [data-langplay="drawer"] p{margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere}
 [data-langplay="drawer"] h2{font:500 30px/1.45 "Noto Sans CJK JP","Noto Sans JP",sans-serif;margin:8px 0 0;overflow-wrap:anywhere}
 [data-langplay="drawer"] header{display:flex;gap:8px;align-items:center;justify-content:space-between;margin:0 -12px 8px;padding:8px 12px;background:#17191c;border-bottom:1px solid #36393f;position:sticky;top:0;z-index:2}
