@@ -31,6 +31,7 @@
 [data-langplay="captions"] button:active{background:#ffffff33;box-shadow:inset 0 1px 3px #0003;transform:scale(.97);transition:none}
 [data-langplay="captions"] ruby{display:inline-flex;flex-direction:column-reverse;align-items:center;gap:3px;max-width:100%;white-space:normal;overflow-wrap:anywhere}
 [data-langplay="captions"] ruby rt{display:block;flex:none;font:600 clamp(11.5px,.9vw,14px)/1.2 system-ui,"Noto Sans CJK JP",sans-serif;color:#ffd1dc;letter-spacing:.02em;text-shadow:0 1px 2px #000,0 0 3px #000e;white-space:nowrap}
+[data-langplay="captions"] [data-langplay="caption-translation"]{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;margin-top:6px;font:500 clamp(14px,1.25vw,18px)/1.45 system-ui,sans-serif;color:#f2f1ed;white-space:pre-wrap;overflow-wrap:anywhere;text-wrap:pretty;text-shadow:0 1px 2px #000,0 0 4px #000e}
 [data-langplay="captions"] ::selection{background:#a78bfa66;color:#fff}
 @media(prefers-reduced-motion:reduce){
   [data-langplay="captions"] button{transition:none}
@@ -75,7 +76,7 @@
 [data-langplay="drawer"] :is(button,input[type="button"]):disabled{opacity:.55;cursor:wait}
 [data-langplay] button:focus-visible,[data-langplay] input:focus-visible,[data-langplay] select:focus-visible{outline:2px solid #dfd3ff;outline-offset:3px}
 [data-langplay="drawer"] ::selection{color:#211b35;background:#d6c9f3}
-[data-langplay="controls"][hidden],[data-langplay="drawer"] [hidden],[data-langplay="captions"][hidden],[data-langplay="drawer"][hidden]{display:none!important}
+[data-langplay="controls"][hidden],[data-langplay="drawer"] [hidden],[data-langplay="captions"] [hidden],[data-langplay="captions"][hidden],[data-langplay="drawer"][hidden]{display:none!important}
 @media(max-width:760px){[data-langplay="controls"]{gap:2px;margin-inline:2px}[data-langplay="controls"] :where(input[type="button"],select){width:32px;height:32px;min-height:32px}[data-langplay="controls"] [data-langplay="subtitles"]{width:auto;height:28px;min-height:28px;padding-inline:8px}[data-langplay="captions"]{left:2%;right:2%;bottom:max(var(--langplay-caption-bottom,80px),env(safe-area-inset-bottom))}[data-langplay="drawer"]{max-height:52vh}[data-langplay="drawer"][data-mode="fullscreen"]{top:auto;left:10px;right:10px;width:auto;bottom:80px;max-height:min(40%,320px)}[data-langplay="captions"][data-mode="fullscreen"][data-study-open="true"]{right:2%;bottom:calc(min(40%,320px) + 88px)}}
 
 [data-langplay="drawer"] [data-langplay="question-row"]{display:flex;gap:6px;align-items:center}

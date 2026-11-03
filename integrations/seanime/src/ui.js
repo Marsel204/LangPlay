@@ -5,6 +5,7 @@ import { sentenceParts } from './sentence-reading.js';
 const $ = id => document.getElementById(id);
 let sequence = 0, state = null, signature = '', selectedKey = '', setupOpen = false, offsetDirty = false;
 const pending = new Map();
+const captionMeaningNodes = new Map();
 let sentenceKey = '', fileReadVersion = 0;
 const playbackKey = view => JSON.stringify(['clientId', 'playbackId', 'videoIdentity'].map(key => view?.playback?.[key]));
 function send(op, data = {}) {
@@ -49,8 +50,9 @@ async function refreshSaved() {
 }
 function caption(view) {
   const key = JSON.stringify([view.activeCues, view.tokens, view.preferences.readingMode, !!view.source, !!view.playback]);
-  if (key === signature) return; signature = key;
+  if (key === signature) { captionMeanings(view); return; } signature = key;
   $('caption').replaceChildren();
+  captionMeaningNodes.clear();
   if (!view.activeCues.length) {
     const p = document.createElement('p'); p.className = 'muted';
     p.textContent = !view.playback ? 'Start an episode in Seanime’s browser player.' : !view.source ? 'Choose a Japanese subtitle to start learning.' : 'Waiting for the next subtitle…';
@@ -72,7 +74,17 @@ function caption(view) {
       button.addEventListener('click', () => run('select', { cueId: cue.id, start: token.start, end: token.end }));
       line.append(button);
     }
+    const meaning = document.createElement('span'); meaning.className = 'caption-translation'; meaning.lang = 'en';
+    meaning.setAttribute('aria-label', 'English sentence meaning'); line.append(meaning); captionMeaningNodes.set(cue.id, meaning);
     $('caption').append(line);
+  }
+  captionMeanings(view);
+}
+function captionMeanings(view) {
+  for (const [id, node] of captionMeaningNodes) {
+    const value = view.captionTranslations?.[id];
+    node.textContent = value?.translation || (value?.state === 'error' ? 'Translation unavailable' : 'Translating…');
+    node.hidden = view.preferences.showTranslation !== true;
   }
 }
 function render(view) {
@@ -83,6 +95,8 @@ function render(view) {
   if (!offsetDirty && document.activeElement !== $('offset')) $('offset').value = view.source?.offsetMs ?? view.association?.offsetMs ?? 0;
   $('mode').value = view.preferences.readingMode;
   $('auto-mode').value = view.preferences.autoSubtitles === false ? 'manual' : 'automatic';
+  $('translation-mode').value = view.preferences.showTranslation === true ? 'english' : 'off';
+  $('caption-retry').hidden = view.preferences.showTranslation !== true || !Object.values(view.captionTranslations || {}).some(value => value.state === 'error');
   $('auto-status').textContent = view.autoSubtitles?.message || '';
   $('auto-retry').hidden = view.autoSubtitles?.state !== 'error';
   $('drawer').hidden = !view.drawerOpen;
@@ -134,6 +148,8 @@ webview.on('learning:response', raw => {
   if (value.error) request.reject(new Error(value.error)); else request.resolve(value.result);
 });
 $('auto-mode').onchange = () => run('preferences', {autoSubtitles:$('auto-mode').value === 'automatic'});
+$('translation-mode').onchange = () => run('preferences', {showTranslation:$('translation-mode').value === 'english'});
+$('caption-retry').onclick = () => run('caption-retry');
 $('auto-retry').onclick = () => run('auto-retry');
 $('translation-retry').onclick = () => run('translate');
 $('settings').onclick = () => setup(!setupOpen);

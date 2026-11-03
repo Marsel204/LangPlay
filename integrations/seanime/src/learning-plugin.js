@@ -6,11 +6,12 @@ import { createStorage } from './storage.js';
 import { createCards } from './cards.js';
 import { createPlayerSurface } from './player-surface.js';
 import { createAutoSubtitles } from './auto-subtitles.js';
+import { createCaptionTranslations } from './caption-translations.js';
 
 export function start(ctx) {
   const host = createHost(ctx.videoCore), storage = createStorage($storage), cards = createCards(storage);
   const saved = storage.read('preferences', {});
-  let preferences = { readingMode: ['plain', 'furigana', 'romaji'].includes(saved?.readingMode) ? saved.readingMode : 'plain', autoSubtitles: saved?.autoSubtitles !== false };
+  let preferences = { readingMode: ['plain', 'furigana', 'romaji'].includes(saved?.readingMode) ? saved.readingMode : 'plain', autoSubtitles: saved?.autoSubtitles !== false, showTranslation: saved?.showTranslation === true };
   const services = createServices({ fetch: (url, options) => ctx.fetch(url, options), save: context => cards.save(context) });
   const controller = createLearningController({ host, services });
   const panel = ctx.newWebview({ slot: 'fixed', hidden: true, autoHeight: true, fullWidth: true,
@@ -23,9 +24,11 @@ export function start(ctx) {
   const parsing = new Set();
   // Visible lines must survive eviction from the bounded general parser cache.
   const activeReadings = new Map();
+  const meanings = createCaptionTranslations({ services, onChange: () => publish(false) });
   const send = (event, value) => panel.channel.send(event, JSON.stringify(value));
   async function publish(waitForSurface = true) {
     const view = controller.view();
+    meanings.update(view, controller.readingCues(), preferences.showTranslation && !terminated);
     const association = host.snapshot()?.association;
     const associations = storage.read('sources', {});
     const tokens = {};
@@ -35,7 +38,7 @@ export function start(ctx) {
       const cached = activeReadings.get(cue.text) || services.cached(cue.text);
       if (cached) { activeReadings.set(cue.text, cached); tokens[cue.id] = cached; }
     }
-    const state = { ...view, tokens, preferences, autoSubtitles: automatic?.status() || {state:'idle',message:''},
+    const state = { ...view, tokens, preferences, captionTranslations: meanings.view(), autoSubtitles: automatic?.status() || {state:'idle',message:''},
       association: association && associations[association] || null };
     if (!panel.isHidden()) send('learning:state', state);
     const playbackIdentity = host.snapshot()?.videoIdentity;
@@ -111,11 +114,13 @@ export function start(ctx) {
       else if (op === 'resume') await controller.resume();
       else if (op === 'explain') result = await controller.explain();
       else if (op === 'translate') { const work = controller.translate(); await publish(); await work; }
+      else if (op === 'caption-retry') meanings.retry();
       else if (op === 'chat') result = await controller.chat(data.question);
       else if (op === 'save') result = await controller.save();
       else if (op === 'export') result = { tsv: cards.tsv(), count: cards.list().length };
       else if (op === 'preferences') {
-        preferences = {readingMode:data.readingMode ?? preferences.readingMode, autoSubtitles:data.autoSubtitles ?? preferences.autoSubtitles};
+        preferences = {readingMode:data.readingMode ?? preferences.readingMode, autoSubtitles:data.autoSubtitles ?? preferences.autoSubtitles,
+          showTranslation:data.showTranslation ?? preferences.showTranslation};
         storage.write('preferences', preferences); automatic?.update(preferences.autoSubtitles).catch(() => {});
       }
       else if (op === 'auto-retry') automatic?.retry().catch(() => {});
@@ -142,7 +147,7 @@ export function start(ctx) {
   ctx.videoCore.addEventListener('video-seeked', () => tick(true));
   ctx.videoCore.addEventListener('video-loaded', () => { terminated = false; return tick(); });
   ctx.videoCore.addEventListener('video-fullscreen', event => surface.fullscreen(event));
-  ctx.videoCore.addEventListener('video-terminated', async () => { terminatedIdentity = host.snapshot()?.videoIdentity; terminated = true; automatic.cancel(); await surface.clear(); await tick(); });
+  ctx.videoCore.addEventListener('video-terminated', async () => { terminatedIdentity = host.snapshot()?.videoIdentity; terminated = true; automatic.cancel(); meanings.cancel(); await surface.clear(); await tick(); });
   ctx.setInterval(() => tick().catch(() => {}), 250);
   panel.setContent(() => __LANGPLAY_UI_HTML__);
 }

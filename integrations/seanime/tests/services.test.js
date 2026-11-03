@@ -66,7 +66,30 @@ test('sentence translation and word lookup share the companion concurrency budge
   assert.equal(translation.translation, 'A sentence.');
   assert.deepEqual(words.map(word => word.meaning), Array(4).fill('A word.'));
 });
+
+test('a visible sentence takes priority over queued caption prefetch', async () => {
+  const pending = [], calls = [];
+  const services = createServices({ fetch: (url, options) => new Promise(resolve => {
+    calls.push([url, JSON.parse(options.body)]);
+    pending.push(() => resolve({ ok: true, json: () => ({ status: 'success', meaning: 'word', translation: 'A sentence.' }) }));
+  }) });
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  const words = Array.from({ length: 4 }, (_, i) => services.lookup({ surface: `未登録優先${i}` }));
+  await flush();
+  const future = services.translate({ sentence: '次の文', prefetch: true });
+  const current = services.translate({ sentence: '今の文' });
+  pending.shift()(); await flush();
+  assert.equal(calls[4][1].sentence, '今の文');
+  while (pending.length) { pending.shift()(); await flush(); }
+  await Promise.all([...words, future, current]);
+});
 import { validateMessage } from '../src/bridge.js';
+
+test('sentence-meaning preferences and retry use the scoped player bridge', () => {
+  assert.equal(validateMessage({v:1,id:1,op:'preferences',data:{showTranslation:true}}).data.showTranslation,true);
+  assert.throws(() => validateMessage({v:1,id:1,op:'preferences',data:{showTranslation:'true'}}));
+  assert.equal(validateMessage({v:1,id:1,op:'caption-retry',data:{}}).op,'caption-retry');
+});
 
 test('chat rejects a concurrent turn centrally and preserves accepted conversation order', async () => {
   const requests = [];

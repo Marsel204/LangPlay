@@ -9,8 +9,8 @@ const source = buildSync({ entryPoints: ['src/learning-plugin.js'], bundle: true
 const content = '1\n00:00:01,000 --> 00:00:03,000\n猫\n';
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
 
-function fixture() {
-  const pending = new Map(), handlers = new Map(), values = new Map(), states = [], responses = [], events = new Map(), intervals = [];
+function fixture(persisted) {
+  const pending = new Map(), handlers = new Map(), values = persisted || new Map(), states = [], responses = [], events = new Map(), intervals = [];
   const status = { id: 'episode', clientId: 'client', currentTime: 1.5, duration: 120, paused: false };
   let serial = 0;
   const ctx = {
@@ -34,6 +34,23 @@ function fixture() {
   const act = (op, data) => handlers.get('learning:request')({ v: 1, id: ++serial, op, data });
   return { act, pending, values, states, responses, events, intervals, status };
 }
+
+test('sentence meanings persist without changing other preferences or opening word study', async () => {
+  const h = fixture();
+  await h.act('preferences', { autoSubtitles: false, showTranslation: true });
+  assert.equal(JSON.parse(h.values.get('learning-v1:preferences')).showTranslation, true);
+  await h.act('preferences', { readingMode: 'romaji' });
+  assert.equal(JSON.parse(h.values.get('learning-v1:preferences')).showTranslation, true);
+  const restored = fixture(h.values); await restored.act('refresh');
+  assert.equal(restored.states.at(-1).preferences.showTranslation, true, 'reload restores the saved option');
+  await h.act('import', { sourceId: 'sample.srt', format: 'srt', content }); await flush();
+  const current = h.states.at(-1), id = current.activeCues[0].id;
+  assert.equal(current.captionTranslations[id].translation, 'Cat.');
+  assert.equal(current.drawerOpen, false); assert.equal(h.status.paused, false);
+  await h.act('preferences', { showTranslation: false });
+  assert.deepEqual(h.states.at(-1).captionTranslations, {});
+  assert.equal(JSON.parse(h.values.get('learning-v1:preferences')).showTranslation, false);
+});
 
 test('file import carrying a previous playback identity is rejected', async () => {
   const h = fixture();

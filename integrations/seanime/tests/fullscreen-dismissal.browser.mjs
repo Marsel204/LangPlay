@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { access, mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { build } from 'esbuild';
@@ -48,11 +48,11 @@ async function browser() {
   } };
 }
 
-function mountFixture() {
+function mountFixture({ meanings = false, fullscreen = true, study = true } = {}) {
   document.body.innerHTML = `<div id="fixture-parent"><div id="fixture-player"></div></div>`;
   document.body.style.cssText = 'margin:0;background:#30343b';
   const parent = document.getElementById('fixture-parent'), player = document.getElementById('fixture-player');
-  parent.setAttribute('data-vc-element', 'inline-container'); parent.className = 'fixed inset-0';
+  parent.setAttribute('data-vc-element', 'inline-container'); parent.className = fullscreen ? 'fixed inset-0' : '';
   player.style.cssText = 'position:relative;width:100vw;height:100vh';
   // Seanime's MediaCoreTopSectionView is a full-width hit target at z-index
   // 999, top 32px in desktop fullscreen. Its empty right side overlaps Close.
@@ -88,12 +88,18 @@ function mountFixture() {
       createElement: async tag => wrap(document.createElement(tag)), viewport: { getSize: () => ({ width: innerWidth }) } } },
     act: async op => { window.fixtureActions.push(op); }, openPanel() {},
   });
-  return window.surface.update({ playback: { title: 'Takagi-san Movie', episode: '1' }, drawerOpen: true,
-    preferences: { readingMode: 'plain' }, source: { sourceId: 'movie.srt', cueCount: 1 }, activeCues: [], tokens: {},
-    selected: { surface: '蛍', sentence: 'ほら 蛍 の…', span: { start: 3, end: 4 } } });
+  let offset = 0;
+  const tokens = [['うっ','u'],[' ',''],['見てた','miteta'],[' ',''],['の','no'],[' ',''],['か','ka'],['…','']]
+    .map(([surface, romaji]) => { const start = offset; offset += surface.length; return { surface, romaji, start, end: offset }; });
+  window.fixtureState = { playback: { title: 'Takagi-san Movie', episode: '1' }, drawerOpen: study,
+    preferences: { readingMode: 'romaji', showTranslation: meanings }, source: { sourceId: 'movie.srt', cueCount: 1 },
+    activeCues: meanings ? [{ id: 'line', text: tokens.map(token => token.surface).join('') }] : [], tokens: {line:tokens},
+    captionTranslations: { line: { state: 'ready', translation: 'You were watching me…?' } },
+    selected: { surface: '蛍', sentence: 'ほら 蛍 の…', span: { start: 3, end: 4 } } };
+  return window.surface.update(window.fixtureState);
 }
 
-test('fullscreen study can close through native title controls', { timeout: 30000 }, async t => {
+test('player captions and fullscreen study remain usable', { timeout: 30000 }, async t => {
   const result = await build({ entryPoints: ['src/player-surface.js'], bundle: true, write: false,
     format: 'iife', globalName: 'Surface', loader: { '.css': 'text' } });
   const chrome = await browser();
@@ -131,6 +137,39 @@ test('fullscreen study can close through native title controls', { timeout: 3000
           actions: window.fixtureActions, errors: window.fixtureErrors })`);
         assert.equal(state.hidden, true); assert.equal(state.reservation, 'false');
         assert.deepEqual(state.actions, ['close']); assert.deepEqual(state.errors, []);
+      });
+    }
+    for (const width of [1280, 390]) for (const fullscreen of [false, true]) {
+      await t.test(`${width}px ${fullscreen ? 'fullscreen' : 'windowed'} sentence meaning`, async () => {
+        await send('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: false });
+        await evaluate(result.outputFiles[0].text + '\n(' + mountFixture.toString() + `)({meanings:true,fullscreen:${fullscreen},study:false})`);
+        const layout = await evaluate(`(() => {
+          const meaning = document.querySelector('[data-langplay="caption-translation"]');
+          const words = [...document.querySelectorAll('[data-langplay="token"]')];
+          window.originalWord = words[0];
+          const box = meaning.getBoundingClientRect();
+          return { text: meaning.textContent, below: box.top >= Math.max(...words.map(word => word.getBoundingClientRect().bottom)),
+            contained: box.left >= 0 && box.right <= innerWidth && box.bottom < innerHeight,
+            smaller: parseFloat(getComputedStyle(meaning).fontSize) < parseFloat(getComputedStyle(words[0]).fontSize),
+            overflow: document.documentElement.scrollWidth > innerWidth };
+        })()`);
+        assert.equal(layout.text, 'You were watching me…?'); assert.equal(layout.below, true);
+        assert.equal(layout.contained, true); assert.equal(layout.smaller, true); assert.equal(layout.overflow, false);
+        if (process.env.LANGPLAY_BROWSER_CAPTURE_DIR && fullscreen) {
+          await mkdir(process.env.LANGPLAY_BROWSER_CAPTURE_DIR, { recursive: true });
+          const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+          await writeFile(path.join(process.env.LANGPLAY_BROWSER_CAPTURE_DIR, `sentence-meaning-${width}.png`), Buffer.from(data, 'base64'));
+        }
+        await evaluate(`window.fixtureState.captionTranslations.line.translation = 'Were you watching?'; window.surface.update(window.fixtureState)`);
+        assert.equal(await evaluate(`document.querySelector('[data-langplay="token"]') === window.originalWord`), true);
+        await evaluate(`window.fixtureState.captionTranslations.line.translation = 'A longer English sentence that should wrap within the Japanese caption without covering the player. '.repeat(8); window.surface.update(window.fixtureState)`);
+        const long = await evaluate(`(() => { const node = document.querySelector('[data-langplay="caption-translation"]');
+          const box = node.getBoundingClientRect(); return { contained: box.left >= 0 && box.right <= innerWidth,
+            clamped: box.height <= parseFloat(getComputedStyle(node).lineHeight) * 3 + 1 }; })()`);
+        assert.equal(long.contained, true); assert.equal(long.clamped, true);
+        await evaluate(`window.fixtureState.preferences.showTranslation = false; window.surface.update(window.fixtureState)`);
+        assert.equal(await evaluate(`getComputedStyle(document.querySelector('[data-langplay="caption-translation"]')).display`), 'none');
+        assert.deepEqual(await evaluate('window.fixtureErrors'), []);
       });
     }
   } finally { await chrome.close(); }

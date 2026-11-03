@@ -50,6 +50,36 @@ function view(tokens) {
     preferences:{readingMode:'plain'}, activeCues:[{id:'cue',text:'日本語'}], tokens:{cue:tokens}, drawerOpen:false };
 }
 
+test('optional English meanings appear beneath Japanese without replacing its clickable words', async () => {
+  const h = fixture(), state = { ...view([{surface:'日本語',start:0,end:3}]),
+    preferences: { readingMode: 'plain', showTranslation: true },
+    captionTranslations: { cue: { state: 'loading', translation: '' } } };
+  await h.surface.update(state);
+  const word = h.token();
+  const meaning = h.nodes.find(node => node.attributes['data-langplay'] === 'caption-translation');
+  assert.ok(meaning, 'the sentence meaning must have its own line');
+  assert.equal(meaning.attributes.lang, 'en');
+  await h.surface.update({ ...state, captionTranslations: { cue: { state: 'ready', translation: 'Japanese language.' } } });
+  assert.equal(meaning.text, 'Japanese language.');
+  assert.equal(h.token(), word, 'a translation update must preserve Japanese word nodes');
+  const line = meaning.parent;
+  assert.ok(line.children.indexOf(meaning) > line.children.indexOf(word));
+  await h.surface.fullscreen({fullscreen:true});
+  assert.equal(meaning.parent, line);
+  await h.surface.update({ ...state, preferences: { ...state.preferences, showTranslation: false } });
+  assert.ok('hidden' in meaning.attributes);
+});
+
+test('sentence meaning is a saved option in Japanese subtitle settings', async () => {
+  const h = fixture(); await h.surface.update(view([]));
+  const option = h.nodes.find(node => node.attributes['data-langplay'] === 'translation-mode');
+  assert.ok(option, 'sentence meaning must be reachable without the tray');
+  assert.equal(option.value, 'off'); option.value = 'english';
+  await option.handlers.get('change')();
+  assert.equal(h.actions.at(-1)[0], 'preferences');
+  assert.equal(h.actions.at(-1)[1].showTranslation, true);
+});
+
 test('a paused caption keeps its clickable word when nested Go map enumeration order changes', async () => {
   const h = fixture(); let reversed = false;
   const piece = new Proxy({ surface:'日本語', reading:'ニホンゴ', pos:'名詞' }, {

@@ -79,7 +79,7 @@ export function createServices({ fetch, save } = {}) {
       lookingUp.set(word, { work, interests });
       try { return await work; } finally { lookingUp.delete(word); }
     },
-    async translate({sentence, isCurrent = () => true}) {
+    async translate({sentence, isCurrent = () => true, prefetch = false}) {
       if (typeof sentence !== 'string' || !sentence.trim() || sentence.length > 4096) throw new Error('Select a sentence of up to 4096 characters.');
       if (translations.has(sentence)) return {translation:translations.get(sentence)};
       if (translating.has(sentence)) {
@@ -100,7 +100,7 @@ export function createServices({ fetch, save } = {}) {
         translations.set(sentence,translation.trim());
         while (translations.size > 128) translations.delete(translations.keys().next().value);
         return {translation:translation.trim()};
-      }, true);
+      }, !prefetch);
       const pending = { work, interests, cancel };
       translating.set(sentence, pending);
       try { return await work; } finally { if (translating.get(sentence) === pending) translating.delete(sentence); }
