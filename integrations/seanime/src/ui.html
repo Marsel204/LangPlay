@@ -7,6 +7,10 @@
     <p>Japanese subtitles are found and loaded automatically for each episode. Use a saved file below to replace the automatic match.</p>
     <label class="file" for="auto-mode">Japanese subtitle loading</label><select id="auto-mode"><option value="automatic">Find automatically</option><option value="manual">Choose manually</option></select>
     <p id="auto-status" class="muted" role="status"></p><button id="auto-retry" hidden>Retry automatic search</button>
+    <label class="file" for="translation-mode">Sentence meaning</label><select id="translation-mode"><option value="off">Off</option><option value="english">English below Japanese</option></select>
+    <button id="caption-retry" hidden>Retry sentence meaning</button>
+    <div class="opacity-row"><label for="caption-opacity">Background opacity</label><output id="caption-opacity-value" for="caption-opacity">18%</output></div>
+    <input id="caption-opacity" type="range" min="0" max="100" step="1" value="18" aria-label="Subtitle background opacity" aria-valuetext="18%">
     <label class="file" for="saved-subtitle">Saved subtitles</label>
     <div class="saved-row"><select id="saved-subtitle"><option value="">Loading saved subtitles…</option></select><button id="load-saved" class="load-saved" disabled>Load subtitle</button></div>
     <div class="folder-actions"><button id="open-folder">Open subtitle folder</button><button id="refresh-saved">Refresh list</button></div>

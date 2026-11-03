@@ -7,6 +7,7 @@
   "scripts": {
     "build": "node build.mjs",
     "test": "node build.mjs --test",
+    "test:fullscreen": "node --test tests/fullscreen-dismissal.browser.mjs",
     "test:build": "node build.mjs --self-test"
   },
   "dependencies": { "fflate": "0.8.3" },

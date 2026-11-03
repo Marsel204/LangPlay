@@ -6,7 +6,7 @@ import { build } from 'esbuild';
 const browser = await build({ entryPoints: [fileURLToPath(new URL('../src/ui.js', import.meta.url))], bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2020' });
 function fixture({ saved = false } = {}) {
   const nodes = new Map(), listeners = {}, sent = [];
-  const node = () => ({ value: '', hidden: false, textContent: '', children: [], setAttribute() {}, replaceChildren() { this.children = []; this.value = ''; }, append(child) { this.children.push(child); if (!this.value) this.value = child.value; }, focus() {}, select() {} });
+  const node = () => ({ value: '', hidden: false, textContent: '', children: [], setAttribute() {}, addEventListener() {}, replaceChildren() { this.children = []; this.value = ''; }, append(child) { this.children.push(child); if (!this.value) this.value = child.value; }, focus() {}, select() {} });
   const get = id => { if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id); };
   vm.runInNewContext(browser.outputFiles[0].text, {
     document: { getElementById: get, createElement: node, activeElement: null, addEventListener() {} },
@@ -23,6 +23,31 @@ function fixture({ saved = false } = {}) {
   const render = () => listeners['learning:state'](JSON.stringify(state));
   render(); return { get, sent, render, state };
 }
+test('tray subtitle settings offer a saved background percentage with a transparent endpoint', async () => {
+  const ui = fixture(); assert.equal(ui.get('caption-opacity').value, 18);
+  ui.get('caption-opacity').value = '0'; await ui.get('caption-opacity').oninput();
+  assert.equal(ui.get('caption-opacity-value').textContent, '0% (Transparent)');
+  assert.equal(ui.sent.at(-1).data.captionOpacity, 0);
+  ui.state.preferences.captionOpacity = 100; ui.render();
+  assert.equal(ui.get('caption-opacity').value, 100);
+  assert.equal(ui.get('caption-opacity-value').textContent, '100% (Solid)');
+});
+
+test('the tray offers sentence meanings and shows English below the matching Japanese cue', async () => {
+  const ui = fixture();
+  assert.equal(ui.get('translation-mode').value, 'off');
+  ui.get('translation-mode').value = 'english'; await ui.get('translation-mode').onchange();
+  assert.equal(ui.sent.at(-1).data.showTranslation, true);
+  ui.state.preferences.showTranslation = true;
+  ui.state.activeCues = [{ id: 'line', text: '日本語' }];
+  ui.state.tokens = { line: [{ surface: '日本語', start: 0, end: 3 }] };
+  ui.state.captionTranslations = { line: { state: 'ready', translation: 'Japanese language.' } };
+  ui.render();
+  const line = ui.get('caption').children[0];
+  assert.equal(line.children.at(-1).textContent, 'Japanese language.');
+  ui.state.preferences.showTranslation = false; ui.render();
+  assert.equal(line.children.at(-1).hidden, true);
+});
 test('Incoming clock updates preserve an edited delay until explicit Apply', async () => {
   const ui = fixture(); ui.get('offset').value = '1000'; ui.get('offset').oninput(); ui.render();
   assert.equal(ui.get('offset').value, '1000');

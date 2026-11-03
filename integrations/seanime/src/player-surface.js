@@ -2,6 +2,7 @@ import styles from './player-surface.css';
 import answerStyles from './answer.css';
 import { parseAnswer } from './answer.js';
 import { sentenceParts } from './sentence-reading.js';
+import { captionOpacity, opacityLabel } from './caption-appearance.js';
 
 const clock = ms => { const s = Math.floor(Math.max(0, ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const identity = view => view?.selected ? JSON.stringify([view.selected.clientId, view.selected.playbackId, view.selected.generation, view.selected.cueId, view.selected.span]) : '';
@@ -26,6 +27,8 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
   let sentenceKey = '', controlAnchor = '', controlLabelKey = '';
   let controlListeners = [];
   const answerKeys = new Map(), answerListeners = new Map();
+  let captionMeanings = new Map();
+  let opacityKey = '', opacityPreview = null, opacityEditing = false, opacitySequence = 0;
   const fields = {};
   let pending = Promise.resolve(), needsSweep = true;
   const enqueue = work => { const next = pending.catch(() => {}).then(work); pending = next; return next; };
@@ -222,6 +225,33 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     fields.autoStatus = await make('p','auto-status',fields.setup);
     fields.autoStatus.setAttribute('role','status'); fields.autoStatus.setAttribute('aria-live','polite');
     fields.autoRetry = await button(fields.setup,'auto-retry','Retry automatic search',() => action('auto-retry'));
+    const translationLabel = await make('label', '', fields.setup, 'Sentence meaning');
+    fields.translationMode = await make('select', 'translation-mode', fields.setup);
+    translationLabel.setAttribute('for', fields.translationMode.id); fields.translationMode.setAttribute('aria-label', 'Sentence meaning');
+    for (const [value, label] of [['off', 'Off'], ['english', 'English below Japanese']]) {
+      const option = await make('option', '', fields.translationMode, label); option.setAttribute('value', value);
+    }
+    listeners.push(fields.translationMode.addEventListener('change', async () => action('preferences', {showTranslation:await read(fields.translationMode.getProperty('value')) === 'english'})));
+    fields.captionRetry = await button(fields.setup, 'caption-retry', 'Retry sentence meaning', () => action('caption-retry'));
+    const opacityRow = await make('div', 'opacity-row', fields.setup);
+    const opacityTitle = await make('label', '', opacityRow, 'Background opacity');
+    fields.opacityValue = await make('output', 'caption-opacity-value', opacityRow);
+    fields.captionOpacity = await make('input', 'caption-opacity', fields.setup);
+    opacityTitle.setAttribute('for', fields.captionOpacity.id); fields.opacityValue.setAttribute('for', fields.captionOpacity.id);
+    for (const [key, value] of Object.entries({ type: 'range', min: '0', max: '100', step: '1', 'aria-label': 'Subtitle background opacity' })) fields.captionOpacity.setAttribute(key, value);
+    listeners.push(fields.captionOpacity.addEventListener('input', async () => {
+      const request = ++opacitySequence, expected = generation;
+      opacityEditing = true;
+      try {
+        const value = Number(await read(fields.captionOpacity.getProperty('value')));
+        if (request !== opacitySequence || expected !== generation) return;
+        opacityPreview = captionOpacity(value);
+        renderCaptionAppearance();
+        await action('preferences', { captionOpacity: opacityPreview });
+      } finally {
+        if (request === opacitySequence && expected === generation) { opacityEditing = false; opacityPreview = null; }
+      }
+    }));
     const savedLabel = await make('label', '', fields.setup, 'Saved Japanese subtitle');
     fields.saved = await make('select', 'saved', fields.setup); savedLabel.setAttribute('for', fields.saved.id);
     fields.saved.setAttribute('aria-label', 'Saved Japanese subtitle');
@@ -289,25 +319,34 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
   }
   async function renderCaptions() {
     if (!mounted || !captions) return;
+    renderCaptionAppearance();
     fields.toggle.setAttribute('aria-pressed', String(enabled));
     // Go-backed nested maps enumerate in a different order on each export.
     // Only visible text, spans and readings determine caption DOM identity.
     const key = JSON.stringify([enabled, view?.source?.sourceId, view?.preferences?.readingMode,
       (view?.activeCues || []).map(cue => [cue.id, cue.text,
         (view?.tokens?.[cue.id] || []).map(token => [token.surface, token.start, token.end, token.furigana, token.romaji, token.pos])])]);
-    if (key === captionKey) return;
+    if (key === captionKey) { renderCaptionMeanings(); return; }
     for (const off of tokenListeners) if (typeof off === 'function') off();
     tokenListeners = [];
     for (const child of await read(captions.getChildren())) child.remove();
+    captionMeanings.clear();
     const expected = generation, source = view?.source?.sourceId;
     const cues = view?.activeCues || [];
     show(captions, enabled && cues.length > 0);
     player.setAttribute('data-langplay-caption-active', String(enabled && cues.length > 0));
     if (!enabled) { captionKey = key; return; }
+    const nextMeanings = new Map();
+    const withMeaning = async (line, cue) => {
+      const element = await make('span', 'caption-translation', line);
+      element.setAttribute('lang', 'en'); element.setAttribute('aria-label', 'English sentence meaning'); show(element, false);
+      nextMeanings.set(cue.id, {element, key: ''});
+      return line;
+    };
     const rendered = await Promise.all(cues.map(async cue => {
       const line = await make('p');
       const tokens = view.tokens?.[cue.id];
-      if (!tokens?.length) { line.setText(cue.text); return line; }
+      if (!tokens?.length) { line.setText(cue.text); return withMeaning(line, cue); }
       const words = await Promise.all(tokens.map(async token => {
         if (!token.surface.trim() || token.pos === '補助記号' || token.pos === '記号' || /^[\s、。…？！!?「」『』（）()\[\]｛｝{}〈〉《》【】〔〕“”‘’・：；,.:;ー—―～♪♫☆★※〜･]+$/.test(token.surface)) return make('span', '', null, token.surface);
         const word = await make('button', 'token'); word.setAttribute('type', 'button'); word.setAttribute('lang', 'ja');
@@ -331,14 +370,41 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
         return word;
       }));
       for (const word of words) line.append(word);
-      return line;
+      return withMeaning(line, cue);
     }));
     if (expected !== generation || source !== view?.source?.sourceId || JSON.stringify(view.activeCues.map(c => c.id)) !== JSON.stringify(cues.map(c => c.id))) {
       for (const line of rendered) line.remove();
       captionKey = ''; return;
     }
     for (const line of rendered) captions.append(line);
+    captionMeanings = nextMeanings;
     captionKey = key;
+    renderCaptionMeanings();
+  }
+
+  function renderCaptionAppearance() {
+    const value = opacityPreview ?? captionOpacity(view?.preferences?.captionOpacity);
+    if (opacityKey === String(value)) return;
+    if (!opacityEditing) fields.captionOpacity.setProperty('value', value);
+    opacityKey = String(value);
+    const label = opacityLabel(value);
+    fields.opacityValue.setText(label); fields.captionOpacity.setAttribute('aria-valuetext', label);
+    captions.setStyle('--langplay-caption-opacity', String(value / 100));
+    captions.setStyle('--langplay-glass-strength', String(Math.min(1, value / 18)));
+    captions.setAttribute('data-transparent', String(value === 0));
+  }
+
+  function renderCaptionMeanings() {
+    for (const [id, record] of captionMeanings) {
+      const value = view?.captionTranslations?.[id];
+      const translation = value?.translation || (value?.state === 'error' ? 'Translation unavailable' : 'Translating…');
+      const visible = view?.preferences?.showTranslation === true;
+      const key = JSON.stringify([visible, translation]);
+      if (key === record.key) continue;
+      record.element.setText(visible ? translation : ''); show(record.element, visible);
+      record.element.setAttribute('title', value?.translation || '');
+      record.key = key;
+    }
   }
 
   async function matchesClock(element) {
@@ -417,7 +483,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       catch (error) { await reset(); await sweep(true); throw error; }
     }
     if (!mounted) return;
-    const key = JSON.stringify([view.playback.title, view.playback.episode, view.drawerOpen, view.selected, view.reading, view.romaji, view.meaning, view.baseForm, view.explanation, view.reply, view.error, view.busy, view.source, view.preferences, view.autoSubtitles, view.sentenceRomaji, view.sentenceTranslation, view.translationBusy, view.translationError, view.sentenceTokens?.map(token => [token.surface, token.romaji, token.pos, token.meaning, token.meaningBusy])]);
+    const key = JSON.stringify([view.playback.title, view.playback.episode, view.drawerOpen, view.selected, view.reading, view.romaji, view.meaning, view.baseForm, view.explanation, view.reply, view.error, view.busy, view.source, view.preferences, view.autoSubtitles, view.captionTranslations, view.sentenceRomaji, view.sentenceTranslation, view.translationBusy, view.translationError, view.sentenceTokens?.map(token => [token.surface, token.romaji, token.pos, token.meaning, token.meaningBusy])]);
     if (key !== renderKey) {
       const nextWord = identity(view);
       if (nextWord !== wordKey) { wordKey = nextWord; fields.question.setProperty('value', ''); notice(''); }
@@ -433,6 +499,8 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       text('source', `${view.playback.title} · Episode ${view.playback.episode}\n${view.source ? `${view.source.sourceId} · ${view.source.cueCount} cues` : 'Choose a matching Japanese subtitle.'}`);
       fields.mode.setProperty('value', view.preferences.readingMode);
       fields.autoMode.setProperty('value', view.preferences.autoSubtitles === false ? 'manual' : 'automatic');
+      fields.translationMode.setProperty('value', view.preferences.showTranslation === true ? 'english' : 'off');
+      show(fields.captionRetry, view.preferences.showTranslation === true && Object.values(view.captionTranslations || {}).some(value => value.state === 'error'));
       fields.autoStatus.setText(view.autoSubtitles?.message || (view.preferences.autoSubtitles === false ? 'Choose a saved Japanese subtitle or import a file.' : 'Japanese subtitles are found automatically when an episode starts.'));
       show(fields.autoRetry, view.autoSubtitles?.state === 'error');
       show(fields.study, !!view.drawerOpen && !!view.selected);
@@ -498,6 +566,8 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     for (const handlers of answerListeners.values()) for (const off of handlers) off();
     answerListeners.clear(); answerKeys.clear();
     mounted = false; captionKey = renderKey = wordKey = insetKey = replacedSource = sentenceKey = ''; setupOpen = false; drawerInPlayer = false;
+    captionMeanings.clear();
+    opacityKey = ''; opacityPreview = null; opacityEditing = false; opacitySequence++;
   }
   const clear = () => enqueue(async () => { view = null; await reset(); await sweep(true); });
   const changeFullscreen = event => enqueue(async () => { fullscreen = !!event.fullscreen; await placeDrawer(); });
