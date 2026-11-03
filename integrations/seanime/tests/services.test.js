@@ -208,7 +208,7 @@ test('English uses fast sentence translation without AI and reuses results acros
   await services.translate(context);assert.equal(calls.length,1);
   assert.equal(calls[0][0],'http://127.0.0.1:8765/api/translate');
   assert.deepEqual(calls[0][1],{sentence:'猫がいる'});
-  assert.ok(calls[0][2]<=8,'ordinary translation must not wait on the AI timeout');
+  assert.equal(calls[0][2],30,'translation must allow the bounded Google and router fallback requests');
   assert.equal(calls.some(([url])=>url.includes('/ai/')),false);
 });
 

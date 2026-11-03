@@ -94,7 +94,7 @@ export function createServices({ fetch, save } = {}) {
       const interests = [isCurrent];
       const { work, cancel } = scheduleTranslation(async () => {
         if (!interests.some(check => check())) throw new Error('Selection changed; translation skipped.');
-        const value = await post('/api/translate', {sentence});
+        const value = await post('/api/translate', {sentence}, 30);
         const translation = value.translation;
         if (typeof translation !== 'string' || !translation.trim() || translation.length > 8000) throw new Error('No usable English translation returned. Retry translation.');
         translations.set(sentence,translation.trim());

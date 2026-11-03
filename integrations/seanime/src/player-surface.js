@@ -491,7 +491,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       text('base', view.baseForm && view.baseForm !== view.selected?.surface ? `Dictionary form: ${view.baseForm}` : '');
       text('meaning', view.meaning || (view.busy ? 'Looking up this word…' : 'No local definition yet.'));
       await renderSentence();
-      text('sentence-translation',view.sentenceTranslation || (view.translationBusy ? 'Translating with Google…' : view.translationError));
+      text('sentence-translation',view.sentenceTranslation || (view.translationBusy ? 'Translating…' : view.translationError));
       show(fields['sentence-translation'],!!(view.sentenceTranslation || view.translationBusy || view.translationError));
       show(fields.translationRetry,!!view.translationError && !view.translationBusy);
       text('context', view.selected ? `${view.selected.title} · Episode ${view.selected.episode} · ${clock(view.selected.videoTimeMs)}` : '');

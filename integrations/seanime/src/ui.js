@@ -144,7 +144,7 @@ function render(view) {
   }
   $('sentence-romaji').textContent = view.sentenceRomaji || '';
   $('sentence-romaji').hidden = !view.sentenceRomaji || !!sentenceParts(view.selected?.sentence, view.sentenceTokens);
-  $('sentence-translation').textContent = view.sentenceTranslation || (view.translationBusy ? 'Translating with Google…' : view.translationError || '');
+  $('sentence-translation').textContent = view.sentenceTranslation || (view.translationBusy ? 'Translating…' : view.translationError || '');
   $('sentence-translation').hidden = !($('sentence-translation').textContent);
   $('translation-retry').hidden = !view.translationError || !!view.translationBusy;
   for (const key of ['explanation', 'reply']) renderAnswer($(key), view[key]);
