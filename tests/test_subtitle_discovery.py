@@ -54,6 +54,48 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn('/api/entries/10/files?episode=1',self.calls)
         self.assertIn('/api/entries/10/files?episode=2',self.calls)
 
+    def test_cache_with_non_string_original_name_remains_readable(self):
+        self.fetch()
+        metadata=Path(self.temp.name)/'.langplay-auto/189046-2.json'
+        item=json.loads(metadata.read_text()); item['originalName']=None
+        metadata.write_text(json.dumps(item))
+        result=discovery.automatic_subtitle({'mediaId':189046,'episode':2},
+            key_reader=lambda:self.fail('valid cache must remain offline'))
+        self.assertEqual(result['originalName'],result['sourceId'])
+
+    def test_prefers_bluray_japanese_ass_over_broadcast_srt(self):
+        self.files = [
+            {'name':'Show - E02 [TV].srt','size':100,'url':'https://jimaku.cc/entry/10/download/tv.srt'},
+            {'name':'Show - 02 (BD 720p).ja.ass','size':100,'url':'https://jimaku.cc/entry/10/download/bd.ass'},
+        ]
+        ass='[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,0:00:01.00,0:00:03.00,Default,日本語です。\n'
+        self.download=lambda url:ass.encode() if url.endswith('bd.ass') else TEXT.encode()
+        result=self.fetch()
+        self.assertEqual(result['originalName'],'Show - 02 (BD 720p).ja.ass')
+
+    def test_empty_zero_duration_ass_placeholder_does_not_reject_real_dialogue(self):
+        header='[Events]\nFormat: Layer, Start, End, Style, Text\n'
+        empty='Dialogue: 0,0:00:00.00,0:00:00.00,Default,\n'
+        dialogue='Dialogue: 0,0:00:01.00,0:00:03.00,Default,日本語\n'
+        content=header+empty+dialogue
+        self.assertEqual(discovery._decode(content.encode(),'.ass'),content)
+        with self.assertRaises(ValueError):
+            discovery._decode((header+empty.replace('Default,','Default,日本語')).encode(),'.ass')
+
+    def test_legacy_tv_cache_is_upgraded_but_remains_available_offline(self):
+        self.files=[{'name':'Show E02 [TV].srt','size':100,'url':'https://jimaku.cc/entry/10/download/tv.srt'}]
+        self.fetch()
+        metadata=Path(self.temp.name)/'.langplay-auto/189046-2.json'
+        item=json.loads(metadata.read_text());item.pop('selectionPolicy',None);metadata.write_text(json.dumps(item))
+        offline=discovery.automatic_subtitle({'mediaId':189046,'episode':2},key_reader=lambda:'fixture-key',
+            get_json=lambda *args:(_ for _ in ()).throw(ValueError('Offline')),
+            ajatt_fetch=lambda *args:(_ for _ in ()).throw(ValueError('Offline')))
+        self.assertTrue(offline['cached'])
+        self.files=[{'name':'Show E02 WEB.ja.srt','size':100,'url':'https://jimaku.cc/entry/10/download/web.srt'}]
+        result=self.fetch()
+        self.assertEqual(result['originalName'],'Show E02 WEB.ja.srt')
+        self.assertFalse(result['cached'])
+
     def test_external_movie_with_jimaku_hosted_subtitles_is_downloaded_and_cached(self):
         url = 'https://jimaku.cc/entry/2127/download/takagi-movie.srt'
         def api(path, key):

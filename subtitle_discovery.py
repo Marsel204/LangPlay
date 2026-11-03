@@ -17,6 +17,7 @@ import urllib.request
 from saved_subtitles import MAX_BYTES, FORMATS, subtitle_folder, saved_subtitles
 
 _slots = threading.BoundedSemaphore(2)
+SELECTION_POLICY = 1
 
 
 def jimaku_key():
@@ -150,14 +151,28 @@ def _cached(folder, media, episode):
         if hashlib.sha256(result['content'].encode('utf-8')).hexdigest() != item['sha256']:
             return None
         _validate_cues(result['content'], '.' + item['format'])
-        return {**result, 'cached': True, 'provider': provider, 'originalName': item.get('originalName', expected)}
+        return {**result, 'cached': True, 'provider': provider, 'originalName': item['originalName'] if isinstance(item.get('originalName'), str) else expected,
+                'selectionPolicy': item.get('selectionPolicy', 0)}
     except (OSError, ValueError, KeyError, TypeError, RecursionError):
         return None
 
 
+def _release_rank(name):
+    name = name.lower()
+    if re.search(r'web|amazon|netflix|crunchy', name):
+        return 0
+    if re.search(r'(^|[^a-z0-9])(bd(?:rip|remux|\d{3,4}p)?|blu[ ._-]?ray)(?=$|[^a-z0-9])', name):
+        return 1
+    if re.search(r'\[tv\]|\(tv\)|(^|[ ._-])(hdtv|tvrip|tv|at-x)(?=$|[ ._-])', name):
+        return 3
+    return 2
+
+
 def _rank(file):
     name = file['name'].lower()
-    return (0 if re.search(r'web|amazon|netflix|crunchy', name) else 1,
+    # Release timing matters before presentation format: broadcast SRTs may
+    # include commercial breaks absent from WEB/Blu-ray playback.
+    return (_release_rank(name),
             {'.srt': 0, '.vtt': 1, '.ass': 2, '.ssa': 3}[Path(name).suffix],
             0 if re.search(r'\.ja\b|\.ja[-_]|jpn|japanese', name) else 1,
             0 if 'amazon' in name else 1, name)
@@ -214,6 +229,11 @@ def _validate_cues(content, extension):
                 layer = event.get('layer', re.sub(r'^Marked=', '', event.get('marked', '0'), flags=re.I))
                 if not re.fullmatch(r'-?\d+', layer, re.ASCII) or abs(int(layer)) > 2**53 - 1:
                     raise ValueError('Invalid ASS layer.')
+                # Aegisub/retimed releases often retain an empty 0:00 event.
+                # It renders nothing; nonempty zero/negative intervals still fail.
+                if (_cue_time(event['start'], extension) == _cue_time(event['end'], extension)
+                        and not event['text']):
+                    continue
                 intervals.append((event['start'], event['end']))
     else:
         blocks = re.split(r'\n(?:[ \t]*\n)+', normalized)
@@ -294,10 +314,12 @@ def automatic_subtitle(body, *, get_json=None, download=None, key_reader=None, a
         raise ValueError('Start an identified anime episode before automatic subtitle search.')
     folder = subtitle_folder()
     cached = _cached(folder, media, episode)
-    if cached:
+    if cached and not (_release_rank(cached['originalName']) == 3 and cached.get('selectionPolicy') != SELECTION_POLICY):
         return cached
     key = (key_reader or jimaku_key)()
     if not _slots.acquire(timeout=.1):
+        if cached:
+            return cached
         raise ValueError('Japanese subtitle search is busy. Retry in a moment.')
     try:
         deadline = time.monotonic() + 40
@@ -323,6 +345,8 @@ def automatic_subtitle(body, *, get_json=None, download=None, key_reader=None, a
                 candidates = ajatt_subtitles.candidates(body.get('title'), media, episode, ajatt_fetch)
                 selected = _select_subtitle(candidates, lambda url: ajatt_fetch(url, MAX_BYTES))
             except (ValueError, OSError, UnicodeError, RecursionError) as error:
+                if cached:
+                    return cached
                 raise ValueError(f'{jimaku_error} AJATT fallback: {error}') from None
         file, content = selected
         extension = Path(file['name']).suffix.lower()
@@ -333,7 +357,8 @@ def automatic_subtitle(body, *, get_json=None, download=None, key_reader=None, a
         cache_dir.mkdir(mode=0o700, exist_ok=True)
         _atomic(folder / name, content.encode('utf-8'))
         metadata = {'mediaId': media, 'episode': episode, 'sourceId': name, 'format': extension[1:], 'provider': provider,
-                    'originalName': file['name'], 'sha256': hashlib.sha256(content.encode('utf-8')).hexdigest()}
+                    'originalName': file['name'], 'sha256': hashlib.sha256(content.encode('utf-8')).hexdigest(),
+                    'selectionPolicy': SELECTION_POLICY}
         _atomic(cache_dir / f'{media}-{episode}.json', json.dumps(metadata, ensure_ascii=False).encode())
         return {'sourceId': name, 'format': extension[1:], 'content': content, 'cached': False,
                 'provider': provider, 'originalName': file['name']}

@@ -99,6 +99,15 @@ test('ASS honors event field order, actor/effect/styles and centisecond precisio
   assert.deepEqual(parsed.metadata.styleDefinitions, ['Talk,Noto Sans']);
 });
 
+test('ASS/SSA ignores an empty zero-duration placeholder but rejects zero-duration dialogue', () => {
+  for (const format of ['ass', 'ssa']) {
+    const valid = makeSubtitle(format, [{ startMs: 1000, endMs: 3000, text: '日本語' }]);
+    const placeholder = '\nDialogue: 0,0:00:00.00,0:00:00.00,Default,,0,0,0,,\n';
+    assert.equal(parseSubtitles(valid + placeholder, { format }).cues.length, 1);
+    assert.throws(() => parseSubtitles(valid + placeholder.trimEnd() + '日本語\n', { format }), SubtitleError);
+  }
+});
+
 test('ASS rejects missing event format, truncated columns, bad times/layers and bitmap formats', () => {
   const valid = makeSubtitle('ass', [{ startMs: 0, endMs: 1000, text: '猫' }]);
   for (const broken of [valid.replace(/^Format:.*\n/m, ''), valid.replace('0:00:01.00', '0:00:61.00'),

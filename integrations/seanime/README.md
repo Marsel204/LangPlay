@@ -1,6 +1,6 @@
 # LangPlay for Seanime
 
-Version 0.4.15 provides clickable Japanese learning captions, optional English sentence meanings, and adjustable caption backgrounds directly in the built-in VideoCore player.
+Version 0.4.16 provides clickable Japanese learning captions, optional English sentence meanings, and adjustable caption backgrounds directly in the built-in VideoCore player.
 
 1. Start an episode. LangPlay automatically finds and loads Japanese subtitles using the existing Jimaku configuration, then falls back to the public AJATT/Kitsunekko mirror if Jimaku has no usable result, is unavailable, or has no configured key. Matching files are cached for future playback.
 2. Open **Subtitles** to see the source, retry a failed search, switch to **Choose manually**, or load a different saved file.
@@ -16,6 +16,8 @@ Use **Auto Sub → Background opacity** to adjust the caption box from **0% (Tra
 The existing tray panel remains available through **Import or export** for file import, offset changes and card export. Saved files come from the companion's configured subtitle directory; refresh the list after adding one.
 
 Automatic discovery uses the exact anime ID and episode, preserves a manual source choice, and rejects late results after an episode switch. The companion reads the existing Subtitle Engine Jimaku key locally; credentials never enter the player/webview or AJATT requests. AJATT needs no account: the companion uses the playback title to find a catalog entry, verifies its `.kitsuinfo.json` AniList ID, and requires an explicit matching episode filename before downloading. Ambiguous titles, missing metadata, batch archives, and filenames without an identifiable episode are skipped rather than guessed. The catalog is cached in memory for an hour; downloaded files from either provider are validated and cached locally for offline reuse. Discovery can fail or choose a release with different timing; manual replacement and delay controls remain available. Learning text and selected words clear when playback changes. External mpv is unsupported; native VideoCore eligibility is implemented, while live qualification covers the browser player.
+
+Discovery prefers WEB and Blu-ray release timing before file format. A broadcast SRT can include advertisements absent from a WEB/Blu-ray video; choosing it just because it is SRT can produce long blank stretches. Older cached TV matches are checked once for a better release, while their validated files remain available if providers are offline. A TV-only result is cached under the current selection policy to avoid repeated searches.
 
 ## Local checks
 
