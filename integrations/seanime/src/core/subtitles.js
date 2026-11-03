@@ -120,9 +120,11 @@ function parseAss(original, normalized, format, namespace) {
     const event = {};
     columns.forEach((column, i) => { event[column] = column === 'text' ? values[i] : values[i].trim(); });
     const startMs = assTimestamp(event.start), endMs = assTimestamp(event.end);
-    if (endMs <= startMs) return invalid('ASS cue end must be after its start.');
     const layerValue = event.layer ?? (event.marked || '0').replace(/^Marked=/i, '');
     if (!/^-?\d+$/.test(layerValue) || !Number.isSafeInteger(Number(layerValue))) return invalid('Invalid ASS layer.');
+    // Empty Aegisub placeholders render nothing and are common in BD retimes.
+    if (endMs === startMs && !event.text.trim()) return;
+    if (endMs <= startMs) return invalid('ASS cue end must be after its start.');
     timedCount++;
     const text = cleanAss(event.text);
     if (!text) return;

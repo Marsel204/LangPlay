@@ -47,6 +47,14 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(body['stream'], False)
         self.assertEqual(body['response_format'], {'type': 'json_object'})
 
+    def test_translation_can_bound_timeout_and_output_without_changing_chat_defaults(self):
+        for options, timeout, tokens in [({}, 45, 4096), ({'timeout': 20, 'max_tokens': 2048}, 20, 2048)]:
+            response = io.BytesIO(b'{"choices":[{"finish_reason":"stop","message":{"content":"English."}}]}')
+            with patch.object(server.urllib.request.OpenerDirector, 'open', return_value=response) as transport:
+                self.assertEqual(server.run_router_completion([], **options), 'English.')
+                self.assertEqual(transport.call_args.kwargs['timeout'], timeout)
+                self.assertEqual(json.loads(transport.call_args.args[0].data)['max_tokens'], tokens)
+
     def test_optional_token_redirect_and_response_limit(self):
         with patch.dict(os.environ, {'LANGPLAY_9ROUTER_API_KEY':''}), patch.object(server.urllib.request.OpenerDirector, 'open', return_value=io.BytesIO(b'{"choices":[{"finish_reason":"stop","message":{"content":"OK"}}]}')) as transport:
             self.assertEqual(server.run_router_completion([]), 'OK')

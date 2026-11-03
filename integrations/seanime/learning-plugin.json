@@ -1,7 +1,7 @@
 {
   "id": "langplay-learning",
   "name": "LangPlay",
-  "version": "0.4.15",
+  "version": "0.4.17",
   "manifestURI": "",
   "language": "javascript",
   "type": "plugin",
@@ -23,7 +23,7 @@
           "allowedDomains": [
             "http://127.0.0.1:8765"
           ],
-          "reasoning": "Use your local LangPlay companion for Japanese parsing and explicit AI requests."
+          "reasoning": "Use your local LangPlay companion for Japanese parsing, translation and configured AI requests."
         }
       }
     }
