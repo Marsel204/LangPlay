@@ -1,0 +1,2850 @@
+/**
+ * LinguaPlay Offline JLPT N5–N1 Grammar Pattern Detector
+ * Identifies contiguous and split/paired Japanese grammar patterns in sentences
+ * for instant display in the Study / Translation panel.
+ */
+const LEVELS = Object.freeze(['N5', 'N4', 'N3', 'N2', 'N1']);
+const LEVEL_RANK = Object.freeze({ N5: 1, N4: 2, N3: 3, N2: 4, N1: 5 });
+const HAS_JAPANESE = /[\u3040-\u30ff\u3400-\u9fff]/;
+
+// Helpers for bounded clause matching (prevents ReDoS and cross-sentence matches).
+const GAP = '[^。！？!?\\n]{0,24}';
+const SHORT_GAP = '[^。！？!?、,\\n]{0,16}';
+const NEG_END = '(?:ない|なかった|なくて|なければ|なく|ませんでした|ません|ませぬ|ずに|ず(?=[。！？!?、,\\sでもは]|$)|ぬ(?![くぐきげるれすめし])|ねぇ|ねえ)';
+
+/**
+ * Build a split-pattern matcher from two regexes or a single regex with 2+ capture groups.
+ * When matchGroups is specified (e.g. [1, 2]), each non-empty group becomes an exact span
+ * in the sentence so UI highlights and "In sentence" snippets show both parts cleanly.
+ */
+function matchWithRegex(sentence, entry) {
+  const regex = entry.regex;
+  regex.lastIndex = 0;
+  let m;
+  while ((m = regex.exec(sentence)) !== null) {
+    if (entry.validate && !entry.validate(m, sentence)) {
+      if (!regex.global) return null;
+      continue;
+    }
+
+    if (entry.groups && entry.groups.length >= 2) {
+      const spans = [];
+      let cursor = m.index;
+      for (const groupIndex of entry.groups) {
+        const part = m[groupIndex];
+        if (!part) continue;
+        const idx = sentence.indexOf(part, cursor);
+        if (idx < 0) continue;
+        spans.push({ start: idx, end: idx + part.length, text: part });
+        cursor = idx + part.length;
+      }
+      if (spans.length >= 2) {
+        return {
+          start: spans[0].start,
+          end: spans[spans.length - 1].end,
+          spans,
+        };
+      }
+    }
+
+    const text = entry.captureGroup === "first"
+      ? m.slice(1).find(Boolean)
+      : entry.captureGroup ? m[entry.captureGroup] : m[0];
+    if (!text) {
+      if (!regex.global) return null;
+      continue;
+    }
+    const start = entry.captureGroup ? m.index + m[0].length - text.length : m.index;
+    if (start < 0) {
+      if (!regex.global) return null;
+      continue;
+    }
+    const end = start + text.length;
+    return {
+      start,
+      end,
+      spans: [{ start, end, text }],
+    };
+  }
+  return null;
+}
+
+/**
+ * Custom matcher for N4 〜しか〜ない ("only; nothing but" with negative).
+ * Scans every occurrence of しか in the sentence, skips lexical false friends
+ * (しかし, しかも, たしかに, もしかして, しかたがない, しかるべき, しかけ),
+ * and pairs it with the nearest negative ending in the same clause.
+ */
+const SHIKA_MO_VERB = '(?:ら[えわいっ]|って|ち|て[なずぬ]|た[なずぬ]|ど[らりれ]|え[なずぬ]|うけ)';
+const SHIKA_FALSE_FOLLOW = new RegExp(`^(?:し(?!(?:ない|なかっ|なく|ません|ぬ|ず|てい|てな|ら|れ|り|んじ))|も(?!${SHIKA_MO_VERB})|た(?:が)?な|たあり|るべき|け|っ|り)`);
+const SHIKA_FALSE_BEFORE_TA = /(?:^|[^あな])た$/;
+const SHIKA_NEG_CANDIDATE_RE = /(?:ない|なかった|なくて|なければ|なく|ませんでした|ません|ませぬ|ねぇ|ねえ|ずに|ず(?=[。！？!?、,\sでもは]|$)|ぬ(?![くぐきげるれすめし]))/g;
+const SHIKA_FALSE_ZU_PREFIX = /(?:^|[。！？!?、,\sはがをにともへ])(?:ま|は|必|かなら|わず|み|ち|か|き|く|す|な|ゆ|あい|おか)$/;
+const SHIKA_FALSE_NU_PREFIX = /(?:^|[。！？!?、,\sはがをにともへ])(?:死|し|往|い|き)$/;
+const SHIKA_SPLIT_SEP_RE = new RegExp(`([、,\\s]+|には|では|とは|からは|までは|へは|[はがをにとへ]|も(?!${SHIKA_MO_VERB})|で(?!(?:き|い(?:ない|ません|なかっ)|ない|ません)))`, 'g');
+
+function matchShikaNai(sentence) {
+  let from = 0;
+  while (from < sentence.length) {
+    const idx = sentence.indexOf('しか', from);
+    if (idx < 0) return null;
+    from = idx + 2;
+
+    const before = sentence.slice(Math.max(0, idx - 3), idx);
+    const after = sentence.slice(idx + 2);
+
+    // Must have something before しか (a noun/phrase being limited).
+    if (idx === 0 || /[。！？!?、,\s「『（(]$/.test(before)) continue;
+    // Skip lexical false friends.
+    if (SHIKA_FALSE_FOLLOW.test(after)) continue;
+    if (before.endsWith('も') && /^(?:して|したら|すると)/.test(after)) continue;
+    if (SHIKA_FALSE_BEFORE_TA.test(before) && /^(?:に|な|だ|め)/.test(after)) continue;
+    if (before.endsWith('た') && /^(?:に|な|だ|め)/.test(after) && !before.endsWith('あなた')) continue;
+
+    // Scan the current clause (up to sentence boundary / 32 chars) for a real negative ending.
+    const clauseEnd = after.search(/[。！？!?\n]/);
+    const clause = (clauseEnd < 0 ? after : after.slice(0, clauseEnd)).slice(0, 32);
+    SHIKA_NEG_CANDIDATE_RE.lastIndex = 0;
+    let chunk = '';
+    let cand;
+    while ((cand = SHIKA_NEG_CANDIDATE_RE.exec(clause)) !== null) {
+      const token = cand[0];
+      const prefix = clause.slice(0, cand.index);
+      if (token.startsWith('ず')) {
+        if (!prefix || /[。！？!?、,\s]$/.test(prefix) || SHIKA_FALSE_ZU_PREFIX.test(prefix)) continue;
+      } else if (token === 'ぬ') {
+        if (!prefix || /[。！？!?、,\s]$/.test(prefix) || SHIKA_FALSE_NU_PREFIX.test(prefix)) continue;
+      }
+      chunk = clause.slice(0, cand.index + token.length);
+      break;
+    }
+    if (!chunk) continue;
+    let predOffset = 0;
+    SHIKA_SPLIT_SEP_RE.lastIndex = 0;
+    let sep;
+    while ((sep = SHIKA_SPLIT_SEP_RE.exec(chunk)) !== null) {
+      if (sep.index === 0 && !/^[、,\s]/.test(sep[0])) continue;
+      const afterSep = sep.index + sep[0].length;
+      // Keep a separator only when a full negative predicate remains after it.
+      if (afterSep < chunk.length && new RegExp(`${NEG_END}$`).test(chunk.slice(afterSep)) && chunk.length - afterSep >= 2) {
+        predOffset = afterSep;
+      }
+    }
+
+    const negPart = chunk.slice(predOffset);
+    if (!negPart) continue;
+    const negStart = idx + 2 + predOffset;
+    const negEnd = negStart + negPart.length;
+
+    const spans = [
+      { start: idx, end: idx + 2, text: 'しか' },
+      { start: negStart, end: negEnd, text: negPart },
+    ];
+    return { start: idx, end: negEnd, spans };
+  }
+  return null;
+}
+
+// Non-verb words that end in dictionary-verb-like kana before しかない
+// (e.g. この近くしかない, 一つしかない, 多くしかない).
+const SHIKA_CHOICE_NON_VERB = /(?:^[一二三四五六七八九十百千万幾]つ$|^(?:近|遠|多|少|早|速|遅|高|安|強|弱|大|小|広|狭|長|短|深|浅|軽|重|暗|明|良|悪|丸|低|厚|薄|細|太|白|黒|赤|青|古|新|甘|辛|熱|冷|寒|暑|暖|涼|痛|苦|怖|恐|凄|全|暫)く$|^真っ?すぐ$)/;
+const SHIKA_CHOICE_NOUN_PREFIX = /(?:この|その|あの|どの|こんな|そんな|あんな|どんな|の)$/;
+
+function validateShikaChoice(m, sentence) {
+  const verb = m[1];
+  if (!verb || SHIKA_CHOICE_NON_VERB.test(verb)) return false;
+  const before = sentence.slice(Math.max(0, m.index - 4), m.index);
+  if (SHIKA_CHOICE_NOUN_PREFIX.test(before)) return false;
+  return true;
+}
+
+// Lexical adjectives and nouns ending in たい that are NOT verb + たい ("want to").
+const TAI_FALSE_PREFIX = /(?:痛|冷|冷め|つめ|眠|ねむ|重|おも|硬|固|堅|か|平|ひら|煙|けむ|もったい|ありが|有難|めで|めっ|じれっ|うしろめ|だい|ぜっ|けい|じょう|もん|ほん|しょう|ぐ|じ|おめで|たい)$/;
+
+function validateTai(m, sentence) {
+  const stem = m[1];
+  const before = sentence.slice(Math.max(0, m.index - 6), m.index + stem.length);
+  if (TAI_FALSE_PREFIX.test(before)) return false;
+  const after = sentence.slice(m.index + m[0].length, m.index + m[0].length + 2);
+  // Distinguish みたいだ / みたいな / みたいに ("looks like") from verb + たい ("want to").
+  if (stem.endsWith('み') && /^(?:だ|で|な|に|$|[。！？!?、,\s])/.test(after) && stem.length === 1) return false;
+  if (stem.endsWith('み') && /^(?:だ|で|な|に)/.test(after)) return false;
+  // Reject standalone いたい / きたい etc. without a kanji stem.
+  const charBefore = m.index > 0 ? sentence[m.index - 1] : '';
+  if ((stem === 'い' || stem === 'き') && !/[\u4e00-\u9fff]/.test(charBefore)) return false;
+  return true;
+}
+
+function validateBa(m, sentence) {
+  const start = m.index;
+  const before = sentence.slice(Math.max(0, start - 3), start);
+  if (/(?:たと|こと|そ|お)$/.test(before + m[1].slice(0, -1))) return false;
+  if (m[0] === 'たとえば') return false;
+  // Avoid matching standalone ばか / ばかり / ばしょ / ばあい / ばる.
+  const after = sentence.slice(start + m[0].length, start + m[0].length + 3);
+  if (/^(?:かり|っかり|か|しょ|あい|る|り|れ|ら|ろ|こそ)/.test(after)) return false;
+  return true;
+}
+
+function validateNoni(m, sentence) {
+  const after = sentence.slice(m.index + m[0].length, m.index + m[0].length + 4);
+  if (/^(?:なる|なっ|なり|なれ|かかわ|対し|つい|とっ)/.test(after)) return false;
+  const before = sentence.slice(Math.max(0, m.index - 2), m.index);
+  if (before.endsWith('も') && /^(?:なる|なっ)/.test(after)) return false;
+  return true;
+}
+
+const TARA_FALSE_WORDS = /(?:もしかしたら|あたらし|はたら[くきけこ]|くだらな|みだら|だらけ|いたら(?:ず|ぬ)|でたらめ|(?:^|[をがはに、\s])たら[しすせ])/g;
+
+function overlapsTaraFalseWord(sentence, taraStart, taraEnd) {
+  const winStart = Math.max(0, taraStart - 4);
+  const windowText = sentence.slice(winStart, taraEnd + 4);
+  TARA_FALSE_WORDS.lastIndex = 0;
+  let ex;
+  while ((ex = TARA_FALSE_WORDS.exec(windowText)) !== null) {
+    const exStart = winStart + ex.index;
+    const exEnd = exStart + ex[0].length;
+    if (exStart < taraEnd && taraStart < exEnd) return true;
+  }
+  return false;
+}
+
+function validateTara(m, sentence) {
+  const taraEnd = m.index + m[0].length;
+  return !overlapsTaraFalseWord(sentence, taraEnd - 2, taraEnd);
+}
+
+function validateMoshiTara(m, sentence) {
+  const ending = m[2];
+  if (!ending || !(ending.endsWith('たら') || ending.endsWith('だら'))) return true;
+  const endStart = sentence.indexOf(ending, m.index + m[1].length);
+  if (endStart < 0) return true;
+  return !overlapsTaraFalseWord(sentence, endStart, endStart + ending.length);
+}
+
+function validateTemo(m, sentence) {
+  const temoStart = m.index + m[0].length - 2;
+  if (temoStart === 0 && sentence.startsWith('でも')) return false;
+  const beforeTemo = sentence.slice(Math.max(0, temoStart - 3), temoStart);
+  if (/(?:と|いつ|なん|何|だれ|誰|どこ|どちら|どれ)$/.test(beforeTemo)) return false;
+  return true;
+}
+
+function validateSouda(m, sentence) {
+  const after = sentence.slice(m.index + m[0].length, m.index + m[0].length + 2);
+  if (/^(?:ん|ぞう|じ|して)/.test(after)) return false;
+  const before = sentence.slice(Math.max(0, m.index - 2), m.index);
+  if (m.index === 0 && /^そうですか?$/.test(m[0])) return false;
+  if (/[。！？!?、,\s]$/.test(before) && /^そう(?:だ|です)/.test(m[0])) return false;
+  return true;
+}
+
+function validateYouda(m, sentence) {
+  const before = sentence.slice(Math.max(0, m.index - 2), m.index);
+  if (/(?:さ|おは|き|び|り|し|ち|じ|に|ひ|み)$/.test(before)) return false;
+  return true;
+}
+
+function validateNara(m, sentence) {
+  const windowText = sentence.slice(Math.max(0, m.index - 4), m.index + m[0].length);
+  if (/(?:さようなら|さよなら)/.test(windowText)) return false;
+  const before = sentence.slice(Math.max(0, m.index - 3), m.index);
+  if (/(?:さよう|さよ|か|い|お|こ|そ|ど)$/.test(before)) return false;
+  const after = sentence.slice(m.index + m[0].length, m.index + m[0].length + 2);
+  if (/^(?:ない|なかっ|ず|ぬ|べ|ぶ|び|ん)/.test(after)) return false;
+  return true;
+}
+
+function validateDake(m, sentence) {
+  const after = sentence.slice(m.index + m[0].length, m.index + m[0].length + 3);
+  if (/^(?:でなく|ではなく|じゃなく|じゃなくて|あって|に)/.test(after)) return false;
+  const before = sentence.slice(Math.max(0, m.index - 2), m.index);
+  if (m.index === 0 || /[。！？!?、,\s]$/.test(before)) return false;
+  return true;
+}
+
+/**
+ * Curated JLPT N5–N1 grammar patterns.
+ * Ordered roughly from most specific / higher levels to foundational patterns;
+ * final display order always follows sentence position.
+ */
+const RAW_PATTERNS = [
+  // ═══════════════════════════════════════════════════════════════
+  // JLPT N1
+  // ═══════════════════════════════════════════════════════════════
+  {
+    id: 'n1-wo-yoginaku-sareru',
+    level: 'N1',
+    pattern: '〜を余儀なくされる',
+    reading: 'o yoginaku sareru',
+    meaning: 'be forced to; have no choice but to',
+    structure: 'Noun + を余儀なくされる / を余儀なくさせる',
+    note: 'Formal expression meaning circumstances compel an unavoidable action.',
+    regex: /を(?:余儀なくされ|余儀なくさせ|よぎなくされ)[るたてないますました]*/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-wo-kinji-enai',
+    level: 'N1',
+    pattern: '〜を禁じ得ない',
+    reading: 'o kinji enai',
+    meaning: 'cannot suppress; cannot help feeling',
+    structure: 'Emotion noun (涙・怒り・驚き) + を禁じ得ない',
+    note: 'Formal literary pattern for an uncontrollable emotional reaction.',
+    regex: /を(?:禁じ得ない|禁じえない|禁じ得なかった|禁じ得ません)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-wo-mono-tomo-sezu',
+    level: 'N1',
+    pattern: '〜をものともせず',
+    reading: 'o mono tomo sezu',
+    meaning: 'undaunted by; in defiance of',
+    structure: 'Noun (difficulty/danger) + をものともせず(に)',
+    note: 'Shows pushing forward courageously without being deterred by obstacles.',
+    regex: /を(?:ものともせず(?:に)?|物ともせず(?:に)?)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-te-kara-to-iu-mono',
+    level: 'N1',
+    pattern: '〜てからというもの',
+    reading: 'te kara to iu mono',
+    meaning: 'ever since (a turning point)',
+    structure: 'Verb て-form + からというもの(は)',
+    note: 'Highlights a lasting change that started immediately after a specific event.',
+    regex: /(?:て|で)からというもの(?:は)?/g,
+    priority: 4,
+    excludes: ['n5-te-kara'],
+  },
+  {
+    id: 'n1-te-shikarubeki',
+    level: 'N1',
+    pattern: '〜てしかるべき',
+    reading: 'te shikarubeki',
+    meaning: 'should rightly; naturally ought to',
+    structure: 'Verb て-form / Noun + しかるべき(だ)',
+    note: 'Expresses that an outcome or action is only proper and deserved.',
+    regex: /(?:(?:て|で))?(?:しかるべき|然るべき)(?:だ|です)?/g,
+    priority: 4,
+    excludes: ['n4-shika-nai', 'n3-beki'],
+  },
+  {
+    id: 'n1-zuniwa-okanai',
+    level: 'N1',
+    pattern: '〜ずにはおかない',
+    reading: 'zu ni wa okanai',
+    meaning: 'cannot fail to; inevitably causes',
+    structure: 'Verb ない-stem + ずにはおかない / ないではおかない',
+    note: 'Expresses an irresistible effect or fierce determination to do something.',
+    regex: /(?:ずにはおか|ないではおか|ずにはおき|ないではおき)(?:ない|なかった|ません|ませんでした)/g,
+    priority: 4,
+    excludes: ['n3-zuni', 'n2-zuniwa-irarenai'],
+  },
+  {
+    id: 'n1-zuniwa-sumanai',
+    level: 'N1',
+    pattern: '〜ずにはすまない',
+    reading: 'zu ni wa sumanai',
+    meaning: 'cannot get away without doing',
+    structure: 'Verb ない-stem + ずにはすまない / ないではすまない',
+    note: 'Social or moral obligation makes it impossible to leave something undone.',
+    regex: /(?:ずには(?:すま|済ま)|ないでは(?:すま|済ま))(?:ない|なかった|ません|ませんでした)/g,
+    priority: 4,
+    excludes: ['n3-zuni'],
+  },
+  {
+    id: 'n1-to-omoikiya',
+    level: 'N1',
+    pattern: '〜と思いきや',
+    reading: 'to omoikiya',
+    meaning: 'just when I thought ~, contrary to expectation',
+    structure: 'Plain clause + (か)と思いきや',
+    note: 'Introduces a surprising twist that overturns what you expected.',
+    regex: /か?と(?:思いきや|おもいきや)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-you-ni-mo-nai',
+    level: 'N1',
+    pattern: '〜ようにも〜ない',
+    reading: 'you ni mo … nai',
+    meaning: 'even if I try to ~, I cannot',
+    structure: 'Verb volitional + にも + Same verb potential negative',
+    note: 'Expresses wanting to do something but being completely unable to.',
+    regex: new RegExp(`((?:よう|おう|こう|ごう|そう|とう|のう|ぼう|もう|ろう)にも)${SHORT_GAP}(${NEG_END})`, 'g'),
+    groups: [1, 2],
+    priority: 4,
+  },
+  {
+    id: 'n1-mo-saru-koto-nagara',
+    level: 'N1',
+    pattern: '〜もさることながら',
+    reading: 'mo saru koto nagara',
+    meaning: 'not only A, but even more so B',
+    structure: 'Noun + もさることながら',
+    note: 'Acknowledges A while placing even stronger emphasis on B.',
+    regex: /もさることながら/g,
+    priority: 4,
+    excludes: ['n5-nagara'],
+  },
+  {
+    id: 'n1-to-ittara-nai',
+    level: 'N1',
+    pattern: '〜といったらない',
+    reading: 'to ittara nai',
+    meaning: 'indescribably; beyond words',
+    structure: 'Noun / Adj + といったらない / といったらありゃしない',
+    note: 'Emphasizes an extreme emotion or state that words cannot capture.',
+    regex: /といったら(?:ない|なかった|ありゃしない|ありはしない)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-to-iedomo',
+    level: 'N1',
+    pattern: '〜といえども',
+    reading: 'to iedomo',
+    meaning: 'even though; albeit',
+    structure: 'Plain form / Noun + といえども',
+    note: 'Formal, elevated equivalent of 〜ても / 〜といっても.',
+    regex: /と(?:いえども|言えども)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-te-yamanai',
+    level: 'N1',
+    pattern: '〜てやまない',
+    reading: 'te yamanai',
+    meaning: 'never stop (wishing/hoping/respecting)',
+    structure: 'Verb て-form (願う・祈る・尊敬する) + やまない',
+    note: 'Formal expression of deep, unending feeling or wish.',
+    regex: /(?:て|で)(?:やまない|止まない|やみません)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-ni-itaru',
+    level: 'N1',
+    pattern: '〜に至る / 〜に至るまで',
+    reading: 'ni itaru / ni itaru made',
+    meaning: 'reach the point of; even down to',
+    structure: 'Noun / Verb dict + に至る / に至るまで / に至っては / に至って',
+    note: 'Marks an extreme culmination or range reaching unexpected details.',
+    regex: /に(?:至るまで|至っては|至って|至った|至る|いたるまで|いたっては)/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-ni-katakunai',
+    level: 'N1',
+    pattern: '〜にかたくない',
+    reading: 'ni katakunai',
+    meaning: 'not hard to (imagine/understand)',
+    structure: 'Noun (想像・理解) / Verb dict + にかたくない / に難くない',
+    note: 'Formal phrase meaning something is easy to imagine or infer.',
+    regex: /に(?:かたくない|難くない|かたかった)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-ni-taenai',
+    level: 'N1',
+    pattern: '〜に堪えない',
+    reading: 'ni taenai',
+    meaning: 'unbearable to; filled with (gratitude/regret)',
+    structure: 'Verb dict / Emotion noun + に堪えない / にたえない',
+    note: 'With verbs: too awful to watch/hear; with emotion nouns: deeply felt.',
+    regex: /に(?:堪えない|耐えない|たえない|堪えません)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-ni-taru',
+    level: 'N1',
+    pattern: '〜に足る',
+    reading: 'ni taru',
+    meaning: 'worthy of; sufficient to',
+    structure: 'Verb dict / Noun (信頼・評価) + に足る / に足りる / に足りない',
+    note: 'Formal expression stating whether something merits trust or attention.',
+    regex: /に(?:足る|足りる|足りない|足らない|たる)/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-ni-hikikae',
+    level: 'N1',
+    pattern: '〜にひきかえ',
+    reading: 'ni hikikae',
+    meaning: 'in sharp contrast to',
+    structure: 'Noun / Clause + にひきかえ / に引き換え',
+    note: 'Highlights a striking contrast between two people, times, or situations.',
+    regex: /に(?:ひきかえ|引き換え|引きかえ)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-ni-oyobazu',
+    level: 'N1',
+    pattern: '〜に及ばず / 〜に及ばない',
+    reading: 'ni oyobazu / ni oyobanai',
+    meaning: 'no need to; falls short of',
+    structure: 'Verb dict / Noun + に及ばない / に及ばず',
+    note: 'Means something is unnecessary ("goes without saying") or cannot match a standard.',
+    regex: /に(?:及ばない|及ばず|及ばなかった|およばない|およばず)/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-ni-mo-mashite',
+    level: 'N1',
+    pattern: '〜にもまして',
+    reading: 'ni mo mashite',
+    meaning: 'even more than',
+    structure: 'Noun (以前・普段・何) + にもまして',
+    note: 'Compares something that is already strong to an even greater degree now.',
+    regex: /にも(?:まして|増して)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-wa-oroka',
+    level: 'N1',
+    pattern: '〜はおろか',
+    reading: 'wa oroka',
+    meaning: 'let alone; not to mention',
+    structure: 'Noun + はおろか + (〜さえ / 〜も)',
+    note: 'A is obviously impossible, and even the easier B is out of reach too.',
+    regex: /は(?:おろか|愚か)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-nakushite',
+    level: 'N1',
+    pattern: '〜なくして(は)',
+    reading: 'nakushite wa',
+    meaning: 'without ~ (cannot exist/succeed)',
+    structure: 'Noun + なくして / なくしては',
+    note: 'Formal pattern declaring an indispensable prerequisite.',
+    regex: /なくして(?:は)?/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-naradewa',
+    level: 'N1',
+    pattern: '〜ならでは',
+    reading: 'nara de wa',
+    meaning: 'unique to; only possible with',
+    structure: 'Noun + ならでは(の)',
+    note: 'Praises a distinctive quality that belongs exclusively to that subject.',
+    regex: /ならでは(?:の)?/g,
+    priority: 4,
+    excludes: ['n4-nara'],
+  },
+  {
+    id: 'n1-ya-inaya',
+    level: 'N1',
+    pattern: '〜や否や',
+    reading: 'ya ina ya',
+    meaning: 'the instant; no sooner than',
+    structure: 'Verb dict + や否や / やいなや',
+    note: 'Literary pattern showing the second event happened the split second the first did.',
+    regex: /や(?:否や|いなや)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-wo-yoso-ni',
+    level: 'N1',
+    pattern: '〜をよそに',
+    reading: 'o yoso ni',
+    meaning: 'ignoring; without regard for',
+    structure: 'Noun (worry/expectations) + をよそに',
+    note: 'Acting completely unaffected by others’ worries, expectations, or reactions.',
+    regex: /を(?:よそに|余所に)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-wo-fumaete',
+    level: 'N1',
+    pattern: '〜を踏まえて',
+    reading: 'o fumaete',
+    meaning: 'based on; taking into account',
+    structure: 'Noun + を踏まえて / を踏まえた',
+    note: 'Uses prior facts, results, or lessons as the foundation for a decision.',
+    regex: /を(?:踏まえて|踏まえた|踏まえ|ふまえて)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-wo-hete',
+    level: 'N1',
+    pattern: '〜を経て',
+    reading: 'o hete',
+    meaning: 'via; after going through',
+    structure: 'Noun (time/stage/process) + を経て / を経た',
+    note: 'Marks a process, period of time, or intermediate stage before a result.',
+    regex: /を(?:経て|経た)/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-wo-motte',
+    level: 'N1',
+    pattern: '〜をもって',
+    reading: 'o motte',
+    meaning: 'by means of; as of (time)',
+    structure: 'Noun + をもって / を以て',
+    note: 'Formal marker for a method, standard, or official deadline/boundary.',
+    regex: /を(?:もって|以て|以って)/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-kiwamaru',
+    level: 'N1',
+    pattern: '〜極まる / 〜極まりない',
+    reading: 'kiwamaru / kiwamarinai',
+    meaning: 'extremely; utterly',
+    structure: 'な-adj stem + 極まる / 極まりない',
+    note: 'Strong formal emphasis meaning something reaches the absolute limit.',
+    regex: /(?:極まりない|極まりなかった|極まる|極まった|きわまりない)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-kirai-ga-aru',
+    level: 'N1',
+    pattern: '〜きらいがある',
+    reading: 'kirai ga aru',
+    meaning: 'have a tendency to (undesirable)',
+    structure: 'Verb dict / Noun + の + きらいがある',
+    note: 'Points out a subtle, usually undesirable habit or tendency.',
+    regex: /(?:きらい|嫌い)が(?:ある|あり|あった)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-zujimai',
+    level: 'N1',
+    pattern: '〜ずじまい',
+    reading: 'zu jimai',
+    meaning: 'ended up never doing',
+    structure: 'Verb ない-stem + ずじまい(だ/だった)',
+    note: 'Expresses regret that something intended never got done in the end.',
+    regex: /ず(?:じまい|仕舞い)/g,
+    priority: 4,
+    excludes: ['n3-zuni'],
+  },
+  {
+    id: 'n1-soba-kara',
+    level: 'N1',
+    pattern: '〜そばから',
+    reading: 'soba kara',
+    meaning: 'no sooner than ~ (immediately undone)',
+    structure: 'Verb dict/た-form + そばから',
+    note: 'Used when an effort is repeatedly undone right after you do it (e.g. forgetting as soon as you learn).',
+    regex: /(?:る|た|だ)(そばから)/g,
+    captureGroup: 1,
+    priority: 4,
+  },
+  {
+    id: 'n1-taritomo',
+    level: 'N1',
+    pattern: '〜たりとも',
+    reading: 'tari tomo',
+    meaning: 'not even a single ~',
+    structure: 'Number 1 + counter + たりとも + Negative',
+    note: 'Emphasizes zero tolerance: not even one second, drop, or penny.',
+    regex: /たりとも/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-dani',
+    level: 'N1',
+    pattern: '〜だに',
+    reading: 'da ni',
+    meaning: 'even just (thinking/imagining)',
+    structure: 'Verb dict / Noun (想像・夢) + だに',
+    note: 'Literary emphasis: even the slightest thought or action.',
+    regex: /(?:想像|夢|思い|思う|聞く|見る|考え)だに/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-to-atte',
+    level: 'N1',
+    pattern: '〜とあって',
+    reading: 'to atte',
+    meaning: 'because (of a special circumstance)',
+    structure: 'Plain clause / Noun + とあって',
+    note: 'Explains a natural result caused by a notable or unusual situation.',
+    regex: /とあって(?:は)?/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-to-kitara',
+    level: 'N1',
+    pattern: '〜ときたら',
+    reading: 'to kitara',
+    meaning: 'when it comes to ~ (exasperated)',
+    structure: 'Noun + ときたら',
+    note: 'Brings up a person or thing to complain or express exasperation.',
+    regex: /ときたら/g,
+    priority: 4,
+    excludes: ['n4-tara'],
+  },
+  {
+    id: 'n1-tomo-arou',
+    level: 'N1',
+    pattern: '〜ともあろう',
+    reading: 'tomo arou',
+    meaning: 'for someone of ~’s stature',
+    structure: 'Noun (high status/role) + ともあろう(人が/ものが)',
+    note: 'Expresses shock that someone respectable did something unbecoming.',
+    regex: /ともあろう/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-nai-mademo',
+    level: 'N1',
+    pattern: '〜ないまでも',
+    reading: 'nai made mo',
+    meaning: 'even if not as far as',
+    structure: 'Verb ない-form + までも',
+    note: 'Even if the full extreme isn’t reached, a lesser level still applies.',
+    regex: /(?:ない|ぬ)までも/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-bekarazu',
+    level: 'N1',
+    pattern: '〜べからず / 〜べからざる',
+    reading: 'bekarazu / bekarazaru',
+    meaning: 'must not; forbidden',
+    structure: 'Verb dict + べからず / べからざる + Noun',
+    note: 'Formal, archaic prohibition often seen on signs or in rules.',
+    regex: /べから(?:ず|ざる)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-beku',
+    level: 'N1',
+    pattern: '〜べく',
+    reading: 'beku',
+    meaning: 'in order to',
+    structure: 'Verb dict (する → すべく/するべく) + べく',
+    note: 'Formal literary equivalent of 〜ために for intentional purpose.',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,3}|する|す)べく(?:もない)?/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-majiki',
+    level: 'N1',
+    pattern: '〜まじき',
+    reading: 'majiki',
+    meaning: 'unbefitting; unforgivable for',
+    structure: 'Verb dict + まじき + Noun',
+    note: 'Strong moral condemnation of behavior unacceptable for someone’s role.',
+    regex: /まじき/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-made-da',
+    level: 'N1',
+    pattern: '〜までだ / 〜までのことだ',
+    reading: 'made da / made no koto da',
+    meaning: 'nothing more than; will just have to',
+    structure: 'Verb dict/た-form + までだ / までのことだ',
+    note: 'Shows matter-of-fact acceptance or resolution ("I’ll simply do X").',
+    regex: /(?:までのことだ|までのことです|までだ|までです)/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-ba-koso',
+    level: 'N1',
+    pattern: '〜ばこそ',
+    reading: 'ba koso',
+    meaning: 'precisely because',
+    structure: 'Conditional ば-form + こそ',
+    note: 'Emphasizes that this exact reason is what makes the result true.',
+    regex: /(?:けれ|[えけげせてねべめれ])ばこそ/g,
+    priority: 4,
+    excludes: ['n4-ba', 'n3-koso'],
+  },
+  {
+    id: 'n1-nbakari',
+    level: 'N1',
+    pattern: '〜んばかり',
+    reading: 'n bakari',
+    meaning: 'as if about to; on the verge of',
+    structure: 'Verb ない-stem + んばかり(に/の/だ)',
+    note: 'Vividly describes an expression or state that looks right on the brink of happening.',
+    regex: /んばかり(?:に|の|だ|です)?/g,
+    priority: 4,
+    excludes: ['n4-bakari'],
+  },
+  {
+    id: 'n1-atteno',
+    level: 'N1',
+    pattern: '〜あっての',
+    reading: 'atte no',
+    meaning: 'only possible because of',
+    structure: 'Noun A + あっての + Noun B',
+    note: 'States that B could not exist without A as its foundation.',
+    regex: /あっての/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-ikan',
+    level: 'N1',
+    pattern: '〜いかんだ / 〜いかんによらず',
+    reading: 'ikan da / ikan ni yorazu',
+    meaning: 'depending on / regardless of',
+    structure: 'Noun + (の)いかんだ / いかんで / いかんによらず / いかんにかかわらず',
+    note: 'Formal expression for dependence on or independence from a factor.',
+    regex: /(?:いかん|如何)(?:だ|です|で(?:は)?|によって|によらず|にかかわらず|を問わず)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-gatera',
+    level: 'N1',
+    pattern: '〜がてら',
+    reading: 'gatera',
+    meaning: 'while doing; taking the opportunity to',
+    structure: 'Noun / Verb ます-stem + がてら',
+    note: 'Doing a secondary errand while already doing a main activity (like walking).',
+    regex: /がてら/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-katawara',
+    level: 'N1',
+    pattern: '〜かたわら',
+    reading: 'katawara',
+    meaning: 'alongside; while also doing',
+    structure: 'Verb dict / Noun + の + かたわら',
+    note: 'Doing a second long-term pursuit alongside one’s main work or study.',
+    regex: /(?:かたわら|傍ら)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-kamawazu',
+    level: 'N1',
+    pattern: '〜かまわず',
+    reading: 'kamawazu',
+    meaning: 'without caring about; regardless of',
+    structure: 'Noun + (も/に)かまわず',
+    note: 'Acting without worrying about time, place, or other people’s eyes.',
+    regex: /(?:も|に)?(?:かまわず|構わず)/g,
+    priority: 4,
+  },
+  {
+    id: 'n1-gotoku',
+    level: 'N1',
+    pattern: '〜ごとき / 〜ごとく',
+    reading: 'gotoki / gotoku',
+    meaning: 'like; as if; the likes of',
+    structure: 'Noun + の + ごとく / ごとき',
+    note: 'Literary simile ("as if") or humble/scornful "someone like ~".',
+    regex: /(?:ごとく|ごとき|如く|如き)/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-mamire',
+    level: 'N1',
+    pattern: '〜まみれ',
+    reading: 'mamire',
+    meaning: 'covered/smeared in',
+    structure: 'Noun (血・泥・汗・ほこり) + まみれ',
+    note: 'Physically coated in a messy substance like blood, mud, or sweat.',
+    regex: /(?:[\u4e00-\u9fff]|[\u3041-\u30ff])まみれ/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-narini',
+    level: 'N1',
+    pattern: '〜なりに / 〜なりの',
+    reading: 'nari ni / nari no',
+    meaning: 'in one’s own way; fitting for',
+    structure: 'Noun / Plain form + なりに / なりの',
+    note: 'Doing the best one can according to one’s own capacity or position.',
+    regex: /なり(?:に|の)/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-yueni',
+    level: 'N1',
+    pattern: '〜ゆえに',
+    reading: 'yue ni',
+    meaning: 'because of; therefore',
+    structure: 'Plain form / Noun (+ の) + ゆえに / 故に',
+    note: 'Formal or poetic way to state a reason or cause.',
+    regex: /(?:ゆえに|故に|ゆえの|故の)/g,
+    priority: 3,
+  },
+  {
+    id: 'n1-kara-shite',
+    level: 'N1',
+    pattern: '〜からして',
+    reading: 'kara shite',
+    meaning: 'judging even from; starting from',
+    structure: 'Noun + からして',
+    note: 'Picks one striking example to show that everything else must be the same.',
+    regex: /からして/g,
+    priority: 3,
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // JLPT N2
+  // ═══════════════════════════════════════════════════════════════
+  {
+    id: 'n2-zaru-wo-enai',
+    level: 'N2',
+    pattern: '〜ざるを得ない',
+    reading: 'zaru o enai',
+    meaning: 'cannot help but; have no choice but to',
+    structure: 'Verb ない-stem (する → せ) + ざるを得ない',
+    note: 'Formal expression for reluctantly doing something because there is no other option.',
+    regex: /ざるを(?:得ない|えない|得なかった|えなかった|得ません|えません)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-ni-mo-kakawarazu',
+    level: 'N2',
+    pattern: '〜にもかかわらず',
+    reading: 'ni mo kakawarazu',
+    meaning: 'despite; in spite of',
+    structure: 'Plain form / Noun + にもかかわらず',
+    note: 'Strong formal contrast: the outcome happened in spite of a clear obstacle.',
+    regex: /にも(?:かかわらず|関わらず|拘わらず|拘らず)/g,
+    priority: 4,
+    excludes: ['n4-noni', 'n2-ni-kakawarazu'],
+  },
+  {
+    id: 'n2-ni-kakawarazu',
+    level: 'N2',
+    pattern: '〜にかかわらず',
+    reading: 'ni kakawarazu',
+    meaning: 'regardless of',
+    structure: 'Noun / Pair of opposites + にかかわらず',
+    note: 'States that the result applies equally without regard to a condition.',
+    regex: /に(?:かかわらず|関わらず|拘わらず|拘らず)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-zuniwa-irarenai',
+    level: 'N2',
+    pattern: '〜ずにはいられない',
+    reading: 'zu ni wa irarenai',
+    meaning: 'cannot help doing',
+    structure: 'Verb ない-stem (する → せ) + ずにはいられない / ないではいられない',
+    note: 'An emotional or natural urge makes it impossible to hold back.',
+    regex: /(?:ずにはいられ|ないではいられ)(?:ない|なかった|ません|ませんでした)/g,
+    priority: 4,
+    excludes: ['n3-zuni'],
+  },
+  {
+    id: 'n2-te-wa-irarenai',
+    level: 'N2',
+    pattern: '〜てはいられない',
+    reading: 'te wa irarenai',
+    meaning: 'cannot afford to keep ~ing',
+    structure: 'Verb て-form + はいられない',
+    note: 'Urgency or responsibility means you cannot stay idle or continue as you are.',
+    regex: /(?:て|で)はいられ(?:ない|なかった|ません|ませんでした)/g,
+    priority: 4,
+    excludes: ['n5-te-iru'],
+  },
+  {
+    id: 'n2-te-kara-denaito',
+    level: 'N2',
+    pattern: '〜てからでないと',
+    reading: 'te kara de nai to',
+    meaning: 'not until after; unless ~ first',
+    structure: 'Verb て-form + からでないと / からでなければ + Negative',
+    note: 'States a strict prerequisite that must finish before the next step is possible.',
+    regex: /(?:て|で)からで(?:ないと|なければ)/g,
+    priority: 4,
+    excludes: ['n5-te-kara', 'n4-nakereba-naranai'],
+  },
+  {
+    id: 'n2-ni-hoka-naranai',
+    level: 'N2',
+    pattern: '〜にほかならない',
+    reading: 'ni hoka naranai',
+    meaning: 'nothing other than; precisely because',
+    structure: 'Noun / 〜から + にほかならない',
+    note: 'Emphatically narrows down the single true cause or identity.',
+    regex: /に(?:ほかならない|他ならない|ほかなりません|他なりません)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-ni-kimatte-iru',
+    level: 'N2',
+    pattern: '〜に決まっている',
+    reading: 'ni kimatte iru',
+    meaning: 'must be; bound to; obviously',
+    structure: 'Plain form / Noun + に決まっている / に決まってる',
+    note: 'Strong personal conviction ("I’m sure of it / there’s no way it isn’t").',
+    regex: /に(?:決まって|きまって)(?:いる|いた|います|る|た)/g,
+    priority: 4,
+    excludes: ['n5-te-iru'],
+  },
+  {
+    id: 'n2-ni-suginai',
+    level: 'N2',
+    pattern: '〜にすぎない',
+    reading: 'ni suginai',
+    meaning: 'merely; nothing more than',
+    structure: 'Plain form / Noun + にすぎない / に過ぎない',
+    note: 'Downplays something as small, ordinary, or only a fraction of the whole.',
+    regex: /に(?:すぎない|過ぎない|すぎなかった|過ぎなかった|すぎません|過ぎません)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-osore-ga-aru',
+    level: 'N2',
+    pattern: '〜恐れがある',
+    reading: 'osore ga aru',
+    meaning: 'there is a risk/danger that',
+    structure: 'Verb dict / Noun + の + 恐れがある',
+    note: 'Formal warning (common in news/weather) of a possible bad outcome.',
+    regex: /(?:恐れ|おそれ|虞)が(?:ある|あります|あった)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-dokoro-dewa-nai',
+    level: 'N2',
+    pattern: '〜どころではない',
+    reading: 'dokoro de wa nai',
+    meaning: 'far from; in no situation to',
+    structure: 'Noun / Verb dict + どころではない / どころじゃない',
+    note: 'Circumstances make doing or even thinking about X completely out of the question.',
+    regex: /どころ(?:ではない|じゃない|じゃなかった|ではありません|ではなく)/g,
+    priority: 4,
+    excludes: ['n2-dokoroka'],
+  },
+  {
+    id: 'n2-dokoroka',
+    level: 'N2',
+    pattern: '〜どころか',
+    reading: 'dokoro ka',
+    meaning: 'far from ~ (in fact the opposite/more)',
+    structure: 'Plain form / Noun + どころか',
+    note: 'Negates A and contrasts it with a much more extreme reality B.',
+    regex: /どころか/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-bakarika',
+    level: 'N2',
+    pattern: '〜ばかりか',
+    reading: 'bakari ka',
+    meaning: 'not only ~, but even ~',
+    structure: 'Plain form / Noun + ばかりか + (〜まで/〜も)',
+    note: 'Adds a surprising second fact on top of the first.',
+    regex: /ばかりか/g,
+    priority: 4,
+    excludes: ['n4-bakari'],
+  },
+  {
+    id: 'n2-nominarazu',
+    level: 'N2',
+    pattern: '〜のみならず',
+    reading: 'nomi narazu',
+    meaning: 'not only ~, but also ~',
+    structure: 'Plain form / Noun + のみならず',
+    note: 'Formal written equivalent of 〜だけでなく.',
+    regex: /のみならず/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-kara-niwa',
+    level: 'N2',
+    pattern: '〜からには',
+    reading: 'kara ni wa',
+    meaning: 'now that; since',
+    structure: 'Plain form (verb dict/た-form) + からには',
+    note: 'Expresses determination, obligation, or a logical conclusion once A is set.',
+    regex: /からには/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-kara-to-itte',
+    level: 'N2',
+    pattern: '〜からといって',
+    reading: 'kara to itte',
+    meaning: 'just because ~ (doesn’t mean)',
+    structure: 'Plain clause + からといって + Negative / Partial negation',
+    note: 'Rejects jumping to an automatic conclusion from a single reason.',
+    regex: /からといって/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-kara-suruto',
+    level: 'N2',
+    pattern: '〜からすると / 〜からみると',
+    reading: 'kara suru to / kara miru to',
+    meaning: 'judging from; from the standpoint of',
+    structure: 'Noun + からすると / からすれば / からみると / からみれば',
+    note: 'States the clue or viewpoint you are basing a judgment on.',
+    regex: /から(?:すると|すれば|みると|みれば|見ると|見れば)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-koto-dakara',
+    level: 'N2',
+    pattern: '〜ことだから',
+    reading: 'koto dakara',
+    meaning: 'because it’s ~ (as you’d expect)',
+    structure: 'Person/Noun + のことだから',
+    note: 'Makes a prediction based on someone’s well-known personality or habits.',
+    regex: /のことだから/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-koto-kara',
+    level: 'N2',
+    pattern: '〜ことから',
+    reading: 'koto kara',
+    meaning: 'from the fact that',
+    structure: 'Plain clause + ことから',
+    note: 'Explains how something got its name or how a conclusion was inferred.',
+    regex: /[るただいなの](ことから)/g,
+    captureGroup: 1,
+    priority: 3,
+  },
+  {
+    id: 'n2-tsutsu-aru',
+    level: 'N2',
+    pattern: '〜つつある',
+    reading: 'tsutsu aru',
+    meaning: 'in the process of; steadily becoming',
+    structure: 'Verb ます-stem + つつある',
+    note: 'Formal expression for a gradual, ongoing change already underway.',
+    regex: /つつ(?:ある|あり|あった|あります)/g,
+    priority: 4,
+    excludes: ['n2-tsutsu'],
+  },
+  {
+    id: 'n2-tsutsu',
+    level: 'N2',
+    pattern: '〜つつ',
+    reading: 'tsutsu',
+    meaning: 'while doing; although',
+    structure: 'Verb ます-stem + つつ(も)',
+    note: 'Formal equivalent of 〜ながら (simultaneous action or contradiction with つつも).',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,3}|[いきぎしちじにびみりえけげせてねべめれ])つつも?/g,
+    priority: 3,
+  },
+  {
+    id: 'n2-te-naranai',
+    level: 'N2',
+    pattern: '〜てならない',
+    reading: 'te naranai',
+    meaning: 'cannot help feeling; extremely',
+    structure: 'Verb/Adj て-form (feeling/thought) + ならない',
+    note: 'Describes a spontaneous, intense inner feeling you cannot control.',
+    regex: /(?:て|で|くて)(?:ならない|ならなかった|なりません)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-te-miseru',
+    level: 'N2',
+    pattern: '〜てみせる',
+    reading: 'te miseru',
+    meaning: 'show that I can; definitely do',
+    structure: 'Verb て-form + みせる / 見せる',
+    note: 'Expresses strong resolve to prove yourself ("I’ll show you I can!").',
+    regex: /(?:て|で)(?:みせ|見せ)(?:る|ます|た|ました|て|よう)/g,
+    priority: 4,
+    excludes: ['n4-te-miru'],
+  },
+  {
+    id: 'n2-te-koso',
+    level: 'N2',
+    pattern: '〜てこそ',
+    reading: 'te koso',
+    meaning: 'only after doing; only by ~ing',
+    structure: 'Verb て-form + こそ',
+    note: 'Emphasizes that the true value or realization only comes after doing A.',
+    regex: /(?:て|で)こそ/g,
+    priority: 4,
+    excludes: ['n3-koso'],
+  },
+  {
+    id: 'n2-to-iu-yori',
+    level: 'N2',
+    pattern: '〜というより',
+    reading: 'to iu yori',
+    meaning: 'rather than A, more like B',
+    structure: 'A + というより(は/も) + B',
+    note: 'Corrects a description by offering a more accurate way to put it.',
+    regex: /と(?:いう|言う)より(?:は|も)?/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-to-wa-ie',
+    level: 'N2',
+    pattern: '〜とはいえ / 〜といっても',
+    reading: 'to wa ie / to ittemo',
+    meaning: 'although; even though it is said',
+    structure: 'Plain form / Noun + とはいえ / といっても',
+    note: 'Acknowledges a fact while adding a realistic qualification.',
+    regex: /と(?:はいえ|は言え|いっても|言っても)/g,
+    priority: 4,
+    excludes: ['n4-temo'],
+  },
+  {
+    id: 'n2-to-shitemo',
+    level: 'N2',
+    pattern: '〜としても / 〜にしても',
+    reading: 'to shitemo / ni shitemo',
+    meaning: 'even if; even assuming',
+    structure: 'Plain form / Noun + としても / にしても / にしろ / にせよ',
+    note: 'Grants an assumption or concession and says the conclusion still holds.',
+    regex: /(?:としても|にしても|にしろ|にせよ)/g,
+    priority: 3,
+    excludes: ['n4-temo'],
+  },
+  {
+    id: 'n2-nai-koto-niwa',
+    level: 'N2',
+    pattern: '〜ないことには',
+    reading: 'nai koto ni wa',
+    meaning: 'unless ~, cannot',
+    structure: 'Verb/Adj ない-form + ことには + Negative',
+    note: 'Without fulfilling condition A first, B cannot happen.',
+    regex: /ないことには/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-nai-koto-wa-nai',
+    level: 'N2',
+    pattern: '〜ないことはない',
+    reading: 'nai koto wa nai',
+    meaning: 'it’s not that ~ not (somewhat possible)',
+    structure: 'Plain negative + ことはない / こともない',
+    note: 'Soft double negative meaning "it’s not impossible" or "not entirely untrue".',
+    regex: /ないこと(?:は|も)ない/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-ni-atatte',
+    level: 'N2',
+    pattern: '〜にあたって',
+    reading: 'ni atatte',
+    meaning: 'on the occasion of; prior to',
+    structure: 'Noun / Verb dict + にあたって / にあたり',
+    note: 'Formal expression used at the start of an important event or undertaking.',
+    regex: /に(?:あたって|あたり|当たって|当たり)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-ni-oite',
+    level: 'N2',
+    pattern: '〜において / 〜における',
+    reading: 'ni oite / ni okeru',
+    meaning: 'in; at; regarding (formal)',
+    structure: 'Noun + において(は/も) / における + Noun',
+    note: 'Formal written counterpart of で for time, place, field, or context.',
+    regex: /に(?:おいて(?:は|も)?|おける)/g,
+    priority: 3,
+  },
+  {
+    id: 'n2-ni-oujite',
+    level: 'N2',
+    pattern: '〜に応じて',
+    reading: 'ni oujite',
+    meaning: 'in accordance with; depending on',
+    structure: 'Noun + に応じて / に応じた',
+    note: 'Adjusting or varying something to match changing conditions or needs.',
+    regex: /に(?:応じて|応じた|応じ|おうじて)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-ni-motozuite',
+    level: 'N2',
+    pattern: '〜に基づいて',
+    reading: 'ni motozuite',
+    meaning: 'based on',
+    structure: 'Noun + に基づいて / に基づき / に基づいた / に基づく',
+    note: 'Indicates the facts, data, rules, or story something is founded on.',
+    regex: /に(?:基づいて|基づいた|基づき|基づく|もとづいて)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-ni-watatte',
+    level: 'N2',
+    pattern: '〜にわたって',
+    reading: 'ni watatte',
+    meaning: 'over; spanning; throughout',
+    structure: 'Noun (time/area/scope) + にわたって / にわたり / にわたる',
+    note: 'Emphasizes the broad extent of time, area, or categories covered.',
+    regex: /に(?:わたって|わたり|わたる|渡って|渡り|渡る)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-ni-hanshite',
+    level: 'N2',
+    pattern: '〜に反して',
+    reading: 'ni hanshite',
+    meaning: 'contrary to; against',
+    structure: 'Noun (予想・期待・規則) + に反して / に反し / に反する',
+    note: 'Shows a result that goes against expectations, wishes, or rules.',
+    regex: /に(?:反して|反し|反する|反した)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-ni-shite-wa',
+    level: 'N2',
+    pattern: '〜にしては',
+    reading: 'ni shite wa',
+    meaning: 'for a ~; considering',
+    structure: 'Noun / Plain form + にしては',
+    note: 'Notes a surprising gap between a category/standard and the actual result.',
+    regex: /にしては/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-wo-hajime',
+    level: 'N2',
+    pattern: '〜をはじめ',
+    reading: 'o hajime',
+    meaning: 'starting with; including',
+    structure: 'Noun + をはじめ(として/とする)',
+    note: 'Names the most prominent example first, followed by others in the group.',
+    regex: /を(?:はじめ(?:として|とする|とした)?(?![るたてまならさよずぬれ])|始め(?:として|とする|とした))/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-wo-towazu',
+    level: 'N2',
+    pattern: '〜を問わず',
+    reading: 'o towazu',
+    meaning: 'regardless of; irrespective of',
+    structure: 'Noun (年齢・性別・昼夜) + を問わず',
+    note: 'Formal expression meaning a criterion does not matter.',
+    regex: /を(?:問わず|とわず)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-wo-megutte',
+    level: 'N2',
+    pattern: '〜をめぐって',
+    reading: 'o megutte',
+    meaning: 'concerning; surrounding (a dispute/topic)',
+    structure: 'Noun + をめぐって / をめぐる',
+    note: 'Used when multiple people debate, compete, or react around one central issue.',
+    regex: /を(?:めぐって|めぐる|巡って|巡る)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-wo-tsuujite',
+    level: 'N2',
+    pattern: '〜を通じて / 〜を通して',
+    reading: 'o tsuujite / o tooshite',
+    meaning: 'through (a medium); throughout (a period)',
+    structure: 'Noun + を通じて / を通して',
+    note: 'Either via an intermediary/experience or spanning an entire period of time.',
+    regex: /を(?:通じて|通して|つうじて|とおして)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-kanenai',
+    level: 'N2',
+    pattern: '〜かねない',
+    reading: 'kanenai',
+    meaning: 'might; could possibly (bad outcome)',
+    structure: 'Verb ます-stem + かねない',
+    note: 'Warns that there is a real danger an undesirable event might happen.',
+    regex: /かね(?:ない|なかった|ません)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-kaneru',
+    level: 'N2',
+    pattern: '〜かねる',
+    reading: 'kaneru',
+    meaning: 'unable to; hesitate to (polite refusal)',
+    structure: 'Verb ます-stem + かねる / かねます',
+    note: 'Polite, indirect way to say you cannot do or accept something.',
+    regex: /かね(?:る|ます|た|ました|て)/g,
+    priority: 3,
+  },
+  {
+    id: 'n2-gatai',
+    level: 'N2',
+    pattern: '〜がたい',
+    reading: 'gatai',
+    meaning: 'hard to (psychologically)',
+    structure: 'Verb ます-stem (信じる・許す・理解する) + がたい / 難い',
+    note: 'Describes mental or emotional difficulty ("hard to believe/forgive").',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,3}|[いきぎしちじにびみりえけげせてねべめれ])(?:がたい|難い|がたかった)/g,
+    priority: 3,
+  },
+  {
+    id: 'n2-kagiru',
+    level: 'N2',
+    pattern: '〜かぎり / 〜限り',
+    reading: 'kagiri',
+    meaning: 'as long as; to the extent that',
+    structure: 'Plain form / Noun + の + かぎり(は/で)',
+    note: 'Sets a boundary ("as far as I know", "as long as I live").',
+    regex: /(?:かぎり|限り)(?:は|で|では|ない)?/g,
+    priority: 3,
+  },
+  {
+    id: 'n2-ue-ni',
+    level: 'N2',
+    pattern: '〜うえに',
+    reading: 'ue ni',
+    meaning: 'on top of; moreover; besides',
+    structure: 'Plain form / な-adj な / Noun の + うえに / 上に',
+    note: 'Stacks an additional point in the same positive or negative direction.',
+    regex: /[るただいなの](うえに|上に)/g,
+    captureGroup: 1,
+    priority: 3,
+  },
+  {
+    id: 'n2-ue-de',
+    level: 'N2',
+    pattern: '〜うえで',
+    reading: 'ue de',
+    meaning: 'after doing; upon; when it comes to',
+    structure: 'Verb た-form / Noun の + うえで / 上で',
+    note: 'With た-form: after completing A as preparation; with dict/noun: in the context of.',
+    regex: /[ただるの]((?:うえで|上で)(?:は|も)?)/g,
+    captureGroup: 1,
+    priority: 3,
+  },
+  {
+    id: 'n2-shidai',
+    level: 'N2',
+    pattern: '〜次第',
+    reading: 'shidai',
+    meaning: 'as soon as / depending on',
+    structure: 'Verb ます-stem + 次第 ("as soon as") / Noun + 次第だ ("depends on")',
+    note: 'After a verb stem: "as soon as"; after a noun: "up to / depends on".',
+    regex: /(?:次第|しだい)(?:だ|です|で|では|に)?/g,
+    priority: 3,
+  },
+  {
+    id: 'n2-mai',
+    level: 'N2',
+    pattern: '〜まい',
+    reading: 'mai',
+    meaning: 'will never; probably won’t',
+    structure: 'Verb dict (or ichidan stem) + まい',
+    note: 'Literary/emphatic negative intention ("I swear I won’t") or conjecture.',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,3}[うくぐすつぬぶむるえけげせてねべめれいきぎしちじにびみり]|する|す|こ|く)まい(?![にをがはで])/g,
+    priority: 3,
+  },
+  {
+    id: 'n2-monoka',
+    level: 'N2',
+    pattern: '〜ものか / 〜もんか',
+    reading: 'mono ka / mon ka',
+    meaning: 'as if I would!; no way!',
+    structure: 'Plain form + ものか / もんか',
+    note: 'Emphatic emotional denial or determination ("Never!").',
+    regex: /(?:る|た|だ|い|な)(?:ものか|もんか|ものですか)/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-wa-tomokaku',
+    level: 'N2',
+    pattern: '〜はともかく',
+    reading: 'wa tomokaku',
+    meaning: 'setting aside; regardless of',
+    structure: 'Noun + はともかく(として)',
+    note: 'Puts A aside for now to focus on the more important point B.',
+    regex: /はともかく(?:として)?/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-wa-mochiron',
+    level: 'N2',
+    pattern: '〜はもちろん',
+    reading: 'wa mochiron',
+    meaning: 'not to mention; of course',
+    structure: 'Noun + はもちろん(のこと)',
+    note: 'A is obvious, and B applies as well.',
+    regex: /は(?:もちろん|勿論)(?:のこと)?/g,
+    priority: 4,
+  },
+  {
+    id: 'n2-kirenai',
+    level: 'N2',
+    pattern: '〜きれない / 〜きれる',
+    reading: 'kirenai / kireru',
+    meaning: 'cannot finish; completely do',
+    structure: 'Verb ます-stem + きれる / きれない / きる',
+    note: 'Indicates completing an action to the very end, or being unable to finish it all.',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,2}|[いきぎしちじにびみりえけげせてねべめれ])(?:きれ(?:ない|なかった|ません|る|た)|切れない|切れなかった|切れる)/g,
+    priority: 3,
+  },
+  {
+    id: 'n2-nuku',
+    level: 'N2',
+    pattern: '〜抜く',
+    reading: 'nuku',
+    meaning: 'see through to the very end',
+    structure: 'Verb ます-stem + 抜く / ぬく',
+    note: 'Emphasizes persevering through difficulty until complete.',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,2})(?:抜く|抜いた|抜いて|抜ける|抜けない|ぬいた|ぬく)/g,
+    priority: 3,
+  },
+  {
+    id: 'n2-sae-ba',
+    level: 'N2',
+    pattern: '〜さえ〜ば',
+    reading: 'sae … ba',
+    meaning: 'if only ~ (that alone is enough)',
+    structure: 'Noun / Verb ます-stem + さえ + Conditional ば',
+    note: 'States the single sufficient condition needed for everything to be fine.',
+    regex: new RegExp(`(さえ)${SHORT_GAP}((?:けれ|[えけげせてねべめれ])ば)`, 'g'),
+    groups: [1, 2],
+    priority: 4,
+    excludes: ['n3-sae', 'n4-ba'],
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // JLPT N3
+  // ═══════════════════════════════════════════════════════════════
+  {
+    id: 'n3-shika-nai-choice',
+    level: 'N3',
+    pattern: '〜しかない',
+    reading: 'shika nai',
+    meaning: 'have no choice but to; nothing left to do but',
+    structure: 'Verb dictionary form + しかない / しかありません',
+    note: 'Unlike Noun + しか〜ない ("only"), Verb(dict) + しかない means there is no other option.',
+    regex: /([\u4e00-\u9fff][\u3041-\u3096]{0,3}[うくぐすつぬぶむる]|する|くる|やる|いる)しか(?:ない|なかった|なくて|なく|ありません|ありませんでした|ねえ|ねぇ)/g,
+    validate: validateShikaChoice,
+    priority: 4,
+    excludes: ['n4-shika-nai'],
+  },
+  {
+    id: 'n3-wake-dewa-nai',
+    level: 'N3',
+    pattern: '〜わけではない',
+    reading: 'wake de wa nai',
+    meaning: 'it does not mean that; not necessarily',
+    structure: 'Plain form / な-adj な + わけではない / わけじゃない',
+    note: 'Softens or clarifies a statement by rejecting an extreme interpretation.',
+    regex: /(?:わけ|訳)(?:ではない|じゃない|じゃなかった|ではありません|ではなく)/g,
+    priority: 4,
+    excludes: ['n3-wake-da'],
+  },
+  {
+    id: 'n3-wake-niwa-ikanai',
+    level: 'N3',
+    pattern: '〜わけにはいかない',
+    reading: 'wake ni wa ikanai',
+    meaning: 'cannot afford to; must not (due to circumstances)',
+    structure: 'Verb dict / ない-form + わけにはいかない',
+    note: 'Social, moral, or practical pressure prevents you from doing (or not doing) X.',
+    regex: /(?:わけ|訳)には(?:いかない|いかなかった|いきません|行かない|行かなかった)/g,
+    priority: 4,
+    excludes: ['n3-wake-da'],
+  },
+  {
+    id: 'n3-wake-ga-nai',
+    level: 'N3',
+    pattern: '〜わけがない',
+    reading: 'wake ga nai',
+    meaning: 'there is no way that; impossible',
+    structure: 'Plain form / な-adj な + わけがない / わけない',
+    note: 'Strong logical dismissal ("no way that’s true!").',
+    regex: /(?:わけ|訳)が?(?:ない|なかった|ありません|ねえ|ねぇ)/g,
+    priority: 4,
+    excludes: ['n3-wake-da'],
+  },
+  {
+    id: 'n3-wake-da',
+    level: 'N3',
+    pattern: '〜わけだ',
+    reading: 'wake da',
+    meaning: 'no wonder; that means; so it follows that',
+    structure: 'Plain form / な-adj な + わけだ / わけです',
+    note: 'Draws a logical conclusion or sudden realization from known facts.',
+    regex: /[るただいなの](わけだ|わけです|わけだった|わけですね)/g,
+    captureGroup: 1,
+    priority: 3,
+  },
+  {
+    id: 'n3-te-shikataganai',
+    level: 'N3',
+    pattern: '〜てたまらない / 〜てしかたがない',
+    reading: 'te tamaranai / te shikata ga nai',
+    meaning: 'unbearably; can’t help feeling',
+    structure: 'Verb/Adj て-form + たまらない / しかたがない / しょうがない',
+    note: 'Expresses an overwhelming feeling or physical sensation you cannot hold back.',
+    regex: /(?:(?:て|で|くて))?(?:たまらない|たまらなかった|たまりません|しかたがない|しかたない|仕方がない|仕方ない|しょうがない|しようがない)/g,
+    priority: 4,
+    excludes: ['n4-shika-nai'],
+  },
+  {
+    id: 'n3-ni-chigainai',
+    level: 'N3',
+    pattern: '〜に違いない',
+    reading: 'ni chigainai',
+    meaning: 'must be; no doubt',
+    structure: 'Plain form / Noun + に違いない / にちがいない',
+    note: 'Strong certainty based on intuition or evidence.',
+    regex: /に(?:違いない|ちがいない|違いありません|ちがいありません|違いなかった)/g,
+    priority: 4,
+  },
+  {
+    id: 'n3-beki',
+    level: 'N3',
+    pattern: '〜べきだ',
+    reading: 'beki da',
+    meaning: 'should; ought to',
+    structure: 'Verb dict (する → すべき/するべき) + べきだ / べきではない',
+    note: 'Expresses moral, social, or logical obligation.',
+    regex: /べき(?:だ|です|ではない|じゃない|だった|ではないか)?/g,
+    priority: 3,
+  },
+  {
+    id: 'n3-okagede',
+    level: 'N3',
+    pattern: '〜おかげで',
+    reading: 'okage de',
+    meaning: 'thanks to',
+    structure: 'Plain form / Noun の + おかげで / おかげだ',
+    note: 'Attributes a positive outcome to someone or something.',
+    regex: /(?:おかげで|おかげだ|おかげです|おかげさま|お陰で|お陰だ)/g,
+    priority: 4,
+  },
+  {
+    id: 'n3-seide',
+    level: 'N3',
+    pattern: '〜せいで',
+    reading: 'sei de',
+    meaning: 'because of (negative cause / fault)',
+    structure: 'Plain form / Noun の + せいで / せいだ / せいか',
+    note: 'Blames an undesirable outcome on a cause (opposite of おかげで).',
+    regex: /[のただるいな](せいで|せいだ|せいです|せいか|所為で)/g,
+    captureGroup: 1,
+    priority: 4,
+  },
+  {
+    id: 'n3-kawarini',
+    level: 'N3',
+    pattern: '〜代わりに',
+    reading: 'kawari ni',
+    meaning: 'instead of; in exchange for',
+    structure: 'Verb plain / Noun の + 代わりに / かわりに',
+    note: 'Either substituting one action/thing for another, or a trade-off ("in return").',
+    regex: /(?:代わりに|かわりに|代わりとして)/g,
+    priority: 4,
+  },
+  {
+    id: 'n3-ni-yotte',
+    level: 'N3',
+    pattern: '〜によって / 〜による',
+    reading: 'ni yotte / ni yoru',
+    meaning: 'by means of; due to; depending on',
+    structure: 'Noun + によって(は) / による / により',
+    note: 'Versatile pattern marking cause, method, passive agent, or variation ("depending on").',
+    regex: /に(?:よって(?:は|も)?|よる|より|よれば)/g,
+    priority: 3,
+  },
+  {
+    id: 'n3-ni-tsuite',
+    level: 'N3',
+    pattern: '〜について',
+    reading: 'ni tsuite',
+    meaning: 'about; concerning',
+    structure: 'Noun + について(は/も/の)',
+    note: 'Introduces the topic you are talking, thinking, or learning about.',
+    regex: /について(?:は|も|の)?/g,
+    priority: 3,
+  },
+  {
+    id: 'n3-ni-totte',
+    level: 'N3',
+    pattern: '〜にとって',
+    reading: 'ni totte',
+    meaning: 'for; from the perspective of',
+    structure: 'Noun (person/group) + にとって(は/も/の)',
+    note: 'Frames an evaluation from a particular person’s or group’s standpoint.',
+    regex: /にとって(?:は|も|の)?/g,
+    priority: 3,
+  },
+  {
+    id: 'n3-to-shite',
+    level: 'N3',
+    pattern: '〜として',
+    reading: 'to shite',
+    meaning: 'as; in the role/capacity of',
+    structure: 'Noun + として(は/も/の)',
+    note: 'Defines a role, status, category, or standpoint.',
+    regex: /として(?:は|も|の)?/g,
+    priority: 3,
+  },
+  {
+    id: 'n3-ni-taishite',
+    level: 'N3',
+    pattern: '〜に対して',
+    reading: 'ni taishite',
+    meaning: 'toward; in contrast to',
+    structure: 'Noun / Clause + に対して / に対する',
+    note: 'Marks the target of an action/attitude, or contrasts two opposing facts.',
+    regex: /に(?:対して(?:は|も)?|対する|対し|たいして)/g,
+    priority: 4,
+  },
+  {
+    id: 'n3-ni-kanshite',
+    level: 'N3',
+    pattern: '〜に関して',
+    reading: 'ni kanshite',
+    meaning: 'regarding; related to',
+    structure: 'Noun + に関して / に関する',
+    note: 'More formal and broader in scope than 〜について.',
+    regex: /に(?:関して(?:は|も)?|関する|関し|かんして)/g,
+    priority: 4,
+  },
+  {
+    id: 'n3-ni-kurabete',
+    level: 'N3',
+    pattern: '〜に比べて',
+    reading: 'ni kurabete',
+    meaning: 'compared to',
+    structure: 'Noun + に比べて / に比べると',
+    note: 'Directly compares two things, times, or states.',
+    regex: /に(?:比べて|比べると|比べ|くらべて|くらべると)/g,
+    priority: 4,
+  },
+  {
+    id: 'n3-ni-tsurete',
+    level: 'N3',
+    pattern: '〜につれて / 〜にしたがって',
+    reading: 'ni tsurete / ni shitagatte',
+    meaning: 'as ~, ~ (proportional change)',
+    structure: 'Verb dict / Change noun + につれて / にしたがって / に伴って',
+    note: 'As one change progresses, a second change naturally happens along with it.',
+    regex: /に(?:つれて|つれ|したがって|従って|伴って|ともなって)/g,
+    priority: 4,
+  },
+  {
+    id: 'n3-to-tomo-ni',
+    level: 'N3',
+    pattern: '〜とともに',
+    reading: 'to tomo ni',
+    meaning: 'together with; as ~ progresses',
+    structure: 'Noun / Verb dict + とともに / と共に',
+    note: 'Expresses doing something together, or two changes occurring simultaneously.',
+    regex: /と(?:ともに|共に)/g,
+    priority: 4,
+  },
+  {
+    id: 'n3-uchi-ni',
+    level: 'N3',
+    pattern: '〜うちに',
+    reading: 'uchi ni',
+    meaning: 'while ~ (before things change)',
+    structure: 'Verb ている/ない / Adj / Noun の + うちに',
+    note: 'Do something before a favorable window closes, or an unintended change happens while doing A.',
+    regex: /(?:[るいなの]|ない)(うちに)/g,
+    captureGroup: 1,
+    priority: 3,
+  },
+  {
+    id: 'n3-saichuu',
+    level: 'N3',
+    pattern: '〜最中に',
+    reading: 'saichuu ni',
+    meaning: 'right in the middle of',
+    structure: 'Verb ている / Noun の + 最中に / 最中だ',
+    note: 'Often used when an interruption happens right at the peak of an activity.',
+    regex: /(?:最中に|最中だ|最中です|さいちゅうに)/g,
+    priority: 4,
+  },
+  {
+    id: 'n3-dake-de-naku',
+    level: 'N3',
+    pattern: '〜だけでなく〜も',
+    reading: 'dake de naku … mo',
+    meaning: 'not only A, but also B',
+    structure: 'A + だけでなく / ばかりでなく + B + も',
+    note: 'Expands beyond A to include B as well.',
+    regex: /(?:だけでなく|だけではなく|だけじゃなく|だけじゃなくて|ばかりでなく|ばかりではなく)/g,
+    priority: 4,
+    excludes: ['n4-dake', 'n4-bakari'],
+  },
+  {
+    id: 'n3-ba-hodo',
+    level: 'N3',
+    pattern: '〜ば〜ほど',
+    reading: 'ba … hodo',
+    meaning: 'the more A, the more B',
+    structure: 'Conditional ば + Plain form + ほど',
+    note: 'Shows that increasing A proportionally increases B.',
+    regex: new RegExp(`((?:けれ|[えけげせてねべめれ])ば)${SHORT_GAP}(ほど)`, 'g'),
+    groups: [1, 2],
+    priority: 4,
+    excludes: ['n4-ba'],
+  },
+  {
+    id: 'n3-kuseni',
+    level: 'N3',
+    pattern: '〜くせに',
+    reading: 'kuse ni',
+    meaning: 'even though; despite (critical tone)',
+    structure: 'Plain form / な-adj な / Noun の + くせに',
+    note: 'Like 〜のに, but carries criticism, annoyance, or disdain toward someone.',
+    regex: /(?:くせに|癖に|くせして)/g,
+    priority: 4,
+  },
+  {
+    id: 'n3-warini',
+    level: 'N3',
+    pattern: '〜わりに',
+    reading: 'wari ni',
+    meaning: 'considering; surprisingly for a ~',
+    structure: 'Plain form / Noun の + わりに(は) / 割に(は)',
+    note: 'The result is disproportionate compared to what you’d expect from A.',
+    regex: /(?:わりに|割に|割合に)は?/g,
+    priority: 4,
+  },
+  {
+    id: 'n3-monono',
+    level: 'N3',
+    pattern: '〜ものの',
+    reading: 'mono no',
+    meaning: 'although; even though',
+    structure: 'Plain form + ものの',
+    note: 'Somewhat formal concession ("I did A, yet the expected result didn’t follow").',
+    regex: /[るただいな](ものの)/g,
+    captureGroup: 1,
+    priority: 4,
+  },
+  {
+    id: 'n3-tatoe-temo',
+    level: 'N3',
+    pattern: 'たとえ〜ても',
+    reading: 'tatoe … temo',
+    meaning: 'even if (extreme hypothetical)',
+    structure: 'たとえ + Clause + ても / でも',
+    note: 'Paired pattern emphasizing that the main clause holds under even an extreme condition.',
+    regex: new RegExp(`(たとえ|例え|仮令)${GAP}((?:て|で|くて)も)`, 'g'),
+    groups: [1, 2],
+    priority: 4,
+    excludes: ['n4-temo'],
+  },
+  {
+    id: 'n3-sekkaku-noni',
+    level: 'N3',
+    pattern: 'せっかく〜のに',
+    reading: 'sekkaku … noni',
+    meaning: 'even though (went to the trouble of)',
+    structure: 'せっかく + Clause + のに',
+    note: 'Paired pattern highlighting regret that a special effort or chance went to waste.',
+    regex: new RegExp(`(せっかく|折角)${GAP}(のに)`, 'g'),
+    groups: [1, 2],
+    priority: 4,
+    excludes: ['n4-noni'],
+  },
+  {
+    id: 'n3-marude-youda',
+    level: 'N3',
+    pattern: 'まるで〜ようだ',
+    reading: 'marude … you da',
+    meaning: 'just like; as if',
+    structure: 'まるで + Noun の / Clause + ようだ / みたいだ',
+    note: 'Paired metaphor/simile signaling that the comparison is vivid and figurative.',
+    regex: new RegExp(`(まるで|丸で)${GAP}(よう(?:だ|です|な|に)|みたい(?:だ|です|な|に))`, 'g'),
+    groups: [1, 2],
+    priority: 4,
+    excludes: ['n4-youda'],
+  },
+  {
+    id: 'n3-toorini',
+    level: 'N3',
+    pattern: '〜とおりに / 〜どおり',
+    reading: 'toori ni / doori',
+    meaning: 'just as; in accordance with',
+    structure: 'Verb plain / Noun の + とおり(に) / Noun + どおり(に)',
+    note: 'Matches an example, expectation, or instruction exactly.',
+    regex: /(?:とおりに|通りに|とおりだ|通りだ|どおりに|どおりだ|どおり)/g,
+    priority: 3,
+  },
+  {
+    id: 'n3-tabini',
+    level: 'N3',
+    pattern: '〜たびに',
+    reading: 'tabi ni',
+    meaning: 'every time; whenever',
+    structure: 'Verb dict / Noun の + たびに / 度に',
+    note: 'Every single time A occurs, B reliably happens too.',
+    regex: /[るの](たびに|度に)/g,
+    captureGroup: 1,
+    priority: 4,
+  },
+  {
+    id: 'n3-tsuide-ni',
+    level: 'N3',
+    pattern: '〜ついでに',
+    reading: 'tsuide ni',
+    meaning: 'while I’m at it; on the way',
+    structure: 'Verb dict/た-form / Noun の + ついでに',
+    note: 'Taking advantage of a main task to do a quick extra errand.',
+    regex: /ついでに/g,
+    priority: 4,
+  },
+  {
+    id: 'n3-totan-ni',
+    level: 'N3',
+    pattern: '〜とたんに',
+    reading: 'totan ni',
+    meaning: 'the moment; just as',
+    structure: 'Verb た-form + とたん(に) / 途端(に)',
+    note: 'An unexpected or sudden event happened the instant the first action occurred.',
+    regex: /[ただ](とたんに?|途端に?)/g,
+    captureGroup: 1,
+    priority: 4,
+  },
+  {
+    id: 'n3-zuni',
+    level: 'N3',
+    pattern: '〜ずに',
+    reading: 'zu ni',
+    meaning: 'without doing',
+    structure: 'Verb ない-stem (する → せず) + ずに',
+    note: 'More formal/literary equivalent of 〜ないで ("without doing A, did B").',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,3}|[あかがさたなばまらわいきぎしちじにびみりえけげせてねべめれ]|せ|こ)ずに/g,
+    priority: 3,
+  },
+  {
+    id: 'n3-ppanashi',
+    level: 'N3',
+    pattern: '〜っぱなし',
+    reading: 'ppanashi',
+    meaning: 'left ~ing; kept ~ (often neglected)',
+    structure: 'Verb ます-stem + っぱなし',
+    note: 'An action was left in that state (like leaving a light on or door open).',
+    regex: /っぱなし/g,
+    priority: 4,
+  },
+  {
+    id: 'n3-darake',
+    level: 'N3',
+    pattern: '〜だらけ',
+    reading: 'darake',
+    meaning: 'full of; covered in (undesirable)',
+    structure: 'Noun (間違い・傷・泥・ゴミ) + だらけ',
+    note: 'Filled or covered with something messy or unwanted.',
+    regex: /だらけ/g,
+    priority: 4,
+    excludes: ['n4-tara'],
+  },
+  {
+    id: 'n3-gachi',
+    level: 'N3',
+    pattern: '〜がち',
+    reading: 'gachi',
+    meaning: 'tend to; prone to',
+    structure: 'Verb ます-stem / Noun + がち(だ/な/に)',
+    note: 'Describes a frequent, usually negative tendency (like forgetting or getting sick).',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,2}|[いきぎしちじにびみりえけげせてねべめれ])がち(?:だ|です|な|に)?/g,
+    priority: 3,
+  },
+  {
+    id: 'n3-gimi',
+    level: 'N3',
+    pattern: '〜気味',
+    reading: 'gimi',
+    meaning: 'a touch of; slightly ~',
+    structure: 'Verb ます-stem / Noun + 気味 / ぎみ',
+    note: 'Noticeable slight sign or tendency (e.g. slightly tired, coming down with a cold).',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,2}|[いきぎしちじにびみり])(?:気味|ぎみ)/g,
+    priority: 3,
+  },
+  {
+    id: 'n3-ppoi',
+    level: 'N3',
+    pattern: '〜っぽい',
+    reading: 'ppoi',
+    meaning: '-ish; seems like; tends to',
+    structure: 'Noun / Verb ます-stem / Adj stem + っぽい',
+    note: 'Casual suffix for resemblance ("childish") or tendency ("easily angered").',
+    regex: /っぽ(?:い|く|かった|くて)/g,
+    priority: 3,
+  },
+  {
+    id: 'n3-kiri',
+    level: 'N3',
+    pattern: '〜きり / 〜っきり',
+    reading: 'kiri / kkiri',
+    meaning: 'ever since; only (nothing since)',
+    structure: 'Verb た-form / Noun + きり / っきり',
+    note: 'After た-form: an action happened once and nothing changed since; after noun: just/only.',
+    regex: /(?:た|だ|人|二人|一人|これ|それ|あれ)っ?きり/g,
+    priority: 3,
+  },
+  {
+    id: 'n3-koso',
+    level: 'N3',
+    pattern: '〜こそ',
+    reading: 'koso',
+    meaning: 'precisely; it is ~ that',
+    structure: 'Noun / 〜から + こそ',
+    note: 'Spotlights the key word or reason with strong emphasis.',
+    regex: /(?:から|今|これ|それ|私|僕|君|あなた|こちら|[\u4e00-\u9fff])こそ/g,
+    priority: 3,
+  },
+  {
+    id: 'n3-sae',
+    level: 'N3',
+    pattern: '〜さえ / 〜でさえ',
+    reading: 'sae / de sae',
+    meaning: 'even (an extreme example)',
+    structure: 'Noun (+ で) / Verb stem + さえ',
+    note: 'Highlights an extreme case ("even X") to imply everything else is true too.',
+    regex: /(でさえ|すら)|[\u4e00-\u9fff\u3041-\u30ff](さえ)/g,
+    captureGroup: "first",
+    priority: 3,
+  },
+  {
+    id: 'n3-koto-ni-natte-iru',
+    level: 'N3',
+    pattern: '〜ことになっている',
+    reading: 'koto ni natte iru',
+    meaning: 'it is a rule/scheduled that',
+    structure: 'Verb dict/ない-form + ことになっている',
+    note: 'Describes an established rule, custom, or fixed schedule.',
+    regex: /ことになって(?:いる|います|いた|る|た)/g,
+    priority: 4,
+    excludes: ['n4-koto-ni-naru', 'n5-te-iru'],
+  },
+  {
+    id: 'n3-koto-ni-shite-iru',
+    level: 'N3',
+    pattern: '〜ことにしている',
+    reading: 'koto ni shite iru',
+    meaning: 'make it a personal habit/rule to',
+    structure: 'Verb dict/ない-form + ことにしている',
+    note: 'Describes a regular personal routine you decided to keep.',
+    regex: /ことにして(?:いる|います|いた|る|た)/g,
+    priority: 4,
+    excludes: ['n4-koto-ni-suru', 'n5-te-iru'],
+  },
+  {
+    id: 'n3-mono-dewa-nai',
+    level: 'N3',
+    pattern: '〜ものではない',
+    reading: 'mono de wa nai',
+    meaning: 'should not (general social rule)',
+    structure: 'Verb dict + ものではない / もんじゃない',
+    note: 'Gives general moral or common-sense advice against doing something.',
+    regex: /(?:る|う|く|ぐ|す|つ|ぬ|ぶ|む)(?:ものではない|もんじゃない|ものではありません)/g,
+    priority: 4,
+    excludes: ['n3-mono-da'],
+  },
+  {
+    id: 'n3-mono-da',
+    level: 'N3',
+    pattern: '〜ものだ',
+    reading: 'mono da',
+    meaning: 'used to / naturally / how truly ~',
+    structure: 'Plain form + ものだ / ものです',
+    note: 'With た-form: fond nostalgia ("used to"); with dict/adj: general truth or admiration.',
+    regex: /(?:る|た|だ|い)(?:ものだ|ものです|ものだった|もんだ)/g,
+    priority: 2,
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // JLPT N4
+  // ═══════════════════════════════════════════════════════════════
+  {
+    id: 'n4-shika-nai',
+    level: 'N4',
+    pattern: '〜しか〜ない',
+    reading: 'shika … nai',
+    meaning: 'only; nothing but (used with a negative)',
+    structure: 'Noun / Phrase + しか + Negative verb/adj',
+    note: 'Stronger than だけ; emphasizes limitation and always pairs with a negative ending (e.g. しか分からない).',
+    match: matchShikaNai,
+    priority: 3,
+  },
+  {
+    id: 'n4-nakereba-naranai',
+    level: 'N4',
+    pattern: '〜なければならない / 〜なきゃ',
+    reading: 'nakereba naranai / nakya',
+    meaning: 'must; have to',
+    structure: 'Verb ない-stem + なければならない / なければいけない / なくてはいけない / なきゃ',
+    note: 'Literally "if I don’t do X, it won’t do." Casual speech shortens it to 〜なきゃ or 〜ないと.',
+    regex: /(?:なければ|なきゃ|なくちゃ|なくては)(?:ならない|ならなかった|なりません|いけない|いけなかった|いけません|だめ|ダメ)|(?:なきゃ(?=[。！？!?、,\s]|$))/g,
+    priority: 4,
+    excludes: ['n4-ba'],
+  },
+  {
+    id: 'n4-nakutemo-ii',
+    level: 'N4',
+    pattern: '〜なくてもいい',
+    reading: 'nakute mo ii',
+    meaning: 'don’t have to; no need to',
+    structure: 'Verb ない-stem + なくてもいい / なくてもかまわない',
+    note: 'Removes obligation ("it’s fine even if you don’t").',
+    regex: /なくても(?:いい|よい|良い|かまわない|構わない|大丈夫)/g,
+    priority: 4,
+    excludes: ['n5-temo-ii', 'n4-temo'],
+  },
+  {
+    id: 'n4-you-ni-naru',
+    level: 'N4',
+    pattern: '〜ようになる',
+    reading: 'you ni naru',
+    meaning: 'come to; become able to',
+    structure: 'Verb dict / potential / ない-form + ようになる',
+    note: 'Describes a gradual shift in ability, habit, or state over time.',
+    regex: /ように(?:なる|なった|なって|なります|なりました|なれる|なれない|ならない)/g,
+    priority: 4,
+    excludes: ['n4-youda', 'n5-ni-naru'],
+  },
+  {
+    id: 'n4-you-ni-suru',
+    level: 'N4',
+    pattern: '〜ようにする',
+    reading: 'you ni suru',
+    meaning: 'try to; make sure to',
+    structure: 'Verb dict / ない-form + ようにする / ようにしている',
+    note: 'Expresses deliberate effort to build a habit or ensure an outcome.',
+    regex: /ように(?:する|した|して(?:いる|る)?|します|しました|しよう)/g,
+    priority: 4,
+    excludes: ['n4-youda', 'n5-ni-suru', 'n5-te-iru'],
+  },
+  {
+    id: 'n4-koto-ni-suru',
+    level: 'N4',
+    pattern: '〜ことにする',
+    reading: 'koto ni suru',
+    meaning: 'decide to',
+    structure: 'Verb dict / ない-form + ことにする / ことにした',
+    note: 'Marks a personal decision made by the speaker.',
+    regex: /ことに(?:する|した|します|しました|しよう)/g,
+    priority: 3,
+    excludes: ['n5-ni-suru'],
+  },
+  {
+    id: 'n4-koto-ni-naru',
+    level: 'N4',
+    pattern: '〜ことになる',
+    reading: 'koto ni naru',
+    meaning: 'it has been decided / turns out that',
+    structure: 'Verb dict / ない-form + ことになる / ことになった',
+    note: 'Describes a decision or outcome coming from outside the speaker’s own choice.',
+    regex: /ことに(?:なる|なった|なります|なりました)/g,
+    priority: 3,
+    excludes: ['n5-ni-naru'],
+  },
+  {
+    id: 'n4-kamo-shirenai',
+    level: 'N4',
+    pattern: '〜かもしれない',
+    reading: 'kamo shirenai',
+    meaning: 'might; maybe; possibly',
+    structure: 'Plain form / Noun + かもしれない / かもしれません / かも',
+    note: 'Expresses uncertainty or possibility (casual speech often shortens to 〜かも).',
+    regex: /かも(?:しれない|しれません|しれなかった|知れない|知れません|しれん|ね(?=[。！？!?]|$)|(?=[。！？!?]|$))/g,
+    priority: 4,
+  },
+  {
+    id: 'n4-hazu-ga-nai',
+    level: 'N4',
+    pattern: '〜はずがない',
+    reading: 'hazu ga nai',
+    meaning: 'cannot possibly be; no way',
+    structure: 'Plain form / な-adj な / Noun の + はずがない',
+    note: 'Logical certainty that something is impossible.',
+    regex: /(?:はず|筈)が?(?:ない|なかった|ありません|ねえ|ねぇ)/g,
+    priority: 4,
+    excludes: ['n4-hazu-da'],
+  },
+  {
+    id: 'n4-hazu-da',
+    level: 'N4',
+    pattern: '〜はずだ',
+    reading: 'hazu da',
+    meaning: 'supposed to; should be (logical expectation)',
+    structure: 'Plain form / な-adj な / Noun の + はずだ / はずです',
+    note: 'Expectation grounded in a schedule, rule, or known fact.',
+    regex: /(?:はず|筈)(?:だ|です|だった|でした|なのに)/g,
+    priority: 3,
+  },
+  {
+    id: 'n4-te-shimau',
+    level: 'N4',
+    pattern: '〜てしまう / 〜ちゃう',
+    reading: 'te shimau / chau',
+    meaning: 'end up doing; do completely (often regret)',
+    structure: 'Verb て-form + しまう (spoken: 〜ちゃう / 〜じゃう)',
+    note: 'Signals either complete finish or accidental/regrettable completion.',
+    regex: /(?:(?:て|で)(?:しま(?:う|った|って|います|いました|えば|おう|わない|えない)|仕舞(?:う|った|って))|(?:[\u4e00-\u9fff][\u3041-\u3096]{0,3}|[いきぎしちじにびみりえけげせてねべめれっん])(?:ちゃ(?:う|った|って|えば|おう|わない|います)|じゃ(?:う|った|って|えば|おう)))/g,
+    priority: 3,
+  },
+  {
+    id: 'n4-te-miru',
+    level: 'N4',
+    pattern: '〜てみる',
+    reading: 'te miru',
+    meaning: 'try doing (to see what happens)',
+    structure: 'Verb て-form + みる / みた / みて',
+    note: 'Literally "do and see" — testing something out.',
+    regex: /(?:て|で)(?:み(?:る|た|て|ます|ました|よう|たい|れば|ない|なかった)|見(?:る|た|て|ます|ました|よう|たい))/g,
+    priority: 3,
+  },
+  {
+    id: 'n4-te-oku',
+    level: 'N4',
+    pattern: '〜ておく / 〜とく',
+    reading: 'te oku / toku',
+    meaning: 'do in advance; leave as is',
+    structure: 'Verb て-form + おく (spoken: 〜とく / 〜どく)',
+    note: 'Prepares something ahead of time or intentionally leaves a state unchanged.',
+    regex: /(?:(?:て|で)(?:おく|おいた|おいて|おきます|おきました|おこう|おきたい|おけば|おかない)|(?:[\u4e00-\u9fff][\u3041-\u3096]{0,2}|[しきてっ])(?:とく|といた|といて|とこう)|ん(?:どく|どいた|どいて|どこう))/g,
+    priority: 3,
+  },
+  {
+    id: 'n4-te-aru',
+    level: 'N4',
+    pattern: '〜てある',
+    reading: 'te aru',
+    meaning: 'has been done (prepared state)',
+    structure: 'Transitive verb て-form + ある',
+    note: 'Focuses on a visible state left behind by someone’s intentional action.',
+    regex: /(?:て|で)(?:ある|あります|あった|ありました|あって)/g,
+    priority: 3,
+  },
+  {
+    id: 'n4-te-hoshii',
+    level: 'N4',
+    pattern: '〜てほしい',
+    reading: 'te hoshii',
+    meaning: 'want someone to do',
+    structure: 'Verb て-form + ほしい / 欲しい',
+    note: 'Unlike 〜たい (own desire), 〜てほしい expresses what you want another person to do.',
+    regex: /(?:て|で)(?:ほしい|欲しい|ほしかった|欲しかった|ほしくない)/g,
+    priority: 3,
+  },
+  {
+    id: 'n4-te-kureru-ageru-morau',
+    level: 'N4',
+    pattern: '〜てくれる / 〜てあげる / 〜てもらう',
+    reading: 'te kureru / te ageru / te morau',
+    meaning: 'do a favor for / have someone do',
+    structure: 'Verb て-form + くれる・あげる・もらう (polite: くださる・いただく)',
+    note: 'Shows the direction of benefit/gratitude between giver and receiver.',
+    regex: /(?:て|で)(?:くれ(?:る|た|て|ます|ました|ない|なかった|れば)?|くださ(?:る|った|って|います|いました)|あげ(?:る|た|て|ます|ました|よう|たい)|もら(?:う|った|って|います|いました|える|いたい)|いただ(?:く|いた|いて|きます|きました|ける|きたい))/g,
+    priority: 3,
+  },
+  {
+    id: 'n4-te-kuru-iku',
+    level: 'N4',
+    pattern: '〜てくる / 〜ていく',
+    reading: 'te kuru / te iku',
+    meaning: 'come to / go on doing (progression)',
+    structure: 'Verb て-form + くる・いく (spoken: 〜てく)',
+    note: 'Shows movement or change progressing toward the present (てくる) or into the future (ていく).',
+    regex: /(?:て|で)(?:くる|きた|きて|きます|きました|来る|来た|来て|いく|いった|いって|いきます|いきました|行く|行った|行って|く(?=[。！？!?、,\s]|$)|った(?=[。！？!?、,\s]|$))/g,
+    priority: 2,
+  },
+  {
+    id: 'n4-ka-dou-ka',
+    level: 'N4',
+    pattern: '〜かどうか',
+    reading: 'ka dou ka',
+    meaning: 'whether or not',
+    structure: 'Plain form / Noun + かどうか',
+    note: 'Embeds a yes/no question inside a larger sentence (e.g. "I don’t know whether…").',
+    regex: /かどうか/g,
+    priority: 4,
+  },
+  {
+    id: 'n4-yasui-nikui',
+    level: 'N4',
+    pattern: '〜やすい / 〜にくい',
+    reading: 'yasui / nikui',
+    meaning: 'easy to / hard to',
+    structure: 'Verb ます-stem + やすい / にくい',
+    note: 'Describes how easy or difficult an action is to perform (or how likely something is to happen).',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,2}|[いきぎしちじにびみりえけげせてねべめれ])(?:やす(?:い|く|かった|くて)|にく(?:い|く|かった|くて)|易い|難い)/g,
+    priority: 3,
+  },
+  {
+    id: 'n4-tameni',
+    level: 'N4',
+    pattern: '〜ために',
+    reading: 'tame ni',
+    meaning: 'in order to; for the sake of; because of',
+    structure: 'Verb dict / Noun の + ために / ための / ためだ',
+    note: 'Marks deliberate purpose ("in order to") or cause ("due to").',
+    regex: /(?:ために|ための|ためだ|ためです|ためか|為に|為の)/g,
+    priority: 3,
+  },
+  {
+    id: 'n4-youda',
+    level: 'N4',
+    pattern: '〜ようだ / 〜みたいだ',
+    reading: 'you da / mitai da',
+    meaning: 'seems like; looks like',
+    structure: 'Plain form / Noun の + ようだ (casual: みたいだ)',
+    note: 'Conjecture from sensory evidence or likeness. みたいだ is the casual spoken equivalent.',
+    regex: /(?:よう(?:だ|です|だった|でした|な|に|ね)|みたい(?:だ|です|だった|でした|な|に))/g,
+    validate: validateYouda,
+    priority: 2,
+  },
+  {
+    id: 'n4-rashii',
+    level: 'N4',
+    pattern: '〜らしい',
+    reading: 'rashii',
+    meaning: 'apparently; seems like; typical of',
+    structure: 'Plain form + らしい ("apparently") / Noun + らしい ("typical of")',
+    note: 'With clauses: hearsay/inference from reliable info; with nouns: characteristic quality.',
+    regex: /らし(?:い|く|かった|くて)/g,
+    priority: 2,
+  },
+  {
+    id: 'n4-souda',
+    level: 'N4',
+    pattern: '〜そうだ',
+    reading: 'sou da',
+    meaning: 'looks like / I heard that',
+    structure: 'Verb stem or Adj stem + そうだ (looks like) / Plain form + そうだ (hearsay)',
+    note: 'Watch the attachment: stem + そうだ = appearance ("looks delicious"); plain form + そうだ = hearsay ("I heard…").',
+    regex: /(?:[\u4e00-\u9fff\u3041-\u3096])そう(?:だ|です|だった|でした|な|に|もない|もない)/g,
+    validate: validateSouda,
+    priority: 2,
+  },
+  {
+    id: 'n4-moshi-tara',
+    level: 'N4',
+    pattern: 'もし〜たら / もし〜ば',
+    reading: 'moshi … tara / ba',
+    meaning: 'if by any chance',
+    structure: 'もし(も) + Clause + たら / ば / なら',
+    note: 'Paired conditional: もし signals right from the start that a hypothetical condition is coming.',
+    regex: new RegExp(`(もし(?!(?:かして|かし|かしたら|かすると))も?)${GAP}?((?:た|だ)ら|(?:けれ|[えけげせてねべめれ])ば|なら)`, 'g'),
+    groups: [1, 2],
+    validate: validateMoshiTara,
+    priority: 4,
+    excludes: ['n4-tara', 'n4-ba', 'n4-nara'],
+  },
+  {
+    id: 'n4-noni',
+    level: 'N4',
+    pattern: '〜のに',
+    reading: 'noni',
+    meaning: 'even though; despite (unexpected)',
+    structure: 'Plain form / な-adj な / Noun な + のに',
+    note: 'Conveys surprise, disappointment, or regret that the result defied expectations.',
+    regex: /(?:る|た|だ|い|な|ない)(のに)/g,
+    captureGroup: 1,
+    validate: validateNoni,
+    priority: 2,
+  },
+  {
+    id: 'n4-bakari',
+    level: 'N4',
+    pattern: '〜ばかり / 〜たばかり',
+    reading: 'bakari / ta bakari',
+    meaning: 'just did / nothing but',
+    structure: 'Verb た-form + ばかり ("just did") / Noun or Verb て + ばかり ("nothing but")',
+    note: 'With た-form: feels very recent; with noun/て-form: doing one thing excessively.',
+    regex: /(?:ばっかり|ばかり)(?:だ|です|いる|いた|で|に|の)?/g,
+    priority: 2,
+  },
+  {
+    id: 'n4-tokoro-da',
+    level: 'N4',
+    pattern: '〜ところだ',
+    reading: 'tokoro da',
+    meaning: 'about to / in the middle of / just finished',
+    structure: 'Verb dict ("about to") / ている ("in the middle") / た-form ("just did") + ところだ',
+    note: 'Pinpoints the exact phase of an action depending on the verb tense before ところ.',
+    regex: /(?:る|た|だ|ている|てる)ところ(?:だ|です|だった|でした|に|を|へ)/g,
+    priority: 3,
+  },
+  {
+    id: 'n4-mama',
+    level: 'N4',
+    pattern: '〜まま',
+    reading: 'mama',
+    meaning: 'as it is; while remaining',
+    structure: 'Verb た-form / ない-form / Noun の + まま(で)',
+    note: 'Indicates that a state remained unchanged when the next action occurred.',
+    regex: /(?:た|だ|ない|の|この|その|あの)まま/g,
+    priority: 3,
+  },
+  {
+    id: 'n4-aidani',
+    level: 'N4',
+    pattern: '〜間に',
+    reading: 'aida ni',
+    meaning: 'while; during',
+    structure: 'Verb ている / Noun の + 間に / あいだに',
+    note: 'Marks a timeframe during which another event happens.',
+    regex: /(?:間に|あいだに|間は|あいだは)/g,
+    priority: 3,
+  },
+  {
+    id: 'n4-ba',
+    level: 'N4',
+    pattern: '〜ば',
+    reading: 'ba',
+    meaning: 'if; when (hypothetical condition)',
+    structure: 'Verb e-stem + ば / い-adj ければ',
+    note: 'General or hypothetical "if A happens, then B naturally follows" conditional.',
+    regex: /([\u4e00-\u9fff][\u3041-\u3096]{0,3}|[\u3041-\u3096]{2,})(?:けれ|[えけげせてねべめれ])ば/g,
+    validate: validateBa,
+    priority: 1,
+  },
+  {
+    id: 'n4-tara',
+    level: 'N4',
+    pattern: '〜たら',
+    reading: 'tara',
+    meaning: 'if; when (after A happens)',
+    structure: 'Plain past (た/だ) + ら',
+    note: 'Versatile conditional for one-time situations ("when/if A finishes, B").',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,3}|[いきぎしちじにびみりえけげせてねべめれっんか])(?:た|だ)ら/g,
+    validate: validateTara,
+    priority: 1,
+  },
+  {
+    id: 'n4-nara',
+    level: 'N4',
+    pattern: '〜なら',
+    reading: 'nara',
+    meaning: 'if (it’s the case that)',
+    structure: 'Noun / Plain form + なら(ば)',
+    note: 'Contextual conditional often responding to a topic just brought up ("if it’s X, then…").',
+    regex: /(?:[\u4e00-\u9fff\u30a1-\u30ff]|[\u3041-\u3096]{2})ならば?/g,
+    validate: validateNara,
+    priority: 1,
+  },
+  {
+    id: 'n4-temo',
+    level: 'N4',
+    pattern: '〜ても / 〜でも',
+    reading: 'temo / demo',
+    meaning: 'even if; even though',
+    structure: 'Verb/Adj て-form + も / Noun + でも',
+    note: 'Concessive conditional: the outcome stays the same regardless of A.',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,3}|[いきぎしちじにびみりえけげせてねべめれっんく])(?:て|で)も/g,
+    validate: validateTemo,
+    priority: 1,
+  },
+  {
+    id: 'n4-dake',
+    level: 'N4',
+    pattern: '〜だけ',
+    reading: 'dake',
+    meaning: 'only; just; as much as',
+    structure: 'Noun / Plain form + だけ(で/だ)',
+    note: 'Neutral "only" (can be used with positive verbs, unlike しか〜ない).',
+    regex: /だけ(?:だ|です|で|の|を|が|は|に)?/g,
+    validate: validateDake,
+    priority: 1,
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // JLPT N5
+  // ═══════════════════════════════════════════════════════════════
+  {
+    id: 'n5-koto-ga-dekiru',
+    level: 'N5',
+    pattern: '〜ことができる',
+    reading: 'koto ga dekiru',
+    meaning: 'can; be able to',
+    structure: 'Verb dictionary form + ことができる / できます',
+    note: 'Standard pattern for ability or possibility.',
+    regex: /ことが(?:できる|できた|できて|できない|できなかった|できます|できました|できません|出来る|出来た|出来ない)/g,
+    priority: 4,
+  },
+  {
+    id: 'n5-ta-koto-ga-aru',
+    level: 'N5',
+    pattern: '〜たことがある',
+    reading: 'ta koto ga aru',
+    meaning: 'have experienced doing before',
+    structure: 'Verb た-form + ことがある / ことがあります',
+    note: 'Talks about past life experiences ("have ever done X").',
+    regex: /(?:た|だ)ことが(?:ある|あります|ない|ありません|あった)/g,
+    priority: 4,
+  },
+  {
+    id: 'n5-te-wa-ikenai',
+    level: 'N5',
+    pattern: '〜てはいけない / 〜ちゃいけない',
+    reading: 'te wa ikenai / cha ikenai',
+    meaning: 'must not; may not',
+    structure: 'Verb て-form + はいけない (spoken: 〜ちゃいけない / 〜ちゃだめ)',
+    note: 'Expresses prohibition or a rule against doing something.',
+    regex: /(?:(?:て|で)は(?:いけない|いけません|だめ|ダメ|ならない)|(?:ちゃ|じゃ)(?:いけない|だめ|ダメ))/g,
+    priority: 4,
+  },
+  {
+    id: 'n5-temo-ii',
+    level: 'N5',
+    pattern: '〜てもいい',
+    reading: 'temo ii',
+    meaning: 'may; it’s okay to',
+    structure: 'Verb て-form + もいい(です/ですか)',
+    note: 'Used to ask for or grant permission.',
+    regex: /(?:て|で|くて)も(?:いい|よい|良い|かまわない|構わない|大丈夫)/g,
+    priority: 4,
+    excludes: ['n4-temo'],
+  },
+  {
+    id: 'n5-naide-kudasai',
+    level: 'N5',
+    pattern: '〜ないでください',
+    reading: 'naide kudasai',
+    meaning: 'please don’t',
+    structure: 'Verb ない-form + でください / でくれ',
+    note: 'Polite negative request asking someone not to do something.',
+    regex: /ないで(?:ください|下さい|くれ)/g,
+    priority: 4,
+    excludes: ['n5-te-kudasai'],
+  },
+  {
+    id: 'n5-te-kudasai',
+    level: 'N5',
+    pattern: '〜てください',
+    reading: 'te kudasai',
+    meaning: 'please do',
+    structure: 'Verb て-form + ください',
+    note: 'Standard polite request.',
+    regex: /(?:て|で)(?:ください|下さい)/g,
+    priority: 3,
+  },
+  {
+    id: 'n5-mada-teinai',
+    level: 'N5',
+    pattern: 'まだ〜ていない',
+    reading: 'mada … te inai',
+    meaning: 'haven’t ~ yet',
+    structure: 'まだ + Verb て-form + いない / いません',
+    note: 'Paired pattern meaning an expected action still hasn’t happened.',
+    regex: new RegExp(`(まだ|未だ)${GAP}((?:て|で)(?:い(?:ない|ません|なかった)|ない|ません))`, 'g'),
+    groups: [1, 2],
+    priority: 4,
+    excludes: ['n5-te-iru'],
+  },
+  {
+    id: 'n5-amari-nai',
+    level: 'N5',
+    pattern: 'あまり〜ない',
+    reading: 'amari … nai',
+    meaning: 'not very; not much',
+    structure: 'あまり / あんまり + Negative verb/adj',
+    note: 'Paired adverb: あまり with a negative softens negation to "not very / not much".',
+    regex: new RegExp(`(あん?まり)${GAP}(${NEG_END})`, 'g'),
+    groups: [1, 2],
+    priority: 4,
+  },
+  {
+    id: 'n5-zenzen-nai',
+    level: 'N5',
+    pattern: '全然〜ない',
+    reading: 'zenzen … nai',
+    meaning: 'not at all',
+    structure: '全然 / ぜんぜん + Negative verb/adj',
+    note: 'Paired adverb emphasizing complete negation ("not at all").',
+    regex: new RegExp(`(全然|ぜんぜん)${GAP}(${NEG_END})`, 'g'),
+    groups: [1, 2],
+    priority: 4,
+  },
+  {
+    id: 'n5-yori-houga',
+    level: 'N5',
+    pattern: '〜より〜ほうが',
+    reading: 'yori … hou ga',
+    meaning: 'more ~ than ~',
+    structure: 'A + より + B + のほうが',
+    note: 'Standard comparison structure: B has more of the quality than A.',
+    regex: new RegExp(`(より)${SHORT_GAP}((?:ほう|方)が)`, 'g'),
+    groups: [1, 2],
+    priority: 4,
+  },
+  {
+    id: 'n5-tari-tari',
+    level: 'N5',
+    pattern: '〜たり〜たり',
+    reading: 'tari … tari',
+    meaning: 'do things like A and B',
+    structure: 'Verb たり + Verb たり + する',
+    note: 'Lists representative examples of actions without implying they are the only ones.',
+    regex: new RegExp(`((?:た|だ)り)${SHORT_GAP}((?:た|だ)り(?:する|した|して|します|しました)?)`, 'g'),
+    groups: [1, 2],
+    priority: 4,
+  },
+  {
+    id: 'n5-hou-ga-ii',
+    level: 'N5',
+    pattern: '〜ほうがいい',
+    reading: 'hou ga ii',
+    meaning: 'had better; should',
+    structure: 'Verb た-form / ない-form + ほうがいい',
+    note: 'Gives practical advice or a strong recommendation.',
+    regex: /(?:た|だ|ない)(?:ほう|方)が(?:いい|よい|良い)/g,
+    priority: 4,
+  },
+  {
+    id: 'n5-tsumori',
+    level: 'N5',
+    pattern: '〜つもり',
+    reading: 'tsumori',
+    meaning: 'intend to; plan to',
+    structure: 'Verb dict / ない-form + つもりだ',
+    note: 'Expresses the speaker’s own plan or intention.',
+    regex: /(?:る|う|く|ぐ|す|つ|ぬ|ぶ|む|ない|た|だ)つもり(?:だ|です|だった|でした|はない|もない)?/g,
+    priority: 3,
+  },
+  {
+    id: 'n5-nagara',
+    level: 'N5',
+    pattern: '〜ながら',
+    reading: 'nagara',
+    meaning: 'while doing',
+    structure: 'Verb ます-stem + ながら',
+    note: 'Doing two actions simultaneously (the second action is the main one).',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,3}|[いきぎしちじにびみりえけげせてねべめれ])ながら/g,
+    priority: 3,
+  },
+  {
+    id: 'n5-sugiru',
+    level: 'N5',
+    pattern: '〜すぎる',
+    reading: 'sugiru',
+    meaning: 'too much; excessively',
+    structure: 'Verb ます-stem / Adj stem + すぎる / 過ぎる',
+    note: 'Indicates an action or quality goes past a reasonable limit.',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,2}|[いきぎしちじにびみりえけげせてねべめれあかさたなはまやらわ])(?:すぎ|過ぎ)(?:る|た|て|ます|ました|ない)/g,
+    priority: 3,
+  },
+  {
+    id: 'n5-to-omou',
+    level: 'N5',
+    pattern: '〜と思う',
+    reading: 'to omou',
+    meaning: 'I think that',
+    structure: 'Plain clause + と思う / と思います / と思っている',
+    note: 'Quotes a thought or personal opinion using the particle と.',
+    regex: /と(?:思(?:う|います|った|いました|って(?:いる|る)?|わない)|おも(?:う|います|った|いました|って(?:いる|る)?))/g,
+    priority: 3,
+    excludes: ['n5-te-iru'],
+  },
+  {
+    id: 'n5-te-kara',
+    level: 'N5',
+    pattern: '〜てから',
+    reading: 'te kara',
+    meaning: 'after doing',
+    structure: 'Verb て-form + から',
+    note: 'Shows clear sequential order: first A finishes, then B.',
+    regex: /(?:[\u4e00-\u9fff][\u3041-\u3096]{0,3}|[いきぎしちじにびみりえけげせてねべめれっん])(?:て|で)から/g,
+    priority: 3,
+  },
+  {
+    id: 'n5-mae-ni',
+    level: 'N5',
+    pattern: '〜前に',
+    reading: 'mae ni',
+    meaning: 'before doing',
+    structure: 'Verb dict / Noun の + 前に / まえに',
+    note: 'Note: always uses the dictionary (non-past) form even for past events.',
+    regex: /[るうくぐすつぬぶむの](前に|まえに)/g,
+    captureGroup: 1,
+    priority: 3,
+  },
+  {
+    id: 'n5-ato-de',
+    level: 'N5',
+    pattern: '〜後で',
+    reading: 'ato de',
+    meaning: 'after doing',
+    structure: 'Verb た-form / Noun の + 後で / あとで',
+    note: 'Always uses the た-form (or Noun + の) before 後で.',
+    regex: /[ただの](後で|あとで)/g,
+    captureGroup: 1,
+    priority: 3,
+  },
+  {
+    id: 'n5-ga-hoshii',
+    level: 'N5',
+    pattern: '〜が欲しい',
+    reading: 'ga hoshii',
+    meaning: 'want (something)',
+    structure: 'Noun + が欲しい / がほしい',
+    note: 'Used for wanting a thing/noun (for wanting to do an action, use 〜たい).',
+    regex: /が(?:欲しい|ほしい|欲しかった|ほしかった|欲しくない|ほしくない)/g,
+    priority: 3,
+  },
+  {
+    id: 'n5-tai',
+    level: 'N5',
+    pattern: '〜たい',
+    reading: 'tai',
+    meaning: 'want to (do)',
+    structure: 'Verb ます-stem + たい / たくない / たかった',
+    note: 'Conjugates like an い-adjective to express the speaker’s desire to do an action.',
+    regex: /([\u4e00-\u9fff][\u3041-\u3096]{0,2}|[いきぎしちじにびみりえけげせてねべめれ])(?:たい|たかった|たくない|たくなかった|たくて)/g,
+    validate: validateTai,
+    priority: 2,
+  },
+  {
+    id: 'n5-te-iru',
+    level: 'N5',
+    pattern: '〜ている / 〜てる',
+    reading: 'te iru / teru',
+    meaning: 'is ~ing; ongoing action or resulting state',
+    structure: 'Verb て-form + いる / います (casual: 〜てる)',
+    note: 'Can mean an action in progress ("is eating") or a lasting state ("is married / knows").',
+    regex: /[\u4e00-\u9fffいきぎしちじにびみりえけげせてねべめれっ](て(?:い(?:る|ました|ます|た|ませんでした|ません|なかった|ない|て|れば)|る|た|ない|ました|ませんでした|ません|ます))|[んい](で(?:い(?:る|ました|ます|た|ませんでした|ません|なかった|ない|て|れば)|る|た|ない|ました|ませんでした|ません|ます))/g,
+    captureGroup: "first",
+    priority: 2,
+  },
+  {
+    id: 'n5-mashou',
+    level: 'N5',
+    pattern: '〜ましょう / 〜ませんか',
+    reading: 'mashou / masen ka',
+    meaning: 'let’s ~ / won’t you ~?',
+    structure: 'Verb ます-stem + ましょう(か) / ませんか',
+    note: 'Polite invitation or offer (ませんか is gentler; ましょう is direct "let’s").',
+    regex: /(?:ましょうか?|ませんか)/g,
+    priority: 2,
+  },
+  {
+    id: 'n5-node',
+    level: 'N5',
+    pattern: '〜ので',
+    reading: 'node',
+    meaning: 'because; since (soft/objective)',
+    structure: 'Plain form / な-adj な / Noun な + ので',
+    note: 'Softer, more polite way to give a reason than から.',
+    regex: /(?:[るただいな]|ない|ます|ました|ません)(ので)/g,
+    captureGroup: 1,
+    priority: 2,
+  },
+  {
+    id: 'n5-kedo',
+    level: 'N5',
+    pattern: '〜けど / 〜けれど',
+    reading: 'kedo / keredo',
+    meaning: 'but; although (soft connector)',
+    structure: 'Plain/Polite clause + けど / けれど(も)',
+    note: 'Connects contrasting clauses or gently introduces background context.',
+    regex: /(?:[るただい]|ない|ます|ました|ません|です|でした)(けれども|けれど|けども|けど)/g,
+    captureGroup: 1,
+    priority: 1,
+  },
+  {
+    id: 'n5-ni-naru',
+    level: 'N5',
+    pattern: '〜になる',
+    reading: 'ni naru',
+    meaning: 'become',
+    structure: 'Noun / な-adj + になる',
+    note: 'Describes a natural change of state or status.',
+    regex: /[\u4e00-\u9fff\u30a1-\u30ff](にな(?:る|った|って|ります|りました|らない))/g,
+    captureGroup: 1,
+    priority: 1,
+  },
+  {
+    id: 'n5-ni-suru',
+    level: 'N5',
+    pattern: '〜にする',
+    reading: 'ni suru',
+    meaning: 'decide on; choose',
+    structure: 'Noun + にする / にした',
+    note: 'States a choice or selection (e.g. ordering food or picking an option).',
+    regex: /[\u4e00-\u9fff\u30a1-\u30ff](に(?:する|します|した|しました|しよう))/g,
+    captureGroup: 1,
+    priority: 1,
+  },
+];
+
+const PATTERNS = Object.freeze(RAW_PATTERNS.map(entry => Object.freeze({
+  id: entry.id,
+  level: entry.level,
+  pattern: entry.pattern,
+  reading: entry.reading,
+  meaning: entry.meaning,
+  structure: entry.structure,
+  note: entry.note,
+})));
+
+function spansOverlap(a, b) {
+  for (const sa of a) {
+    for (const sb of b) {
+      if (sa.start < sb.end && sb.start < sa.end) return true;
+    }
+  }
+  return false;
+}
+
+function isSubsumedBy(candidateSpans, keeperSpans) {
+  return candidateSpans.every(cs =>
+    keeperSpans.some(ks => ks.start <= cs.start && cs.end <= ks.end)
+  );
+}
+
+function formatMatchedSnippet(spans) {
+  if (!spans.length) return '';
+  if (spans.length === 1) return spans[0].text;
+  let out = spans[0].text;
+  for (let i = 1; i < spans.length; i++) {
+    out += spans[i].start === spans[i - 1].end ? spans[i].text : ' … ' + spans[i].text;
+  }
+  return out;
+}
+
+function detectGrammarPatterns(sentence) {
+  if (typeof sentence !== 'string') return [];
+  const text = sentence.trim().slice(0, 1000);
+  if (!text || !HAS_JAPANESE.test(text)) return [];
+
+  const maxResults = 8;
+
+  const candidates = [];
+  for (const entry of RAW_PATTERNS) {
+    const found = entry.match ? entry.match(text) : matchWithRegex(text, entry);
+    if (!found || !Array.isArray(found.spans) || !found.spans.length) continue;
+    const coverage = found.spans.reduce((sum, s) => sum + (s.end - s.start), 0);
+    const specificity = (entry.priority || 1) * 100 + coverage * 10 + (LEVEL_RANK[entry.level] || 0);
+    candidates.push({
+      id: entry.id,
+      level: entry.level,
+      pattern: entry.pattern,
+      reading: entry.reading,
+      meaning: entry.meaning,
+      structure: entry.structure,
+      note: entry.note,
+      start: found.start,
+      end: found.end,
+      spans: found.spans,
+      matched: formatMatchedSnippet(found.spans),
+      excludes: entry.excludes || null,
+      coverage,
+      specificity,
+    });
+  }
+
+  // Keep highest-specificity matches first, suppressing subsumed / excluded overlaps.
+  candidates.sort((a, b) => b.specificity - a.specificity || a.start - b.start);
+  const kept = [];
+  const keptIds = new Set();
+  for (const cand of candidates) {
+    if (keptIds.has(cand.id)) continue;
+    const blocked = kept.some(k => {
+      if (k.excludes && k.excludes.includes(cand.id) && spansOverlap(k.spans, cand.spans)) return true;
+      // Only contiguous patterns subsume inner fragments; split patterns (like 〜しか〜ない)
+      // pair with a host predicate that may independently carry aspect such as 〜ている.
+      if (k.spans.length === 1 && isSubsumedBy(cand.spans, k.spans)) return true;
+      return false;
+    });
+    if (blocked) continue;
+    keptIds.add(cand.id);
+    kept.push(cand);
+  }
+
+  // Order left-to-right as the patterns appear in the sentence.
+  kept.sort((a, b) => a.start - b.start || b.coverage - a.coverage);
+
+  return kept.slice(0, maxResults).map(({ excludes, coverage, specificity, ...item }) => item);
+}
+
+export { LEVELS, PATTERNS, detectGrammarPatterns };

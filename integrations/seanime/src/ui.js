@@ -1,13 +1,14 @@
 import { decodeSubtitle } from './core/encoding.js';
 import { renderAnswer } from './answer.js';
-import { sentenceParts } from './sentence-reading.js';
+import { sentenceParts, grammarSentenceSlices } from './sentence-reading.js';
 import { captionOpacity, opacityLabel } from './caption-appearance.js';
 
 const $ = id => document.getElementById(id);
 let sequence = 0, state = null, signature = '', selectedKey = '', setupOpen = false, offsetDirty = false;
 const pending = new Map();
 const captionMeaningNodes = new Map();
-let sentenceKey = '', fileReadVersion = 0;
+let sentenceKey = '', grammarKey = '', fileReadVersion = 0;
+let sentenceWordNodes = [], activeGrammarSpans = null;
 let opacityEditing = false, opacitySequence = 0;
 function renderOpacity(value) {
   const label = opacityLabel(value);
@@ -94,6 +95,97 @@ function captionMeanings(view) {
     node.hidden = view.preferences.showTranslation !== true;
   }
 }
+function applyGrammarHighlight(spans) {
+  const active = Array.isArray(spans) && spans.length ? spans : null;
+  for (const item of sentenceWordNodes) {
+    const hit = !!active && active.some(span => item.start < span.end && span.start < item.end);
+    item.el.setAttribute('data-grammar-match', hit ? 'true' : 'false');
+  }
+}
+function renderGrammar(view) {
+  const section = $('grammar-section'), list = $('grammar-list'), count = $('grammar-count');
+  if (!section || !list) return;
+  const patterns = view.selected && Array.isArray(view.grammarPatterns) ? view.grammarPatterns : [];
+  const key = JSON.stringify([view.selected?.sentence || '', patterns]);
+  if (key === grammarKey) return;
+  grammarKey = key;
+  activeGrammarSpans = null;
+  applyGrammarHighlight(null);
+  list.replaceChildren();
+  if (!patterns.length) {
+    section.hidden = true;
+    if (count) count.textContent = '';
+    return;
+  }
+  section.hidden = false;
+  if (count) count.textContent = patterns.length === 1 ? '1 pattern' : `${patterns.length} patterns`;
+  const cards = [];
+  const handleToggle = entry => {
+    if (entry.el.open) {
+      for (const other of cards) if (other !== entry) other.el.open = false;
+      activeGrammarSpans = entry.spans;
+      applyGrammarHighlight(activeGrammarSpans);
+    } else if (activeGrammarSpans === entry.spans) {
+      activeGrammarSpans = null;
+      applyGrammarHighlight(null);
+    }
+  };
+  for (const match of patterns) {
+    const card = document.createElement('details');
+    card.className = 'grammar-card';
+    card.setAttribute('data-level', match.level);
+    card.setAttribute('data-pattern-id', match.id);
+    const summary = document.createElement('summary');
+    summary.className = 'grammar-summary';
+    const top = document.createElement('span');
+    top.className = 'grammar-top';
+    const badge = document.createElement('span');
+    badge.className = 'jlpt-badge';
+    badge.setAttribute('data-level', match.level);
+    badge.textContent = match.level;
+    const pat = document.createElement('strong');
+    pat.className = 'grammar-pattern'; pat.lang = 'ja'; pat.textContent = match.pattern;
+    const reading = document.createElement('span');
+    reading.className = 'grammar-reading'; reading.lang = 'ja-Latn'; reading.textContent = match.reading;
+    top.append(badge); top.append(pat); top.append(reading);
+    const meaning = document.createElement('span');
+    meaning.className = 'grammar-meaning'; meaning.textContent = match.meaning;
+    summary.append(top); summary.append(meaning); card.append(summary);
+    const body = document.createElement('div'); body.className = 'grammar-body';
+    if (match.matched) {
+      const row = document.createElement('div'); row.className = 'grammar-match';
+      const label = document.createElement('span'); label.textContent = 'In sentence: ';
+      const mark = document.createElement('mark'); mark.lang = 'ja'; mark.textContent = match.matched;
+      row.append(label); row.append(mark); body.append(row);
+    }
+    if (match.structure) {
+      const row = document.createElement('div'); row.className = 'grammar-structure';
+      const label = document.createElement('strong'); label.textContent = 'Form: ';
+      const val = document.createElement('span'); val.textContent = match.structure;
+      row.append(label); row.append(val); body.append(row);
+    }
+    if (match.note) {
+      const note = document.createElement('p'); note.className = 'grammar-note'; note.textContent = match.note;
+      body.append(note);
+    }
+    const askBtn = document.createElement('button');
+    askBtn.type = 'button'; askBtn.className = 'grammar-ask'; askBtn.textContent = 'Ask about this pattern';
+    askBtn.onclick = async () => {
+      askBtn.disabled = true; notice('Asking your configured AI companion…');
+      const question = `Explain the ${match.level} grammar pattern "${match.pattern}" (${match.matched || match.pattern}) in this sentence and give one short example.`;
+      const result = await run('chat', { question });
+      askBtn.disabled = false;
+      if (result) notice('Answer ready.');
+    };
+    body.append(askBtn); card.append(body);
+    const entry = { el: card, spans: match.spans || [] };
+    cards.push(entry);
+    card.addEventListener('mouseenter', () => applyGrammarHighlight(entry.spans));
+    card.addEventListener('mouseleave', () => applyGrammarHighlight(activeGrammarSpans));
+    card.addEventListener('toggle', () => handleToggle(entry));
+    list.append(card);
+  }
+}
 function render(view) {
   if (playbackKey(state) !== playbackKey(view)) fileReadVersion++;
   state = view; caption(view);
@@ -118,11 +210,13 @@ function render(view) {
     $('base').textContent = view.baseForm && view.baseForm !== view.selected.surface ? `Dictionary form: ${view.baseForm}` : '';
     $('meaning').textContent = view.meaning || (view.busy ? 'Looking up this word…' : 'No local definition yet.');
     const parts = sentenceParts(view.selected.sentence, view.sentenceTokens);
-    const key = JSON.stringify([view.selected.sentence, parts]);
+    const slices = parts ? null : grammarSentenceSlices(view.selected.sentence, view.grammarPatterns);
+    const key = JSON.stringify([view.selected.sentence, parts, slices]);
     if (key !== sentenceKey) {
       sentenceKey = key;
+      sentenceWordNodes = [];
       $('sentence').replaceChildren();
-      $('sentence').textContent = parts ? '' : view.selected.sentence;
+      $('sentence').textContent = parts || slices ? '' : view.selected.sentence;
       $('sentence').setAttribute('data-reading', parts ? 'aligned' : 'plain');
       if (parts) for (const part of parts) {
         const group = document.createElement('span'); group.className = 'sentence-word';
@@ -137,10 +231,24 @@ function render(view) {
           gloss.textContent = part.gloss;
           if (part.meaning) gloss.setAttribute('title', part.meaning);
           group.append(gloss); $('sentence').append(group);
-        } else $('sentence').append(word);
+          sentenceWordNodes.push({ el: group, start: part.start, end: part.end });
+        } else {
+          $('sentence').append(word);
+          sentenceWordNodes.push({ el: word, start: part.start, end: part.end });
+        }
+      } else if (slices) for (const slice of slices) {
+        const span = document.createElement('span');
+        span.className = 'grammar-slice';
+        span.textContent = slice.text;
+        $('sentence').append(span);
+        sentenceWordNodes.push({ el: span, start: slice.start, end: slice.end });
       }
+      applyGrammarHighlight(activeGrammarSpans);
     }
+    renderGrammar(view);
     $('context').textContent = `${view.selected.title} · Episode ${view.selected.episode} · ${timestamp(view.selected.videoTimeMs)}`;
+  } else {
+    renderGrammar(view);
   }
   $('sentence-romaji').textContent = view.sentenceRomaji || '';
   $('sentence-romaji').hidden = !view.sentenceRomaji || !!sentenceParts(view.selected?.sentence, view.sentenceTokens);
