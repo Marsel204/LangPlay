@@ -1,7 +1,7 @@
 import styles from './player-surface.css';
 import answerStyles from './answer.css';
 import { parseAnswer } from './answer.js';
-import { sentenceParts } from './sentence-reading.js';
+import { sentenceParts, grammarSentenceSlices } from './sentence-reading.js';
 import { captionOpacity, opacityLabel } from './caption-appearance.js';
 
 const clock = ms => { const s = Math.floor(Math.max(0, ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -24,8 +24,8 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
   let generation = 0, captionKey = '', wordKey = '', renderKey = '', width = 1280;
   let listeners = [], tokenListeners = [], savedFiles = [], listing = false, updateQueued = false;
   let layoutOriginal = null, drawerInPlayer = false, insetKey = '', replacedSource = '';
-  let sentenceKey = '', controlAnchor = '', controlLabelKey = '';
-  let controlListeners = [];
+  let sentenceKey = '', grammarKey = '', controlAnchor = '', controlLabelKey = '';
+  let controlListeners = [], grammarListeners = [], sentenceWordNodes = [], activeGrammarSpans = null;
   const answerKeys = new Map(), answerListeners = new Map();
   let captionMeanings = new Map();
   let opacityKey = '', opacityPreview = null, opacityEditing = false, opacitySequence = 0;
@@ -283,6 +283,13 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     }
     fields['sentence-translation'].setAttribute('aria-live','polite');
     fields.translationRetry = await button(sentence,'translation-retry','Retry translation',() => action('translate'));
+    fields.grammarSection = await make('section', 'grammar-section', fields.study);
+    fields.grammarSection.setAttribute('aria-label', 'JLPT grammar patterns');
+    show(fields.grammarSection, false);
+    const grammarHeader = await make('div', 'grammar-header', fields.grammarSection);
+    await make('h3', 'grammar-heading', grammarHeader, 'Grammar patterns');
+    fields.grammarCount = await make('span', 'grammar-count', grammarHeader);
+    fields.grammarList = await make('div', 'grammar-list', fields.grammarSection);
     fields.context = await make('p','context',fields.study);
     fields.word.setAttribute('lang', 'ja'); fields.reading.setAttribute('lang', 'ja'); fields.sentence.setAttribute('lang', 'ja');
     const actions = await make('div', 'actions', fields.study);
@@ -414,32 +421,150 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
     const position = Number(await read(video.getProperty('currentTime'))) * 1000;
     return Number.isFinite(position) && Math.abs(position - view.positionMs) <= 5000;
   }
+  function applyGrammarHighlight(spans) {
+    const active = Array.isArray(spans) && spans.length ? spans : null;
+    for (const item of sentenceWordNodes) {
+      const hit = !!active && active.some(span => item.start < span.end && span.start < item.end);
+      if (hit) item.el.setAttribute('data-grammar-match', 'true');
+      else item.el.removeAttribute('data-grammar-match');
+    }
+  }
   async function renderSentence() {
     const sentence = view.selected?.sentence || '';
     const parts = sentenceParts(sentence, view.sentenceTokens);
-    const key = JSON.stringify([sentence, parts]);
+    const slices = parts ? null : grammarSentenceSlices(sentence, view.grammarPatterns);
+    const key = JSON.stringify([sentence, parts, slices]);
     if (key !== sentenceKey) {
+      const expected = generation;
       for (const child of await read(fields.sentence.getChildren())) child.remove();
-      fields.sentence.setText(parts ? '' : sentence);
+      if (expected !== generation || !mounted) return;
+      sentenceWordNodes = [];
+      fields.sentence.setText(parts || slices ? '' : sentence);
       fields.sentence.setAttribute('data-reading', parts ? 'aligned' : 'plain');
       if (parts) {
         const words = await Promise.all(parts.map(async part => {
           const word = await make(part.romaji ? 'ruby' : 'span', '', null, part.surface);
           if (part.romaji) await make('rt', '', word, part.romaji);
-          if (!part.gloss) return word;
+          if (!part.gloss) return { el: word, start: part.start, end: part.end };
           const group = await make('span', 'sentence-word');
           group.append(word);
           const gloss = await make('span', 'word-gloss', group, part.gloss);
           gloss.setAttribute('lang', 'en');
           if (part.meaning) gloss.setAttribute('title', part.meaning);
-          return group;
+          return { el: group, start: part.start, end: part.end };
         }));
-        for (const word of words) fields.sentence.append(word);
+        if (expected !== generation || !mounted) return;
+        for (const item of words) {
+          fields.sentence.append(item.el);
+          sentenceWordNodes.push(item);
+        }
+        applyGrammarHighlight(activeGrammarSpans);
+      } else if (slices) {
+        const spans = await Promise.all(slices.map(async slice => ({
+          el: await make('span', 'grammar-slice', null, slice.text),
+          start: slice.start, end: slice.end,
+        })));
+        if (expected !== generation || !mounted) return;
+        for (const item of spans) {
+          fields.sentence.append(item.el);
+          sentenceWordNodes.push(item);
+        }
+        applyGrammarHighlight(activeGrammarSpans);
       }
       sentenceKey = key;
     }
     text('sentence-romaji', view.sentenceRomaji);
     show(fields['sentence-romaji'], !parts && !!view.sentenceRomaji);
+  }
+  async function renderGrammar() {
+    const patterns = Array.isArray(view.grammarPatterns) ? view.grammarPatterns : [];
+    const key = JSON.stringify([view.selected?.sentence || '', patterns]);
+    if (key === grammarKey) return;
+    const expected = generation;
+    const cards = [];
+    const created = [];
+    const nextListeners = [];
+    let committed = false;
+    try {
+      for (const match of patterns) {
+        const card = await make('section', 'grammar-card');
+        card.setAttribute('data-level', match.level);
+        card.setAttribute('data-pattern-id', match.id);
+        const summary = await make('div', 'grammar-summary', card);
+        const top = await make('div', 'grammar-top', summary);
+        const badge = await make('span', 'jlpt-badge', top, match.level);
+        badge.setAttribute('data-level', match.level);
+        // Native input buttons avoid Seanime's Enter/Space transport capture.
+        const toggle = await make('input', 'grammar-toggle', top);
+        toggle.setAttribute('type', 'button');
+        toggle.setAttribute('value', `${match.pattern} · ${match.reading}`);
+        toggle.setAttribute('aria-expanded', 'false');
+        await make('span', 'grammar-meaning', summary, match.meaning);
+        const body = await make('div', 'grammar-body', card);
+        show(body, false);
+        if (match.matched) {
+          const matchRow = await make('div', 'grammar-match', body);
+          await make('span', '', matchRow, 'In sentence: ');
+          const mark = await make('mark', '', matchRow, match.matched);
+          mark.setAttribute('lang', 'ja');
+        }
+        if (match.structure) {
+          const structRow = await make('div', 'grammar-structure', body);
+          await make('strong', '', structRow, 'Form: ');
+          await make('span', '', structRow, match.structure);
+        }
+        if (match.note) await make('p', 'grammar-note', body, match.note);
+        const askBtn = await button(body, 'grammar-ask', 'Ask about this pattern', async () => {
+          if (await read(fields.ask.getProperty('disabled'))) return;
+          fields.ask.setProperty('disabled', true);
+          askBtn.setProperty('disabled', true);
+          notice('Thinking…');
+          try {
+            const question = `Explain the ${match.level} grammar pattern "${match.pattern}" (${match.matched || match.pattern}) in this sentence and give one short example.`;
+            const value = await action('chat', { question });
+            if (value) notice('Answer ready.');
+          } finally {
+            fields.ask.setProperty('disabled', false);
+            askBtn.setProperty('disabled', false);
+          }
+        }, nextListeners);
+        const entry = { open: false, spans: match.spans || [], card, body, toggle };
+        cards.push(entry);
+        const toggleCard = () => {
+          const nextOpen = !entry.open;
+          for (const other of cards) {
+            const isOpen = other === entry && nextOpen;
+            other.open = isOpen;
+            show(other.body, isOpen);
+            other.toggle.setAttribute('aria-expanded', String(isOpen));
+            if (isOpen) other.card.setAttribute('data-open', 'true');
+            else other.card.removeAttribute('data-open');
+          }
+          activeGrammarSpans = nextOpen ? entry.spans : null;
+          applyGrammarHighlight(activeGrammarSpans);
+        };
+        const offClick = toggle.addEventListener('click', toggleCard);
+        const offEnter = card.addEventListener('mouseenter', () => applyGrammarHighlight(entry.spans));
+        const offLeave = card.addEventListener('mouseleave', () => applyGrammarHighlight(activeGrammarSpans));
+        for (const off of [offClick, offEnter, offLeave]) if (typeof off === 'function') nextListeners.push(off);
+        created.push(card);
+      }
+      const existing = await read(fields.grammarList.getChildren());
+      if (expected !== generation || !mounted) return;
+      // Commit atomically so an awaited DOM failure leaves the previous cards and listeners intact.
+      for (const off of grammarListeners) if (typeof off === 'function') off();
+      grammarListeners = nextListeners;
+      committed = true;
+      activeGrammarSpans = null;
+      applyGrammarHighlight(null);
+      for (const child of existing) child.remove();
+      for (const card of created) fields.grammarList.append(card);
+      show(fields.grammarSection, created.length > 0);
+      fields.grammarCount.setText(created.length ? (created.length === 1 ? '1 pattern' : `${created.length} patterns`) : '');
+      grammarKey = key;
+    } finally {
+      if (!committed) for (const off of nextListeners) if (typeof off === 'function') off();
+    }
   }
   async function renderAnswer(name, value) {
     const source = String(value || '');
@@ -483,7 +608,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       catch (error) { await reset(); await sweep(true); throw error; }
     }
     if (!mounted) return;
-    const key = JSON.stringify([view.playback.title, view.playback.episode, view.drawerOpen, view.selected, view.reading, view.romaji, view.meaning, view.baseForm, view.explanation, view.reply, view.error, view.busy, view.source, view.preferences, view.autoSubtitles, view.captionTranslations, view.sentenceRomaji, view.sentenceTranslation, view.translationBusy, view.translationError, view.sentenceTokens?.map(token => [token.surface, token.romaji, token.pos, token.meaning, token.meaningBusy])]);
+    const key = JSON.stringify([view.playback.title, view.playback.episode, view.drawerOpen, view.selected, view.reading, view.romaji, view.meaning, view.baseForm, view.explanation, view.reply, view.error, view.busy, view.source, view.preferences, view.autoSubtitles, view.captionTranslations, view.sentenceRomaji, view.sentenceTranslation, view.translationBusy, view.translationError, view.grammarPatterns, view.sentenceTokens?.map(token => [token.surface, token.romaji, token.pos, token.meaning, token.meaningBusy])]);
     if (key !== renderKey) {
       const nextWord = identity(view);
       if (nextWord !== wordKey) { wordKey = nextWord; fields.question.setProperty('value', ''); notice(''); }
@@ -491,6 +616,7 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
       text('base', view.baseForm && view.baseForm !== view.selected?.surface ? `Dictionary form: ${view.baseForm}` : '');
       text('meaning', view.meaning || (view.busy ? 'Looking up this word…' : 'No local definition yet.'));
       await renderSentence();
+      await renderGrammar();
       text('sentence-translation',view.sentenceTranslation || (view.translationBusy ? 'Translating…' : view.translationError));
       show(fields['sentence-translation'],!!(view.sentenceTranslation || view.translationBusy || view.translationError));
       show(fields.translationRetry,!!view.translationError && !view.translationBusy);
@@ -557,15 +683,16 @@ export function createPlayerSurface({ ctx, act, openPanel, validateVideo }) {
   }
   async function reset() {
     generation++;
-    for (const off of [...listeners, ...tokenListeners, ...controlListeners]) if (typeof off === 'function') off();
-    listeners = []; tokenListeners = []; controlListeners = []; controlAnchor = '';
+    for (const off of [...listeners, ...tokenListeners, ...controlListeners, ...grammarListeners]) if (typeof off === 'function') off();
+    listeners = []; tokenListeners = []; controlListeners = []; grammarListeners = []; controlAnchor = '';
+    sentenceWordNodes = []; activeGrammarSpans = null;
     if (player) player.removeAttribute('data-langplay-caption-active');
     await restoreLayout();
     for (const node of [controls, captions, drawer, css]) if (node) node.remove();
     player = parent = controls = captions = drawer = css = null;
     for (const handlers of answerListeners.values()) for (const off of handlers) off();
     answerListeners.clear(); answerKeys.clear();
-    mounted = false; captionKey = renderKey = wordKey = insetKey = replacedSource = sentenceKey = ''; setupOpen = false; drawerInPlayer = false;
+    mounted = false; captionKey = renderKey = wordKey = insetKey = replacedSource = sentenceKey = grammarKey = ''; setupOpen = false; drawerInPlayer = false;
     captionMeanings.clear();
     opacityKey = ''; opacityPreview = null; opacityEditing = false; opacitySequence++;
   }

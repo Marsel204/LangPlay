@@ -1,6 +1,7 @@
 import { createLearningSession } from './core/session.js';
 import { parseSubtitles } from './core/subtitles.js';
 import { isSentenceWord } from './sentence-reading.js';
+import { detectGrammarPatterns } from './grammar-patterns.js';
 
 function romanizeSentence(tokens) {
   return tokens.map(token => {
@@ -17,11 +18,11 @@ export function createLearningController({ host, services, now } = {}) {
   let playback = null, source = null, drawerOpen = false, reading = '', romaji = '', meaning = '', error = '';
   let baseForm = '', explanation = '', reply = '', busy = false;
   let sentenceRomaji = '', sentenceTranslation = '', translationError = '', translationBusy = false;
-  let sentenceTokens = [];
+  let sentenceTokens = [], grammarPatterns = [];
   const reset = () => {
     drawerOpen = false; reading = romaji = meaning = baseForm = error = explanation = reply = '';
     sentenceRomaji = sentenceTranslation = translationError = ''; busy = translationBusy = false;
-    sentenceTokens = [];
+    sentenceTokens = []; grammarPatterns = [];
   };
   const current = selection => session.isCurrent(selection) && session.selected() === selection;
   async function refresh(options = {}) {
@@ -50,6 +51,7 @@ export function createLearningController({ host, services, now } = {}) {
   async function select(span) {
     const selected = session.select({ ...span, title: playback.title || '', episode: String(playback.episode || '') });
     reset(); drawerOpen = true; busy = true;
+    grammarPatterns = detectGrammarPatterns(selected.sentence);
     try {
       await host.pause(selected);
       if (!current(selected)) return view();
@@ -118,7 +120,7 @@ export function createLearningController({ host, services, now } = {}) {
   }
   function view() {
     return { activeCues: session.active(), drawerOpen, selected: session.selected(), reading, romaji, baseForm, meaning,
-      sentenceRomaji, sentenceTokens, sentenceTranslation, translationError, translationBusy,
+      sentenceRomaji, sentenceTokens, sentenceTranslation, translationError, translationBusy, grammarPatterns,
       error, explanation, reply, busy, source, positionMs: session.position(),
       playback: playback ? { clientId: playback.clientId, playbackId: playback.playbackId, videoIdentity: playback.videoIdentity,
         title: playback.title, episode: playback.episode, paused: playback.paused } : null };
